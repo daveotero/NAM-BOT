@@ -61,8 +61,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: powershell
         run: |
-          $PSNativeCommandUseErrorActionPreference = $false
-          gh release view $env:RELEASE_TAG --json tagName 1>$null 2>$null
+          cmd /c "gh release view %RELEASE_TAG% --json tagName 1>nul 2>nul"
           if ($LASTEXITCODE -ne 0) {
             gh release create $env:RELEASE_TAG --generate-notes
           }
