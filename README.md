@@ -61,17 +61,6 @@ For a public repository, the typical user-friendly path is:
 2. Download the latest Windows installer.
 3. Run the installer and launch NAM-BOT.
 
-This repo also includes GitHub Actions for public distribution:
-
-- `CI` runs on every push and pull request to make sure `npm run build` still passes
-- `Release` packages the Windows installer and uploads release assets only when a Git tag like `v0.3.1` is pushed, or when the workflow is run manually from GitHub Actions
-
-The practical release flow is:
-
-1. Push the candidate commit to `main`.
-2. Smoke-test that exact commit locally if needed.
-3. Only then push the version tag that should become the public installer release.
-
 ## Setup Overview
 
 When NAM-BOT starts, it looks for Conda on your system `PATH` and assumes the default Conda environment name `nam`.
@@ -176,17 +165,6 @@ Presets library:
 - [Jobs System](./docs/jobs-system.md)
 - [Presets System](./docs/presets-system.md)
 - [Desktop Shell](./docs/desktop-shell.md)
-- [Agent Guidance](./AGENTS.md)
-
-## Contributing
-
-Contributions are welcome. Start with [CONTRIBUTING.md](./CONTRIBUTING.md) for setup steps, workflow expectations, and the kinds of changes that are most helpful right now.
-
-Please also read [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md) before participating.
-
-## Security
-
-If you find a security issue, please see [SECURITY.md](./SECURITY.md) before opening a public issue.
 
 ## License
 
