@@ -1,4 +1,4 @@
-# AGENTS.md - NAM-BOT Development Guide (v0.3.3)
+# AGENTS.md - NAM-BOT Development Guide (v0.3.4)
 
 This document provides guidance for AI agents working on the NAM-BOT project.
 
@@ -61,8 +61,8 @@ npm run package
 - Preferred release trigger example:
 
 ```bash
-git tag v0.3.3
-git push origin v0.3.3
+git tag v0.3.4
+git push origin v0.3.4
 ```
 
 **Build Output:**

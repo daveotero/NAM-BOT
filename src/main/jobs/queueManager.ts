@@ -114,6 +114,20 @@ function sanitizeFilenameStem(jobName: string, jobId: string): string {
   return sanitized || fallback
 }
 
+function buildPublishedModelStem(jobSpec: JobSpec): string {
+  const baseName = jobSpec.name
+  if (!jobSpec.appendPresetToModelFileName || !jobSpec.presetId) {
+    return sanitizeFilenameStem(baseName, jobSpec.id)
+  }
+
+  const presetName = getTrainingPresetById(jobSpec.presetId).name.trim()
+  if (!presetName) {
+    return sanitizeFilenameStem(baseName, jobSpec.id)
+  }
+
+  return sanitizeFilenameStem(`${baseName} - ${presetName}`, jobSpec.id)
+}
+
 function stripTerminalControlSequences(value: string): string {
   return value.replace(OSC_PATTERN, '').replace(ANSI_PATTERN, '').replace(CONTROL_PATTERN, '')
 }
@@ -667,7 +681,7 @@ export class QueueManager extends EventEmitter {
       return
     }
 
-    const nextPath = join(dirname(modelPath), `${sanitizeFilenameStem(runtime.jobName, runtime.jobId)}.nam`)
+    const nextPath = join(dirname(modelPath), `${buildPublishedModelStem(runtime.frozenJob)}.nam`)
     if (existsSync(nextPath)) {
       runtime.publishedModelPath = modelPath
       this.appendUserMessage(

@@ -47,6 +47,7 @@ Draft jobs are editable saved jobs that have not been frozen into the queue yet.
 - Saving an existing draft updates it through `jobs:saveDraft`.
 - Draft cards expose `Edit`, `Queue`, `Copy`, and `Delete`.
 - `Queue All` enqueues every valid draft and skips drafts missing required fields.
+- New jobs remember the last-used preset and the last-used exported-model naming preference to speed up repeated comparison runs.
 
 Drafts are where users can iterate safely before they commit a run to the queue.
 
@@ -77,6 +78,7 @@ The editor includes:
 - output audio path
 - output root directory mode
 - preset selection
+- an optional checkbox to append the selected preset name to the final exported `.nam` filename
 - training overrides for epochs and latency
 - NAM metadata fields for the final `.nam` artifact
 
@@ -127,6 +129,7 @@ Active and finished jobs appear in the training section.
 - result folders can be opened from the UI
 - terminal logs can be expanded and refreshed while a job is active
 - `Clear Finished` removes finished runtime entries from the queue history panel
+- while a run is active, elapsed time is measured from the start of the training run and remaining time is estimated against the full planned epoch count rather than the current epoch only
 
 ## Job Schema
 
@@ -139,6 +142,7 @@ interface JobSpec {
   createdAt: string
   updatedAt: string
   presetId: string | null
+  appendPresetToModelFileName: boolean
   tags: string[]
   inputAudioPath: string
   inputAudioIsDefault: boolean
@@ -170,6 +174,8 @@ interface JobSpec {
 - `outputRootDirIsDefault` tracks whether the root is following an automatic mode versus a custom folder choice.
 - `trainingOverrides` are intentionally narrow. Jobs override only the fields that need run-specific flexibility.
 - `metadata` is for NAM artifact tagging, not for configuring the core training recipe.
+- `appendPresetToModelFileName` controls whether the exported `.nam` file is renamed to include the selected preset name after training finishes.
+- New jobs seed `appendPresetToModelFileName` from the user's most recent checkbox choice in the job editor.
 
 ## Runtime State
 

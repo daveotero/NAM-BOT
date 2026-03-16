@@ -13,7 +13,7 @@ The menu is organized around the screens that already exist inside the app:
 - `Navigate`: jump straight to Dashboard, Jobs, Presets, Diagnostics, Setup Guide, Settings, or Credits.
 - `Edit`: standard native text-edit roles such as Undo, Redo, Cut, Copy, Paste, and Select All.
 - `View`: zoom controls, fullscreen, and dev-only reload / devtools items while running in development.
-- `Help`: setup links, diagnostics, project links, and a conventional About dialog.
+- `Help`: a manual `Check for Updates` action, setup links, diagnostics, project links, and a conventional About dialog.
 
 ## Native Behaviors
 
@@ -22,6 +22,7 @@ The menu is organized around the screens that already exist inside the app:
 - If a training job is still active, closing the window prompts before quitting because the trainer will be force-stopped.
 - `Help > About NAM-BOT` opens a conventional version dialog, while the in-app About route remains available as the Credits screen.
 - The in-app About route also performs a background GitHub Releases check on app load and highlights the About nav item when a newer stable version is available.
+- `Help > Check for Updates` forces a fresh release lookup immediately, bypassing the normal one-hour cache, and shows a result dialog so the user knows whether a new build exists.
 
 ## Support Folders
 

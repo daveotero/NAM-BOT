@@ -4,6 +4,7 @@ import type { AppCommand, AppRoute } from '../../shared/appShell'
 
 interface AppMenuOptions {
   isDev: boolean
+  checkForUpdates: () => void
   openLogsFolder: () => void
   openWorkspaceFolder: () => void
   openPresetsFolder: () => void
@@ -179,6 +180,10 @@ export function installApplicationMenu(options: AppMenuOptions): void {
           click: () => options.openNamGitHub()
         },
         { type: 'separator' },
+        {
+          label: 'Check for Updates',
+          click: () => options.checkForUpdates()
+        },
         {
           label: 'About NAM-BOT',
           click: () => options.showAboutDialog()

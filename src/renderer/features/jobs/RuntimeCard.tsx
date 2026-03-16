@@ -72,7 +72,7 @@ export default function RuntimeCard({
     : getTrainingSecondaryStat(runtime)
   const stopAction = getStopActionState(runtime, nowMs)
   const progressPercent = displayState === 'Running' || displayState === 'Successful' ? getProgressPercent(runtime) : null
-  const progressMeta = displayState === 'Running' ? getProgressMeta(runtime) : null
+  const progressMeta = displayState === 'Running' ? getProgressMeta(runtime, nowMs) : null
   const hasTerminalToggle = displayState !== 'Queued'
   const outputPath = getOutputPath(runtime)
 

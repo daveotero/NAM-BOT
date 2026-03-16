@@ -31,6 +31,15 @@ export function setupUpdateIpcHandlers(): void {
   })
 }
 
+export async function checkForUpdatesNow(): Promise<ReturnType<typeof getUpdateStatus>> {
+  try {
+    return await checkForUpdates(true)
+  } catch (error) {
+    log.error('Manual update check failed:', error)
+    throw error
+  }
+}
+
 export async function checkForUpdatesOnStartup(): Promise<void> {
   try {
     await checkForUpdates()

@@ -7,11 +7,16 @@ import {
 } from '../../state/types'
 
 export const LAST_USED_PRESET_STORAGE_KEY = 'nam-bot:last-used-preset-id'
+export const LAST_APPEND_PRESET_NAME_STORAGE_KEY = 'nam-bot:last-append-preset-name'
 export const VIRTUAL_NEW_JOB_ID = 'new-draft-virtual'
 
 interface CreateNewJobDraftOptions {
   presets: TrainingPresetFile[]
   settings: AppSettings | null
+}
+
+export function getStoredAppendPresetToModelFileNamePreference(): boolean {
+  return window.localStorage.getItem(LAST_APPEND_PRESET_NAME_STORAGE_KEY) === 'true'
 }
 
 export function buildJobEditorSession(title: string, job: JobSpec): JobEditorSession {
@@ -41,7 +46,8 @@ export function createNewJobDraft(options: CreateNewJobDraftOptions): JobSpec {
     id: VIRTUAL_NEW_JOB_ID,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-    presetId: fallbackPreset?.id ?? DEFAULT_PRESET_ID
+    presetId: fallbackPreset?.id ?? DEFAULT_PRESET_ID,
+    appendPresetToModelFileName: getStoredAppendPresetToModelFileNamePreference()
   }
 
   if (options.settings?.defaultAuthorName) {

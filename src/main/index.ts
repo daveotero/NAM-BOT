@@ -6,7 +6,7 @@ import { setupIpcHandlers, validateBackendOnStartup } from './ipc/settings'
 import { setupJobIpcHandlers } from './ipc/jobs'
 import { setupPresetIpcHandlers } from './ipc/presets'
 import { setupLogsIpcHandlers } from './ipc/logs'
-import { checkForUpdatesOnStartup, setupUpdateIpcHandlers } from './ipc/updates'
+import { checkForUpdatesNow, checkForUpdatesOnStartup, setupUpdateIpcHandlers } from './ipc/updates'
 import { getQueueManager } from './jobs/queueManager'
 import type { JobRuntimeState, JobStatus } from './types/jobs'
 import { installApplicationMenu } from './shell/appMenu'
@@ -143,6 +143,66 @@ async function showAboutDialog(): Promise<void> {
 
   if (result.response === 2) {
     await shell.openExternal(PROJECT_URL)
+  }
+}
+
+async function showManualUpdateCheckDialog(): Promise<void> {
+  try {
+    const status = await checkForUpdatesNow()
+
+    if (status.state === 'update-available' && status.latestVersion) {
+      const result = await dialog.showMessageBox(mainWindow ?? undefined, {
+        type: 'info',
+        title: 'Update Available',
+        message: `NAM-BOT ${status.latestVersion} is available.`,
+        detail: `You are currently running NAM-BOT ${status.currentVersion}.`,
+        buttons: status.releaseUrl ? ['Open Release Page', 'Close'] : ['Close'],
+        cancelId: status.releaseUrl ? 1 : 0,
+        defaultId: 0,
+        noLink: true
+      })
+
+      if (result.response === 0 && status.releaseUrl) {
+        await shell.openExternal(status.releaseUrl)
+      }
+      return
+    }
+
+    if (status.state === 'up-to-date') {
+      await dialog.showMessageBox(mainWindow ?? undefined, {
+        type: 'info',
+        title: 'No Updates Available',
+        message: `NAM-BOT ${status.currentVersion} is up to date.`,
+        detail: status.lastCheckedAt
+          ? `Checked GitHub Releases at ${new Date(status.lastCheckedAt).toLocaleString()}.`
+          : 'Checked GitHub Releases just now.',
+        buttons: ['Close'],
+        defaultId: 0,
+        noLink: true
+      })
+      return
+    }
+
+    await dialog.showMessageBox(mainWindow ?? undefined, {
+      type: 'warning',
+      title: 'Update Check Failed',
+      message: 'NAM-BOT could not confirm the latest release right now.',
+      detail: 'The app will keep your last known update state. Check your internet connection and try again.',
+      buttons: ['Close'],
+      defaultId: 0,
+      noLink: true
+    })
+  } catch (error) {
+    log.error('Manual update dialog flow failed:', error)
+    await dialog.showMessageBox(mainWindow ?? undefined, {
+      type: 'error',
+      title: 'Update Check Failed',
+      message: 'NAM-BOT could not complete the manual update check.',
+      detail: error instanceof Error ? error.message : String(error),
+      buttons: ['Close'],
+      defaultId: 0,
+      noLink: true
+    })
   }
 }
 
@@ -331,6 +391,9 @@ app.whenReady().then(() => {
   setupShellIntegrations()
   installApplicationMenu({
     isDev,
+    checkForUpdates: () => {
+      void showManualUpdateCheckDialog()
+    },
     openLogsFolder: () => {
       if (!existsSync(logPath)) {
         mkdirSync(logPath, { recursive: true })

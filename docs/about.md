@@ -7,12 +7,14 @@ The About screen doubles as NAM-BOT's in-app credits and lightweight update surf
 - NAM-BOT performs a background update check each time the app loads.
 - The app uses the project's GitHub Releases feed as the source of truth.
 - Checks are throttled to at most once per hour across restarts by caching the last known result in the app data folder.
+- Users can bypass that throttle manually through `Help > Check for Updates`, which forces a fresh lookup immediately.
 - Pre-releases are ignored, so only stable published releases count as updates.
 - For local UI preview during development, you can spoof an available update by starting the app with `NAM_BOT_SPOOF_UPDATE_VERSION` set to a higher version than the packaged app.
 
 ## User Experience
 
 - When NAM-BOT is already current, the About screen stays quiet and no extra update controls are shown.
+- A manual menu-bar check always shows a native result dialog, even when no update is available.
 - When a newer release exists, the About item in the left navigation shows a pulsing gold indicator.
 - The About screen shows an animated CRT-style `Update available` marker next to the current version.
 - Two actions appear when an update exists:

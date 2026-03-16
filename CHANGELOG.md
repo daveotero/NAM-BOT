@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-03-16
+
+### Added
+
+- Help menu `Check for Updates` action that forces a fresh GitHub release check and shows a native result dialog
+- Job editor checkbox to append the selected preset name to the exported `.nam` filename, plus a remembered default for new jobs and drag-and-drop drafts
+
+### Changed
+
+- Help menu now groups `Check for Updates` with `About NAM-BOT` at the bottom where version-related actions are easier to find
+- Jobs screen elapsed and remaining training time now reflect the full run instead of only the current epoch
+- Desktop shell, About, and Jobs docs updated for the new update-check and job-output naming behaviors
+
 ## [0.3.3] - 2026-03-16
 
 ### Fixed

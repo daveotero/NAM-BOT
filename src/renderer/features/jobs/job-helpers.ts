@@ -154,10 +154,54 @@ export function getProgressHeadline(runtime: JobRuntimeState): string {
   return getLatestTerminalLine(runtime) || getLatestUserMessage(runtime) || 'Waiting for live terminal output'
 }
 
-export function getProgressMeta(runtime: JobRuntimeState): string | null {
+function formatDuration(totalSeconds: number): string {
+  const safeSeconds = Math.max(0, Math.floor(totalSeconds))
+  const hours = Math.floor(safeSeconds / 3600)
+  const minutes = Math.floor((safeSeconds % 3600) / 60)
+  const seconds = safeSeconds % 60
+
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+  }
+
+  return `${minutes}:${String(seconds).padStart(2, '0')}`
+}
+
+function getElapsedRunSeconds(runtime: JobRuntimeState, nowMs: number): number | null {
+  const startedAtMs = runtime.startedAt ? Date.parse(runtime.startedAt) : Number.NaN
+  if (!Number.isFinite(startedAtMs)) {
+    return null
+  }
+
+  return Math.max(0, Math.floor((nowMs - startedAtMs) / 1000))
+}
+
+function getRemainingRunSeconds(runtime: JobRuntimeState, nowMs: number): number | null {
+  const elapsedSeconds = getElapsedRunSeconds(runtime, nowMs)
+  const progressPercent = getProgressPercent(runtime)
+  if (elapsedSeconds == null || progressPercent == null || progressPercent <= 0 || progressPercent >= 100) {
+    return null
+  }
+
+  const progressFraction = progressPercent / 100
+  const estimatedTotalSeconds = elapsedSeconds / progressFraction
+  return Math.max(0, Math.round(estimatedTotalSeconds - elapsedSeconds))
+}
+
+export function getProgressMeta(runtime: JobRuntimeState, nowMs: number): string | null {
+  const elapsedRunSeconds = getElapsedRunSeconds(runtime, nowMs)
+  const remainingRunSeconds = getRemainingRunSeconds(runtime, nowMs)
   const parts = [
-    runtime.terminalProgress?.elapsed ? `Elapsed ${runtime.terminalProgress.elapsed}` : null,
-    runtime.terminalProgress?.remaining ? `Remaining ${runtime.terminalProgress.remaining}` : null,
+    elapsedRunSeconds != null
+      ? `Elapsed ${formatDuration(elapsedRunSeconds)}`
+      : runtime.terminalProgress?.elapsed
+        ? `Elapsed ${runtime.terminalProgress.elapsed}`
+        : null,
+    remainingRunSeconds != null
+      ? `Remaining ${formatDuration(remainingRunSeconds)}`
+      : runtime.terminalProgress?.remaining
+        ? `Remaining ${runtime.terminalProgress.remaining}`
+        : null,
     runtime.terminalProgress?.rate || null
   ].filter((entry): entry is string => Boolean(entry))
   return parts.length > 0 ? parts.join(' - ') : null
