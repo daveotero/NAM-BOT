@@ -24,7 +24,7 @@ Settings in NAM-BOT are **automatically saved** as you type. There is no manual 
 
 ### Output Configuration
 
-- **Default Output Root**: Where trained NAM models are saved by default.
+- **Default Model Output Root**: The first-choice folder new drafts use for trained NAM model output, unless the job editor is set to follow the training output file folder or a custom folder.
 - **Workspace Root**: Where temporary training files and logs are stored.
 
 ### Application Settings

@@ -1,5 +1,8 @@
 appId: com.nambot.app
 productName: NAM-BOT
+npmRebuild: false
+nodeGypRebuild: false
+buildDependenciesFromSource: false
 directories:
   buildResources: build
   output: release
@@ -48,6 +51,7 @@ mac:
       arch:
         - x64
 nsis:
+  include: build/installer.nsh
   oneClick: false
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true

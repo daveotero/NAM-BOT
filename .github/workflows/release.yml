@@ -39,7 +39,7 @@ jobs:
         run: npm run build
 
       - name: Package Windows app
-        run: npx electron-builder --win --config --publish never
+        run: npx electron-builder --win --config electron-builder.yml --publish never
 
       - name: Compress portable app
         shell: powershell

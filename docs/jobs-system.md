@@ -47,7 +47,7 @@ Draft jobs are editable saved jobs that have not been frozen into the queue yet.
 - Saving an existing draft updates it through `jobs:saveDraft`.
 - Draft cards expose `Edit`, `Queue`, `Copy`, and `Delete`.
 - `Queue All` enqueues every valid draft and skips drafts missing required fields.
-- New jobs remember the last-used preset and the last-used exported-model naming preferences to speed up repeated comparison runs.
+- New jobs remember the last-used preset, the last-used output root mode, and the last-used exported-model naming preferences to speed up repeated comparison runs.
 
 Drafts are where users can iterate safely before they commit a run to the queue.
 
@@ -102,12 +102,15 @@ Input audio can be driven in two ways:
 
 The output root directory can be driven in three ways:
 
-- `Output Audio Path`
+- `Settings Default`
+  - uses the `Default Model Output Root` from Settings when configured
+  - is the first-choice default for new drafts when no other output-root preference has been saved yet
+- `Training Output File Folder`
   - follows the directory of the chosen output audio file
-- `Settings Default Path`
-  - uses the default output root from Settings when configured
-- `Custom`
+  - becomes the fallback default when no Settings output root is configured
+- `Custom Folder`
   - lets the user browse to a specific directory
+  - remembers the last custom folder path after the draft is saved
 
 ### Final Model Filename
 
@@ -398,7 +401,9 @@ Current built-in job defaults are aligned with the default WaveNet preset path.
 - input audio defaults to the bundled NAM v3 training signal
 - epochs default to the preset epoch default
 - latency defaults to `0`
-- output paths start empty until the user chooses files or creates drafts from dropped files
+- output root defaults to `Settings Default` when `Default Model Output Root` is configured
+- otherwise output root defaults to the training output file folder
+- once the user saves a different output-root mode, future new drafts reuse that preference
 
 ## Future Extensions
 

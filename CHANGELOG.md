@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.6] - 2026-03-17
+
+### Changed
+
+- Job editor output-root modes now prioritize the Settings default path first, then the training output file folder, then a custom folder
+- New drafts and drag-and-drop draft creation now remember the last saved output-root mode so repeated capture workflows keep the same preference
+- Settings now labels the saved output location as `Default Model Output Root` to make its role in new draft creation clearer
+- Windows release packaging now uses the committed `electron-builder.yml` profile in GitHub Actions so published installers carry the intended NAM-BOT app identity, icons, and shortcut settings
+
+### Fixed
+
+- New drafts now actually use the configured Settings output root as the default model output folder instead of always following the training output file folder
+- Windows release packaging now skips native dependency rebuilds in the builder profile so the release workflow does not depend on a local Visual Studio toolchain
+
+### Notes
+
+- Early adopters updating from the first public Windows builds may need to uninstall the older NAM-BOT entry once if Windows shows a duplicate app entry during this installer identity transition
+
 ## [0.3.5] - 2026-03-16
 
 ### Added

@@ -391,7 +391,7 @@ function AppShell() {
           navigate(command.path)
           return
         case 'new-job':
-          setJobEditorSession(buildJobEditorSession('New Job', createNewJobDraft({ presets, settings })))
+          setJobEditorSession(buildJobEditorSession('New Job', createNewJobDraft({ presets, settings }), settings))
           navigate('/jobs')
           return
         case 'new-preset':

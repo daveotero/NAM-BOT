@@ -256,7 +256,7 @@ export default function Settings() {
         </div>
 
         <div className="form-group">
-          <label className="form-label">Default Output Root</label>
+          <label className="form-label">Default Model Output Root</label>
           <div style={{ display: 'flex', gap: '8px' }}>
             <input
               type="text"
@@ -271,6 +271,9 @@ export default function Settings() {
               Browse
             </button>
           </div>
+          <p style={{ marginTop: '6px', color: 'var(--text-steel)', fontSize: '12px' }}>
+            New drafts use this folder first for trained model output unless you switch the output-root mode in the job editor.
+          </p>
         </div>
 
         <div className="form-group">

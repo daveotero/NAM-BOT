@@ -57,9 +57,11 @@ import {
   getStoredAppendEsrToModelFileNamePreference,
   createNewJobDraft,
   getStoredAppendPresetToModelFileNamePreference,
+  getPreferredOutputRootSelection,
   LAST_APPEND_ESR_STORAGE_KEY,
   LAST_APPEND_PRESET_NAME_STORAGE_KEY,
   LAST_USED_PRESET_STORAGE_KEY,
+  persistOutputRootPreference,
   VIRTUAL_NEW_JOB_ID
 } from './jobEditorSession'
 
@@ -322,7 +324,7 @@ export default function Jobs() {
   }, [openLogs])
 
   const handleCreateJob = () => {
-    setJobEditorSession(buildJobEditorSession('New Job', createNewJobDraft({ presets, settings })))
+    setJobEditorSession(buildJobEditorSession('New Job', createNewJobDraft({ presets, settings }), settings))
   }
 
   const handleDropFiles = async (files: FileList) => {
@@ -346,6 +348,7 @@ export default function Jobs() {
       ?? visiblePresets[0]
     for (const file of wavFiles) {
       const filePath = window.namBot.jobs.getPathForFile(file) || file.name
+      const preferredOutputRootSelection = getPreferredOutputRootSelection(settings, filePath)
       const newJob = await window.namBot.jobs.createDraft({
         ...defaultJobSpec,
         name: filenameWithoutExt(file.name),
@@ -354,9 +357,9 @@ export default function Jobs() {
         appendEsrToModelFileName,
         inputAudioPath: defaultInputRef || '',
         outputAudioPath: filePath,
-        outputRootDir: getDirname(filePath),
+        outputRootDir: preferredOutputRootSelection.outputRootDir,
         inputAudioIsDefault: true,
-        outputRootDirIsDefault: true,
+        outputRootDirIsDefault: preferredOutputRootSelection.outputRootDirIsDefault,
         trainingOverrides: {
           ...defaultJobSpec.trainingOverrides,
           epochs: fallbackPreset?.values.epochs ?? defaultJobSpec.trainingOverrides.epochs
@@ -564,6 +567,7 @@ export default function Jobs() {
     return (
       <JobEditor
         session={jobEditorSession}
+        settings={settings}
         presets={presets}
         onSessionChange={setJobEditorSession}
         onSave={handleSaveJob}
@@ -651,7 +655,7 @@ export default function Jobs() {
                   key={job.id}
                   job={job}
                   presets={presets}
-                  onEdit={(j) => setJobEditorSession(buildJobEditorSession('Edit Job', j))}
+                  onEdit={(j) => setJobEditorSession(buildJobEditorSession('Edit Job', j, settings))}
                   onQueue={handleEnqueue}
                   onDuplicate={handleDuplicate}
                   onDelete={setPendingDeleteJob}
@@ -752,12 +756,14 @@ export default function Jobs() {
 
 function JobEditor({
   session,
+  settings,
   presets,
   onSessionChange,
   onSave,
   onCancel
 }: {
   session: JobEditorSession
+  settings: AppSettings | null
   presets: TrainingPresetFile[]
   onSessionChange: (session: JobEditorSession) => void
   onSave: (job: JobSpec) => Promise<void> | void
@@ -765,10 +771,10 @@ function JobEditor({
 }) {
   const { title, job, inputMode, outputRootMode, showValidationErrors } = session
   const editedJob = job
-  const [settingsDefaultOutputRoot, setSettingsDefaultOutputRoot] = useState<string | null>(null)
   const [defaultAudioPath, setDefaultAudioPath] = useState<string | null>(null)
   const [savingDefault, setSavingDefault] = useState(false)
   const [isUnsavedConfirmOpen, setIsUnsavedConfirmOpen] = useState(false)
+  const settingsDefaultOutputRoot = settings?.defaultOutputRoot?.trim() || null
   const visiblePresets = useMemo(
     () => presets.filter((preset) => preset.visible || preset.id === editedJob.presetId),
     [editedJob.presetId, presets]
@@ -793,18 +799,32 @@ function JobEditor({
   }, [editedJob, onSessionChange, outputRootMode, session])
 
   useEffect(() => {
-    window.namBot.settings.get().then((rawSettings) => {
-      const settings = rawSettings as AppSettings
-      const settingsDefaultPath = settings.defaultOutputRoot || null
-      setSettingsDefaultOutputRoot(settingsDefaultPath)
-      if (!job.outputRootDirIsDefault && settingsDefaultPath && editedJob.outputRootDir === settingsDefaultPath) {
+    if (outputRootMode === 'settings-default') {
+      if (settingsDefaultOutputRoot && editedJob.outputRootDir !== settingsDefaultOutputRoot) {
         onSessionChange({
           ...session,
-          outputRootMode: 'settings-default'
+          job: {
+            ...editedJob,
+            outputRootDir: settingsDefaultOutputRoot,
+            outputRootDirIsDefault: false
+          }
+        })
+        return
+      }
+
+      if (!settingsDefaultOutputRoot) {
+        onSessionChange({
+          ...session,
+          outputRootMode: 'output-audio',
+          job: {
+            ...editedJob,
+            outputRootDirIsDefault: true,
+            outputRootDir: editedJob.outputAudioPath ? getDirname(editedJob.outputAudioPath) : ''
+          }
         })
       }
-    })
-  }, [editedJob.outputRootDir, job.outputRootDirIsDefault, onSessionChange, session])
+    }
+  }, [editedJob, onSessionChange, outputRootMode, session, settingsDefaultOutputRoot])
 
   useEffect(() => {
     window.namBot.jobs.getDefaultInputAudioPath().then((p) => {
@@ -873,6 +893,7 @@ function JobEditor({
       LAST_APPEND_ESR_STORAGE_KEY,
       editedJob.appendEsrToModelFileName ? 'true' : 'false'
     )
+    persistOutputRootPreference(outputRootMode, editedJob.outputRootDir)
     await Promise.resolve(onSave(editedJob))
   }
 
@@ -1033,25 +1054,7 @@ function JobEditor({
             <div className="toggle-group" style={{ marginBottom: '10px' }}>
               <button
                 type="button"
-                className={`btn btn-sm ${outputRootMode === 'output-audio' ? 'btn-green' : 'btn-secondary'}`}
-                onClick={() => {
-                  const dir = getDirname(editedJob.outputAudioPath)
-                  onSessionChange({
-                    ...session,
-                    outputRootMode: 'output-audio',
-                    job: {
-                      ...editedJob,
-                      outputRootDirIsDefault: true,
-                      outputRootDir: dir
-                    }
-                  })
-                }}
-              >
-                Output Audio Path
-              </button>
-              <button
-                type="button"
-                className={`btn btn-sm ${outputRootMode === 'settings-default' ? 'btn-blue' : 'btn-secondary'}`}
+                className={`btn btn-sm ${outputRootMode === 'settings-default' ? 'btn-green' : 'btn-secondary'}`}
                 onClick={() => {
                   if (!settingsDefaultOutputRoot) {
                     return
@@ -1069,11 +1072,29 @@ function JobEditor({
                 disabled={!settingsDefaultOutputRoot}
                 title={
                   settingsDefaultOutputRoot
-                    ? `Use Settings > Default Output Root (${settingsDefaultOutputRoot})`
-                    : 'Set Settings > Default Output Root to enable this option'
+                    ? `Use Settings > Default Model Output Root (${settingsDefaultOutputRoot})`
+                    : 'Set Settings > Default Model Output Root to enable this option'
                 }
               >
-                Settings Default Path
+                Settings Default
+              </button>
+              <button
+                type="button"
+                className={`btn btn-sm ${outputRootMode === 'output-audio' ? 'btn-blue' : 'btn-secondary'}`}
+                onClick={() => {
+                  const dir = getDirname(editedJob.outputAudioPath)
+                  onSessionChange({
+                    ...session,
+                    outputRootMode: 'output-audio',
+                    job: {
+                      ...editedJob,
+                      outputRootDirIsDefault: true,
+                      outputRootDir: dir
+                    }
+                  })
+                }}
+              >
+                Training Output File Folder
               </button>
               <button
                 type="button"
@@ -1086,9 +1107,13 @@ function JobEditor({
                   })
                 }}
               >
-                Custom
+                Custom Folder
               </button>
             </div>
+
+            <p style={{ color: 'var(--text-steel)', fontSize: '12px', marginTop: '0', marginBottom: '10px' }}>
+              Uses the Settings default first when configured. Otherwise it can follow the training output file folder, or you can lock this draft to a custom folder.
+            </p>
 
             <FilePickerRow
               id="output-root-dir"
