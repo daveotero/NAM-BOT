@@ -215,7 +215,7 @@ export default function Help() {
           </h4>
           <ol style={{ color: 'var(--text-steel)', paddingLeft: '20px', marginBottom: '16px' }}>
             <li>Go to <strong>Settings</strong> in the left menu</li>
-            <li>Set the Conda executable path if your setup does not use the default <code style={{ color: 'var(--neon-cyan)' }}>conda</code> executable</li>
+            <li>Set the Conda executable path if your setup does not use the default executable shown in Settings</li>
             <li>Set the backend mode to match how you launch NAM today</li>
             <li>Enter the Conda environment name or environment path that already contains your working NAM install</li>
           </ol>
@@ -299,7 +299,7 @@ export default function Help() {
             2. Create NAM Environment
           </h4>
           <p style={{ color: 'var(--text-steel)', marginBottom: '16px' }}>
-            Open Command Prompt or PowerShell and run these commands <strong>one at a time</strong>:
+            Open Terminal on macOS, or Command Prompt / PowerShell on Windows, and run these commands <strong>one at a time</strong>:
           </p>
 
           <CopyableCodeBlock
@@ -326,7 +326,7 @@ export default function Help() {
           </h4>
           <ol style={{ color: 'var(--text-steel)', paddingLeft: '20px' }}>
             <li>Go to <strong>Settings</strong></li>
-            <li>Leave the default Conda executable as <code style={{ color: 'var(--neon-cyan)' }}>conda</code> unless your install needs a custom path</li>
+            <li>Leave the default Conda executable unchanged unless your install needs a custom path</li>
             <li>Leave the default environment name as <code style={{ color: 'var(--neon-cyan)' }}>nam</code> unless you intentionally created a different environment</li>
             <li>Choose an output directory</li>
             <li>Click <strong>Save Settings</strong></li>

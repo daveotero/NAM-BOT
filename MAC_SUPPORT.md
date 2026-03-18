@@ -64,6 +64,12 @@ npm run package:mac
 
 Output: `release/NAM-BOT-{version}-arm64.dmg` (Apple Silicon) and `release/NAM-BOT-{version}.dmg` (Intel)
 
+## Release Policy
+
+- `v*` tags continue to publish the standard Windows release automatically.
+- macOS beta DMGs are built separately by a maintainer using the `Release macOS Beta` workflow.
+- The macOS workflow checks out an existing release tag and attaches DMGs to that same GitHub Release later, so macOS assets can lag behind Windows until they are verified.
+
 ## Code Signing & Notarization
 
 **CI-built DMGs are unsigned (beta).** macOS will show a Gatekeeper warning on first launch.
