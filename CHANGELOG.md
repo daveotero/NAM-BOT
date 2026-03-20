@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-03-20
+
+### Added
+
+- AMD ROCm GPU support for Windows with automatic detection via HIP version
+- AMD Radeon RX 7000/9000 and PRO W7000 series GPU support in diagnostics and dashboard
+- New "AMD ROCm (Windows)" setup path in Help screen with Python 3.12 installation steps
+- ROCm-specific diagnostic guidance with verification commands and HIP version reporting
+- Dashboard display showing "AMD GPU: [device name]" for ROCm builds
+
+### Changed
+
+- Setup guide grid updated to 4-column layout for better visual balance across all GPU paths
+- Diagnostics panel now correctly shows "✓ GPU READY" for all valid GPU configurations (NVIDIA, AMD, Apple Silicon)
+- Help screen updated to mention AMD ROCm support in accelerator diagnostics
+
+### Fixed
+
+- Accelerator diagnostics label displaying "PROBE FAILED" for working CUDA and MPS GPUs
+- GPU success state routing in Diagnostics panel to properly check issue types instead of status values
+
 ## [0.4.0] - 2026-03-18
 
 ### Added
