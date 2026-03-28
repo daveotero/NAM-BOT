@@ -217,8 +217,9 @@ Important runtime fields include:
 
 For queued runs that share the same output root:
 
-- NAM-BOT waits for a freshly created timestamped run folder before it publishes the mirrored `.log` file into that folder
-- this keeps each queued job's log, ESR tracking, and final `.nam` artifact bound to the correct training run instead of reusing a folder from the previous job
+- NAM-BOT binds each active run to the timestamped output folder whose folder name time matches that run's start window
+- root-level fallback is only used when fresh training artifacts exist directly in the output root itself
+- this keeps each queued job's log, ESR tracking, and final `.nam` artifact bound to the correct training run even when previous run folders are touched during finalization
 
 ### Job Status Values
 

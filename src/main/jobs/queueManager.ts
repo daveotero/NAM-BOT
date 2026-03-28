@@ -17,6 +17,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { inspectTorchRuntime, runNamFull, TorchRuntimeSummary, TrainingProcessController } from '../backend/adapter'
 import { buildJobConfigs } from '../config/configBuilder'
 import { getTrainingPresetById } from '../persistence/presetStore'
+import { selectOutputRunDirectory } from './runDirectoryResolver'
 import {
   JobCheckpointSummary,
   JobDeviceSummary,
@@ -37,8 +38,6 @@ const ACTIVE_JOB_STATUSES: JobStatus[] = ['preparing', 'running', 'stopping']
 const QUEUED_JOB_STATUSES: JobStatus[] = ['queued', 'validating']
 const FINISHED_JOB_STATUSES: JobStatus[] = ['succeeded', 'failed', 'canceled']
 const NUMERIC_TOKEN_PATTERN = '[+-]?\\d+(?:\\.\\d+)?(?:e[+-]?\\d+)?'
-const RUN_DIRECTORY_LOOKBACK_MS = 1_000
-const RUN_ARTIFACT_LOOKBACK_MS = 15_000
 const BEST_CHECKPOINT_PATTERN = new RegExp(
   `^(\\d{4})_(\\d+)_(${NUMERIC_TOKEN_PATTERN})_(${NUMERIC_TOKEN_PATTERN})\\.ckpt$`,
   'i'
@@ -142,10 +141,6 @@ function buildPublishedModelPath(runtime: JobRuntimeState, modelPath: string): s
 
 function stripTerminalControlSequences(value: string): string {
   return value.replace(OSC_PATTERN, '').replace(ANSI_PATTERN, '').replace(CONTROL_PATTERN, '')
-}
-
-function isTimestampDirectoryName(name: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}$/.test(name)
 }
 
 function parseNumericToken(value: string): number | null {
@@ -304,44 +299,6 @@ function walkTrainingArtifacts(rootDir: string, depth: number): string[] {
 
 function getFileModifiedAt(filePath: string): number {
   return statSync(filePath).mtimeMs
-}
-
-function getDirectoryCreatedAt(dirPath: string): number {
-  const stats = statSync(dirPath)
-  return Math.max(stats.birthtimeMs, stats.ctimeMs, stats.mtimeMs)
-}
-
-function findOutputRunDirectory(outputRootDir: string, startedAt: string | undefined): string | null {
-  if (!existsSync(outputRootDir) || !startedAt) {
-    return null
-  }
-
-  const startedAtMs = Date.parse(startedAt)
-  const candidates = readdirSync(outputRootDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => join(outputRootDir, entry.name))
-    .filter((dirPath) => {
-      const name = dirPath.replace(/\\/g, '/').split('/').pop() ?? ''
-      return isTimestampDirectoryName(name) && getDirectoryCreatedAt(dirPath) >= startedAtMs - RUN_DIRECTORY_LOOKBACK_MS
-    })
-    .sort((left, right) => getDirectoryCreatedAt(right) - getDirectoryCreatedAt(left))
-
-  if (candidates.length > 0) {
-    return candidates[0]
-  }
-
-  const directFiles = walkTrainingArtifacts(outputRootDir, 2).filter((filePath) => {
-    const normalized = filePath.toLowerCase()
-    return (
-      getFileModifiedAt(filePath) >= startedAtMs - RUN_ARTIFACT_LOOKBACK_MS &&
-      (normalized.endsWith('.ckpt') ||
-        normalized.endsWith('.nam') ||
-        normalized.endsWith('comparison.png') ||
-        normalized.includes('lightning_logs'))
-    )
-  })
-
-  return directFiles.length > 0 ? outputRootDir : null
 }
 
 function buildCheckpointSummary(
@@ -814,10 +771,34 @@ export class QueueManager extends EventEmitter {
     }
 
     let changed = false
-    const detectedRunDirectory = runtime.resolvedRunDirectory ?? findOutputRunDirectory(runtime.outputRootDir, runtime.startedAt)
-    if (detectedRunDirectory && detectedRunDirectory !== runtime.resolvedRunDirectory) {
+    const previousRunDirectory = runtime.resolvedRunDirectory
+    const runDirectorySelection = selectOutputRunDirectory(
+      runtime.outputRootDir,
+      runtime.startedAt,
+      previousRunDirectory
+    )
+    const detectedRunDirectory = runDirectorySelection.detectedRunDirectory
+
+    if (detectedRunDirectory && detectedRunDirectory !== previousRunDirectory) {
       runtime.resolvedRunDirectory = detectedRunDirectory
-      this.appendUserMessage(runtime, `Training folder is ready: ${detectedRunDirectory}`)
+      if (previousRunDirectory) {
+        log.info('Rebound output run directory for active job:', {
+          jobId: runtime.jobId,
+          from: previousRunDirectory,
+          to: detectedRunDirectory,
+          kind: runDirectorySelection.kind,
+          reason: runDirectorySelection.reason
+        })
+        this.appendUserMessage(runtime, `Training folder updated: ${detectedRunDirectory}`)
+      } else {
+        log.info('Resolved output run directory for active job:', {
+          jobId: runtime.jobId,
+          to: detectedRunDirectory,
+          kind: runDirectorySelection.kind,
+          reason: runDirectorySelection.reason
+        })
+        this.appendUserMessage(runtime, `Training folder is ready: ${detectedRunDirectory}`)
+      }
       changed = true
     }
 

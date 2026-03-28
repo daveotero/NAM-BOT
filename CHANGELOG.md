@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.4-rc.1] - 2026-03-28
+
+### Added
+
+- Robust run-directory resolution for queued jobs, including fallback artifact-signature detection when timestamp ordering alone is ambiguous
+- Focused Vitest coverage for delayed and out-of-order output-folder creation during queue handoff
+
 ### Changed
 
 - Jobs screen collapsed runtime cards now use a status-specific summary layout so each state surfaces the most useful details at a glance (preset and epochs for queued/validating, live timing and progress for active runs, runtime plus outcome context for finished runs)
@@ -14,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Failed and canceled collapsed cards now prioritize total runtime and stop/failure context, and show ESR only when checkpoint data exists
 - Queue cards now include planned epochs in the default collapsed row for both queued and validating items
 - Jobs system documentation now includes the new collapsed-card quick-stat behavior matrix
+- Jobs documentation now explains the full run-folder detection timeline between one task completing and the next task starting
+
+### Fixed
+
+- Queue handoff no longer attaches the next task's `.log`, ESR metadata, or final `.nam` naming data to the previous run folder when NAM output directories appear late
 
 ## [0.4.3] - 2026-03-28
 
