@@ -118,6 +118,9 @@ jobs:
       - build-macos
 
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
       - name: Download Windows preview artifacts
         uses: actions/download-artifact@v5
         with:
@@ -135,13 +138,15 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          if gh release view "${{ needs.prepare.outputs.preview_tag }}" >/dev/null 2>&1; then
+          if gh release view "${{ needs.prepare.outputs.preview_tag }}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
             gh release edit "${{ needs.prepare.outputs.preview_tag }}" \
+              --repo "${GITHUB_REPOSITORY}" \
               --title "Preview ${{ needs.prepare.outputs.version }} (${{ needs.prepare.outputs.short_sha }})" \
               --notes "Automated preview build for commit ${{ github.sha }} on main. This is a prerelease build for testing and does not replace the latest stable tagged release." \
               --prerelease
           else
             gh release create "${{ needs.prepare.outputs.preview_tag }}" \
+              --repo "${GITHUB_REPOSITORY}" \
               --target "${{ github.sha }}" \
               --title "Preview ${{ needs.prepare.outputs.version }} (${{ needs.prepare.outputs.short_sha }})" \
               --notes "Automated preview build for commit ${{ github.sha }} on main. This is a prerelease build for testing and does not replace the latest stable tagged release." \
@@ -154,6 +159,7 @@ jobs:
         shell: bash
         run: |
           gh release upload "${{ needs.prepare.outputs.preview_tag }}" \
+            --repo "${GITHUB_REPOSITORY}" \
             preview-assets/windows/* \
             preview-assets/macos/* \
             --clobber
@@ -175,5 +181,5 @@ jobs:
 
           for TAG in "${PREVIEW_TAGS[@]:$PREVIEW_RETENTION_COUNT}"; do
             echo "Deleting old preview prerelease: $TAG"
-            gh release delete "$TAG" --cleanup-tag --yes
+            gh release delete "$TAG" --repo "${GITHUB_REPOSITORY}" --cleanup-tag --yes
           done
