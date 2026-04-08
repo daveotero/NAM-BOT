@@ -33,7 +33,7 @@ Use this skill to turn repo release history into short, post-ready announcement 
 - For NAM-BOT release announcements, keep the robot emoji before the repo link unless the user asks to remove it.
 - Default to no hashtags unless the user asks for them.
 - Mention contributor names when their work is a meaningful part of the release.
-- Do not overclaim support levels. If macOS is beta, say `macOS beta` plainly.
+- Do not overclaim support levels. If macOS is stable but unsigned, say that plainly instead of implying notarization.
 
 ## NAM-BOT Specific Guidance
 
@@ -94,5 +94,5 @@ Exclude stable baseline features like queueing, presets, logs, or diagnostics un
 
 - Anchor claims to actual repo changes.
 - If comparing from an older announced version, include important deltas from every intervening release, not just the latest tag.
-- If the release contains beta support, say `beta`.
+- If the release contains prerelease or preview-only support, say that plainly.
 - If the user names a prior post as the tone reference, preserve its structure and restraint rather than rewriting into a different brand voice.

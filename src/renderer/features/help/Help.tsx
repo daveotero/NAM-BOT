@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { type JSX, useState } from 'react'
 
 type GuideMode = 'standard' | 'nvidia' | 'apple' | 'amd'
 
@@ -356,7 +356,7 @@ export default function Help() {
             </p>
           </div>
           <p style={{ color: 'var(--text-steel)', fontSize: '13px', marginTop: '-4px', marginBottom: '16px' }}>
-            On Apple Silicon, choose the Apple Silicon installer. On macOS beta builds, you may need to right-click the app and choose <strong>Open</strong> on first launch if Gatekeeper warns about an unsigned app.
+            On Apple Silicon, choose the Apple Silicon installer. On macOS builds, you may need to right-click the app and choose <strong>Open</strong> on first launch if Gatekeeper warns about an unsigned app.
           </p>
 
           {guideMode !== 'amd' && (

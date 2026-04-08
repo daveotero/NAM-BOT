@@ -55,12 +55,12 @@ NAM-BOT tries to make local training smoother by giving you:
 - A Python environment with `neural-amp-modeler` installed
 - NVIDIA GPU recommended if you want faster local training
 
-**macOS (beta)**
+**macOS**
 
 - Apple Silicon (`arm64`) and Intel (`x64`) builds are available as separate DMGs
 - Use Terminal and the `conda` command rather than Command Prompt / PowerShell and `conda.exe`
 - Apple Silicon users should choose Apple Silicon Miniconda and expect MPS diagnostics rather than CUDA-first messaging
-- Current macOS DMGs are unsigned beta builds and may require right-click `Open` on first launch
+- Current macOS DMGs are unsigned and may require right-click `Open` on first launch
 
 ## Install
 
@@ -69,7 +69,7 @@ For a public repository, the typical user-friendly path is:
 1. Open the GitHub Releases page.
 2. Download the latest Windows installer if you are on Windows, or the matching `arm64` / `x64` DMG if you are on macOS.
    Windows installer example: `NAM-BOT-Setup-0.4.0-Win64.exe`
-   macOS beta examples: `NAM-BOT-0.4.0-macOS-beta-arm64.dmg` or `NAM-BOT-0.4.0-macOS-beta-x64.dmg`
+   macOS DMG examples: `NAM-BOT-0.4.5-macOS-arm64.dmg` or `NAM-BOT-0.4.5-macOS-x64.dmg`
 3. Run the installer on Windows, or open the DMG and move NAM-BOT into Applications on macOS.
 
 ## Setup Overview

@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - macOS is now a stable release platform; GitHub Actions release workflow now builds and publishes Windows installer, portable ZIP, and macOS DMG assets together for each `v*` tag
-- Removed separate macOS beta workflow; all platforms are now built and published automatically by the main release workflow
+- Removed the separate macOS release workflow; all stable release assets are now built and published automatically by the main release workflow
 
 ## [0.4.5-rc.2] - 2026-04-06
 
