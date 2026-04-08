@@ -59,25 +59,87 @@ jobs:
             release/NAM-BOT-Portable-*-Win64.zip
           if-no-files-found: error
 
-      - name: Create or update GitHub Release
-        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: powershell
-        run: |
-          cmd /c "gh release view %RELEASE_TAG% --json tagName 1>nul 2>nul"
-          if ($LASTEXITCODE -ne 0) {
-            gh release create $env:RELEASE_TAG --generate-notes
-          }
+  release-macos:
+    name: Package macOS Release
+    runs-on: macos-14
 
-      - name: Upload assets to GitHub Release
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build production app
+        run: npm run build
+
+      - name: Package macOS app
+        run: npx electron-builder --mac --config electron-builder.yml --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: Upload macOS artifacts to workflow run
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-release-artifacts
+          path: release/*.dmg
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs:
+      - release-windows
+      - release-macos
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Download Windows release artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: windows-release-artifacts
+          path: release-assets/windows
+
+      - name: Download macOS release artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: macos-release-artifacts
+          path: release-assets/macos
+
+      - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: powershell
+        shell: bash
         run: |
-          $releaseVersion = $env:RELEASE_TAG.TrimStart('v')
-          gh release upload $env:RELEASE_TAG `
-            release\NAM-BOT-Setup-*.exe `
-            release\NAM-BOT-Portable-$releaseVersion-Win64.zip `
+          gh release create "$RELEASE_TAG" --generate-notes
+
+      - name: Upload Windows assets to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh release upload "$RELEASE_TAG" \
+            release-assets/windows/* \
+            --clobber
+
+      - name: Upload macOS assets to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh release upload "$RELEASE_TAG" \
+            release-assets/macos/* \
             --clobber
