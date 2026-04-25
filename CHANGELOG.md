@@ -7,23 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.5.0] - 2026-04-25
-
-### Added
-
-- Added a deeper hidden terminal training sequence for anyone who keeps poking around the About screen after the credits stop talking
-- Added new checkpoint, recovery, and failure feedback to a certain tucked-away NAM-BOT diagnostic routine
+## [0.4.6] - 2026-04-25
 
 ### Changed
 
-- Retuned the buried terminal sequence with smoother movement, more varied pacing, and later-stage surprises for determined operators
-- Tightened About-screen interstitial handling so hidden diagnostic screens briefly lock input instead of being skipped by a queued command
-- Rebalanced the secret terminal HUD and copy to fit the default About-screen layout cleanly
-
-### Fixed
-
-- Corrected About-screen mascot copy so the little terminal operator is consistently called NAM-BOT
-- Prevented held input from skipping hidden stage break screens immediately after a run completes
+- The old terminal has started answering a little differently when addressed in the right forgotten dialect
+- Training telemetry now reports a stranger number, waits for the operator to read the room, and leaves a faint trail of relic static behind NAM-BOT
+- Some signals that used to arrive on a metronome now drift, hesitate, and dare the patient to keep listening
 
 ## [0.4.5] - 2026-04-07
 
