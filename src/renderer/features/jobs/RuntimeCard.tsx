@@ -32,6 +32,8 @@ interface RuntimeCardProps {
   onCancel: (jobId: string) => Promise<void>
   onForceStop: (jobId: string) => Promise<void>
   onRetry: (jobId: string) => Promise<void>
+  onCreateDraftFromRuntime?: (runtime: JobRuntimeState) => Promise<void>
+  onUseRuntimeAsTemplate?: (runtime: JobRuntimeState) => void
   onOpenFolder: (jobId: string) => Promise<void>
   onClearFinished?: (jobId: string) => Promise<void>
 }
@@ -58,6 +60,8 @@ export default function RuntimeCard({
   onCancel,
   onForceStop,
   onRetry,
+  onCreateDraftFromRuntime,
+  onUseRuntimeAsTemplate,
   onOpenFolder,
   onClearFinished
 }: RuntimeCardProps) {
@@ -66,9 +70,18 @@ export default function RuntimeCard({
   const stopAction = getStopActionState(runtime, nowMs)
   const progressPercent = runtime.status === 'running' || runtime.status === 'stopping' ? getProgressPercent(runtime) : null
   const hasTerminalToggle = displayState !== 'Queued'
+  const isFinishedDisplay = displayState === 'Successful' || displayState === 'Error'
+  const isSuccessfulDisplay = displayState === 'Successful'
+  const isRetryableDisplay = displayState === 'Error'
   const outputPath = getOutputPath(runtime)
+  const batchSourceName = runtime.frozenJob.batchSourceName?.trim() || ''
   const presetName = presets.find((preset) => preset.id === runtime.frozenJob.presetId)?.name || runtime.frozenJob.presetId || 'Unknown'
   const collapsedSummaryItems = getCollapsedSummaryItems(runtime, presetName, nowMs)
+  const hasPrimaryActions = (displayState === 'Queued' && onUnqueue)
+    || (displayState === 'Running' && stopAction)
+    || (isSuccessfulDisplay && (outputPath || onCreateDraftFromRuntime))
+    || isFinishedDisplay
+  const hasSecondaryActions = hasTerminalToggle || (isFinishedDisplay && onClearFinished)
 
   return (
     <div
@@ -108,6 +121,12 @@ export default function RuntimeCard({
             </div>
           )}
 
+          {batchSourceName && (
+            <div className="job-batch-badge queue-batch-badge" title={`Batch: ${batchSourceName}`}>
+              Batch: {batchSourceName}
+            </div>
+          )}
+
           {(runtime.status === 'running' || runtime.status === 'stopping') && progressPercent != null && (
             <div className="training-progress-group">
               <div className="training-progress-bar" aria-hidden="true">
@@ -121,60 +140,88 @@ export default function RuntimeCard({
         </div>
 
         <div className="job-actions queue-card-actions">
-          {displayState === 'Queued' && onUnqueue && (
-            <button
-              className="btn btn-sm btn-secondary"
-              onClick={() => void onUnqueue(runtime.jobId)}
-            >
-              Unqueue
-            </button>
+          {hasPrimaryActions && (
+            <div className="queue-card-action-row queue-card-action-row-primary">
+              {displayState === 'Queued' && onUnqueue && (
+                <button
+                  className="btn btn-sm btn-secondary"
+                  onClick={() => void onUnqueue(runtime.jobId)}
+                >
+                  Unqueue
+                </button>
+              )}
+
+              {displayState === 'Running' && stopAction && (
+                <button
+                  className="btn btn-sm btn-orange"
+                  onClick={() => void (stopAction.isForce ? onForceStop(runtime.jobId) : onCancel(runtime.jobId))}
+                  disabled={stopAction.disabled}
+                >
+                  {stopAction.label}
+                </button>
+              )}
+
+              {displayState === 'Successful' && outputPath && (
+                <button className="btn btn-sm btn-green" onClick={() => void onOpenFolder(runtime.jobId)}>
+                  Open Folder
+                </button>
+              )}
+
+              {isRetryableDisplay && (
+                <button className={`btn btn-sm ${displayState === 'Error' ? 'btn-gold' : 'btn-secondary'}`} onClick={() => void onRetry(runtime.jobId)}>
+                  Retry
+                </button>
+              )}
+
+              {isSuccessfulDisplay && onCreateDraftFromRuntime && (
+                <button
+                  className="btn btn-sm btn-secondary"
+                  onClick={() => void onCreateDraftFromRuntime(runtime)}
+                  title="Create a new editable draft from this finished job"
+                >
+                  Create Draft
+                </button>
+              )}
+
+              {isFinishedDisplay && onUseRuntimeAsTemplate && (
+                <button
+                  className="btn btn-sm btn-secondary"
+                  onClick={() => onUseRuntimeAsTemplate(runtime)}
+                  title="Create editable draft jobs from this finished job and new output files"
+                >
+                  Use as Template
+                </button>
+              )}
+            </div>
           )}
 
-          {displayState === 'Running' && stopAction && (
-            <button
-              className="btn btn-sm btn-orange"
-              onClick={() => void (stopAction.isForce ? onForceStop(runtime.jobId) : onCancel(runtime.jobId))}
-              disabled={stopAction.disabled}
-            >
-              {stopAction.label}
-            </button>
-          )}
+          {hasSecondaryActions && (
+            <div className="queue-card-action-row queue-card-action-row-secondary">
+              {hasTerminalToggle && (
+                <button
+                  className={`btn btn-sm btn-secondary${isExpanded ? ' is-toggled' : ''}`}
+                  onClick={() => onToggleExpanded(runtime.jobId)}
+                >
+                  {isExpanded ? 'Hide Details' : 'Show Details'}
+                </button>
+              )}
 
-          {hasTerminalToggle && (
-            <button
-              className={`btn btn-sm btn-secondary${isExpanded ? ' is-toggled' : ''}`}
-              onClick={() => onToggleExpanded(runtime.jobId)}
-            >
-              {isExpanded ? 'Hide Details' : 'Show Details'}
-            </button>
-          )}
+              {isFinishedDisplay && onClearFinished && (
+                <button className="btn btn-sm btn-secondary" onClick={() => void onClearFinished(runtime.jobId)}>
+                  Clear
+                </button>
+              )}
 
-          {displayState === 'Successful' && outputPath && (
-            <button className="btn btn-sm btn-green" onClick={() => void onOpenFolder(runtime.jobId)}>
-              Open Folder
-            </button>
-          )}
-
-          {(displayState === 'Successful' || displayState === 'Error') && (
-            <button className={`btn btn-sm ${displayState === 'Error' ? 'btn-gold' : 'btn-secondary'}`} onClick={() => void onRetry(runtime.jobId)}>
-              {displayState === 'Successful' ? 'Re-queue' : 'Retry'}
-            </button>
-          )}
-
-          {(displayState === 'Successful' || displayState === 'Error') && onClearFinished && (
-            <button className="btn btn-sm btn-secondary" onClick={() => void onClearFinished(runtime.jobId)}>
-              Clear
-            </button>
-          )}
-
-          {hasTerminalToggle && (
-            <button
-              className={`btn btn-sm btn-secondary${isLogsVisible ? ' is-toggled' : ''}`}
-              onClick={() => void onToggleLogs(runtime)}
-              disabled={isLoadingLog}
-            >
-              {isLoadingLog ? 'Loading...' : isLogsVisible ? 'Hide Logs' : 'Show Logs'}
-            </button>
+              {hasTerminalToggle && (
+                <button
+                  className={`btn btn-sm btn-secondary${isLogsVisible ? ' is-toggled' : ''}`}
+                  onClick={() => void onToggleLogs(runtime)}
+                  disabled={isLoadingLog}
+                >
+                  {isLoadingLog ? 'Loading...' : isLogsVisible ? 'Hide Logs' : 'Show Logs'}
+                </button>
+              )}
+            </div>
           )}
         </div>
       </div>

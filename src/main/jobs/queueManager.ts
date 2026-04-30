@@ -1085,6 +1085,18 @@ export class QueueManager extends EventEmitter {
     this.emitQueueUpdate()
   }
 
+  tagQueueItemBatch(jobId: string, batchId: string, batchSourceName: string): JobRuntimeState | null {
+    const runtime = this.queue.find((jobRuntime) => jobRuntime.jobId === jobId)
+    if (!runtime) {
+      return null
+    }
+
+    runtime.frozenJob.batchId = batchId
+    runtime.frozenJob.batchSourceName = batchSourceName
+    this.emitQueueUpdate()
+    return runtime
+  }
+
   unqueueJob(jobId: string): JobSpec | null {
     const index = this.queue.findIndex((jobRuntime) => jobRuntime.jobId === jobId)
     if (index < 0) {

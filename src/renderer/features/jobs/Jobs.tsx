@@ -55,6 +55,7 @@ import { handleCardToggleKeyDown, shouldIgnoreCardToggle } from '../../utils/car
 import { formatPresetNameWithRewardTag } from '../about/aboutRewardPreset'
 import {
   buildJobEditorSession,
+  applyStoredReusableDefaults,
   getStoredAppendEsrToModelFileNamePreference,
   createNewJobDraft,
   getStoredAppendPresetToModelFileNamePreference,
@@ -63,10 +64,29 @@ import {
   LAST_APPEND_PRESET_NAME_STORAGE_KEY,
   LAST_USED_PRESET_STORAGE_KEY,
   persistOutputRootPreference,
+  persistReusableJobDefaults,
   VIRTUAL_NEW_JOB_ID
 } from './jobEditorSession'
+import {
+  buildDraftFromFrozenJob,
+  buildDraftFromTemplateForOutput
+} from './jobTemplateDrafts'
 
+const BATCH_AUDIO_FILE_EXTENSIONS = ['.wav', '.mp3', '.flac']
+const SKIP_DRAFT_DELETE_CONFIRM_STORAGE_KEY = 'nam-bot:skip-draft-delete-confirm'
 
+function isBatchAudioFile(file: File): boolean {
+  const lowerName = file.name.toLowerCase()
+  return BATCH_AUDIO_FILE_EXTENSIONS.some((extension) => lowerName.endsWith(extension))
+}
+
+function createBatchId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+
+  return `batch-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
 
 interface FilePickerRowProps {
   value: string
@@ -121,10 +141,11 @@ interface DraftCardProps {
   onEdit: (job: JobSpec) => void
   onQueue: (jobId: string) => Promise<void>
   onDuplicate: (jobId: string) => Promise<void>
+  onBatchFromTemplate: (job: JobSpec) => void
   onDelete: (job: JobSpec) => void
 }
 
-function DraftCard({ job, presets, onEdit, onQueue, onDuplicate, onDelete }: DraftCardProps) {
+function DraftCard({ job, presets, onEdit, onQueue, onDuplicate, onBatchFromTemplate, onDelete }: DraftCardProps) {
   const preset = presets.find(p => p.id === job.presetId)
   const presetName = preset ? formatPresetNameWithRewardTag(preset) : job.presetId || 'Unknown Preset'
 
@@ -141,6 +162,11 @@ function DraftCard({ job, presets, onEdit, onQueue, onDuplicate, onDelete }: Dra
           <div className="job-meta-preset">
             <span className="meta-label">Preset:</span> {presetName}
           </div>
+          {job.batchSourceName && (
+            <div className="job-batch-badge" title={`Created from ${job.batchSourceName}`}>
+              Batch: {job.batchSourceName}
+            </div>
+          )}
         </div>
       </div>
       <div className="job-actions">
@@ -153,6 +179,9 @@ function DraftCard({ job, presets, onEdit, onQueue, onDuplicate, onDelete }: Dra
         <button className="btn btn-sm btn-secondary" onClick={() => void onDuplicate(job.id)}>
           Copy
         </button>
+        <button className="btn btn-sm btn-secondary" onClick={() => onBatchFromTemplate(job)} title="Create a batch from this draft">
+          Create Batch
+        </button>
         <button className="btn btn-sm btn-orange" onClick={() => onDelete(job)}>
           Delete
         </button>
@@ -162,6 +191,10 @@ function DraftCard({ job, presets, onEdit, onQueue, onDuplicate, onDelete }: Dra
 }
 
 const JOB_EDITOR_FORM_ID = 'job-editor-form'
+
+type BatchTemplateSource =
+  | { kind: 'draft'; template: JobSpec }
+  | { kind: 'runtime'; template: JobSpec; runtimeId: string }
 
 function serializeJobEditorSession(session: JobEditorSession): string {
   return JSON.stringify({
@@ -265,7 +298,10 @@ export default function Jobs() {
   const [loadingLogJobId, setLoadingLogJobId] = useState<string | null>(null)
   const [nowMs, setNowMs] = useState<number>(() => Date.now())
   const [pendingDeleteJob, setPendingDeleteJob] = useState<JobSpec | null>(null)
+  const [skipDraftDeleteConfirm, setSkipDraftDeleteConfirm] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const batchFileInputRef = useRef<HTMLInputElement>(null)
+  const batchTemplateRef = useRef<BatchTemplateSource | null>(null)
 
   const loadData = async () => {
     await loadJobs()
@@ -340,12 +376,8 @@ export default function Jobs() {
 
   const handleDropFiles = async (files: FileList) => {
     setIsDragOver(false)
-    const wavFiles = Array.from(files).filter((file) =>
-      file.name.toLowerCase().endsWith('.wav') ||
-      file.name.toLowerCase().endsWith('.mp3') ||
-      file.name.toLowerCase().endsWith('.flac')
-    )
-    if (wavFiles.length === 0) {
+    const audioFiles = Array.from(files).filter(isBatchAudioFile)
+    if (audioFiles.length === 0) {
       return
     }
 
@@ -357,12 +389,15 @@ export default function Jobs() {
     const fallbackPreset = visiblePresets.find((preset) => preset.id === storedPresetId)
       ?? visiblePresets.find((preset) => preset.id === DEFAULT_PRESET_ID)
       ?? visiblePresets[0]
-    for (const file of wavFiles) {
+    const createdJobs: JobSpec[] = []
+
+    for (const file of audioFiles) {
       const filePath = window.namBot.jobs.getPathForFile(file) || file.name
+      const outputStem = filenameWithoutExt(file.name)
       const preferredOutputRootSelection = getPreferredOutputRootSelection(settings, filePath)
-      const newJob = await window.namBot.jobs.createDraft({
+      const draftInput = applyStoredReusableDefaults({
         ...defaultJobSpec,
-        name: filenameWithoutExt(file.name),
+        name: outputStem,
         presetId: fallbackPreset?.id ?? DEFAULT_PRESET_ID,
         appendPresetToModelFileName,
         appendEsrToModelFileName,
@@ -377,10 +412,89 @@ export default function Jobs() {
         },
         metadata: {
           ...defaultJobSpec.metadata,
-          modeledBy: settings?.defaultAuthorName || ''
+          name: outputStem
         }
-      }) as JobSpec
-      setDrafts((prev) => [...prev, newJob])
+      }, settings)
+      const newJob = await window.namBot.jobs.createDraft(draftInput) as JobSpec
+      createdJobs.push(newJob)
+    }
+
+    if (createdJobs.length > 0) {
+      setDrafts((prev) => [...prev, ...createdJobs])
+    }
+  }
+
+  const handleBatchFromTemplate = (job: JobSpec): void => {
+    batchTemplateRef.current = {
+      kind: 'draft',
+      template: job
+    }
+    if (batchFileInputRef.current) {
+      batchFileInputRef.current.value = ''
+      batchFileInputRef.current.click()
+    }
+  }
+
+  const handleUseRuntimeAsTemplate = (runtime: JobRuntimeState): void => {
+    batchTemplateRef.current = {
+      kind: 'runtime',
+      template: runtime.frozenJob,
+      runtimeId: runtime.jobId
+    }
+    if (batchFileInputRef.current) {
+      batchFileInputRef.current.value = ''
+      batchFileInputRef.current.click()
+    }
+  }
+
+  const handleCreateDraftFromRuntime = async (runtime: JobRuntimeState): Promise<void> => {
+    const newJob = await window.namBot.jobs.createDraft(buildDraftFromFrozenJob(runtime.frozenJob)) as JobSpec
+    setDrafts((prev) => [...prev, newJob])
+  }
+
+  const handleBatchFilesSelected = async (files: FileList | null): Promise<void> => {
+    const source = batchTemplateRef.current
+    batchTemplateRef.current = null
+
+    if (!source || !files) {
+      return
+    }
+
+    const audioFiles = Array.from(files).filter(isBatchAudioFile)
+    if (audioFiles.length === 0) {
+      return
+    }
+
+    const template = source.template
+    const batchId = createBatchId()
+    const batchSourceName = template.name.trim() || 'Template Draft'
+    const taggedTemplate = {
+      ...template,
+      batchId,
+      batchSourceName
+    }
+    const createdJobs: JobSpec[] = []
+
+    for (const file of audioFiles) {
+      const outputAudioPath = window.namBot.jobs.getPathForFile(file) || file.name
+      const draftInput = buildDraftFromTemplateForOutput({
+        template,
+        outputAudioPath,
+        outputFileName: file.name,
+        batchId,
+        batchSourceName
+      })
+      const newJob = await window.namBot.jobs.createDraft(draftInput) as JobSpec
+      createdJobs.push(newJob)
+    }
+
+    if (createdJobs.length > 0) {
+      if (source.kind === 'draft') {
+        await window.namBot.jobs.saveDraft(taggedTemplate)
+      } else {
+        await window.namBot.jobs.tagBatchSource(source.runtimeId, batchId, batchSourceName)
+      }
+      await loadData()
     }
   }
 
@@ -402,9 +516,20 @@ export default function Jobs() {
     await window.namBot.jobs.deleteDraft(jobId)
     setDrafts((current) => current.filter((draft) => draft.id !== jobId))
     setPendingDeleteJob(null)
+    setSkipDraftDeleteConfirm(false)
     if (jobEditorSession?.job.id === jobId) {
       clearJobEditorSession()
     }
+  }
+
+  const handleRequestDeleteJob = (job: JobSpec): void => {
+    if (window.localStorage.getItem(SKIP_DRAFT_DELETE_CONFIRM_STORAGE_KEY) === 'true') {
+      void handleDeleteJob(job.id)
+      return
+    }
+
+    setSkipDraftDeleteConfirm(false)
+    setPendingDeleteJob(job)
   }
 
   const handleEnqueue = async (jobId: string) => {
@@ -562,14 +687,11 @@ export default function Jobs() {
   }
 
   const queuedJobs = queue.filter((runtime) => runtime.status === 'queued' || runtime.status === 'validating')
-  const trainingJobs = [...queue.filter((runtime) => runtime.status !== 'queued' && runtime.status !== 'validating')]
+  const trainingJobs = [...queue.filter((runtime) => isActiveRuntime(runtime.status))]
+    .sort((left, right) => Date.parse(right.startedAt || right.queuedAt || '0') - Date.parse(left.startedAt || left.queuedAt || '0'))
+  const finishedJobs = [...queue.filter((runtime) => isFinishedTraining(runtime))]
     .sort((left, right) => {
-      const leftActive = isActiveRuntime(left.status) ? 1 : 0
-      const rightActive = isActiveRuntime(right.status) ? 1 : 0
-      if (leftActive !== rightActive) {
-        return rightActive - leftActive
-      }
-      return Date.parse(right.startedAt || right.finishedAt || right.queuedAt || '0') - Date.parse(left.startedAt || left.finishedAt || left.queuedAt || '0')
+      return Date.parse(right.finishedAt || right.startedAt || right.queuedAt || '0') - Date.parse(left.finishedAt || left.startedAt || left.queuedAt || '0')
     })
 
   const isEmpty = drafts.length === 0 && queue.length === 0
@@ -603,6 +725,18 @@ export default function Jobs() {
           void handleDropFiles(event.dataTransfer.files)
         }}
       >
+        <input
+          type="file"
+          ref={batchFileInputRef}
+          multiple
+          accept=".wav,.mp3,.flac"
+          style={{ display: 'none' }}
+          onChange={(event) => {
+            void handleBatchFilesSelected(event.target.files)
+            event.target.value = ''
+          }}
+        />
+
         {isDragOver && (
           <div className="drop-overlay">
             <div className="drop-zone-empty">
@@ -631,10 +765,11 @@ export default function Jobs() {
               type="file"
               ref={fileInputRef}
               multiple
-              accept=".wav"
+              accept=".wav,.mp3,.flac"
               style={{ display: 'none' }}
               onChange={(e) => {
                 if (e.target.files) void handleDropFiles(e.target.files)
+                e.target.value = ''
               }}
             />
             <div className="drop-zone-icon-container">
@@ -669,7 +804,8 @@ export default function Jobs() {
                   onEdit={(j) => setJobEditorSession(buildJobEditorSession('Edit Job', j, settings))}
                   onQueue={handleEnqueue}
                   onDuplicate={handleDuplicate}
-                  onDelete={setPendingDeleteJob}
+                  onBatchFromTemplate={handleBatchFromTemplate}
+                  onDelete={handleRequestDeleteJob}
                 />
               ))}
               </div>
@@ -713,9 +849,6 @@ export default function Jobs() {
               <div>
               <div className="panel-header" style={{ marginBottom: '12px' }}>
                 <h3>Training ({trainingJobs.length})</h3>
-                <button className="btn btn-sm btn-secondary" onClick={() => void handleClearFinished()} disabled={trainingJobs.every((runtime) => isActiveRuntime(runtime.status))}>
-                  Clear Finished
-                </button>
               </div>
               <div className="job-list">
                 {trainingJobs.map((runtime) => {
@@ -734,6 +867,44 @@ export default function Jobs() {
                       onCancel={handleCancel}
                       onForceStop={handleForceStop}
                       onRetry={handleRetry}
+                      onCreateDraftFromRuntime={handleCreateDraftFromRuntime}
+                      onUseRuntimeAsTemplate={handleUseRuntimeAsTemplate}
+                      onOpenFolder={async (jobId) => { await window.namBot.jobs.openResultFolder(jobId) }}
+                      onClearFinished={handleClearItem}
+                    />
+                  )
+                })}
+              </div>
+              </div>
+            )}
+
+            {finishedJobs.length > 0 && (
+              <div>
+              <div className="panel-header" style={{ marginBottom: '12px' }}>
+                <h3>Finished ({finishedJobs.length})</h3>
+                <button className="btn btn-sm btn-secondary" onClick={() => void handleClearFinished()}>
+                  Clear Finished
+                </button>
+              </div>
+              <div className="job-list">
+                {finishedJobs.map((runtime) => {
+                  return (
+                    <RuntimeCard
+                      key={runtime.jobId}
+                      runtime={runtime}
+                      presets={presets}
+                      nowMs={nowMs}
+                      isExpanded={expandedJobs[runtime.jobId] === true}
+                      isLogsVisible={openLogs[runtime.jobId] === true}
+                      terminalLog={logContents[runtime.jobId] || ''}
+                      isLoadingLog={loadingLogJobId === runtime.jobId}
+                      onToggleExpanded={toggleExpanded}
+                      onToggleLogs={(entry) => toggleLogs(entry.jobId)}
+                      onCancel={handleCancel}
+                      onForceStop={handleForceStop}
+                      onRetry={handleRetry}
+                      onCreateDraftFromRuntime={handleCreateDraftFromRuntime}
+                      onUseRuntimeAsTemplate={handleUseRuntimeAsTemplate}
                       onOpenFolder={async (jobId) => { await window.namBot.jobs.openResultFolder(jobId) }}
                       onClearFinished={handleClearItem}
                     />
@@ -752,10 +923,19 @@ export default function Jobs() {
           ? `Delete "${pendingDeleteJob.name}"? This removes the draft from NAM-BOT, but it does not delete any audio files on disk.`
           : ''}
         confirmLabel="Delete"
-        onCancel={() => setPendingDeleteJob(null)}
+        checkboxLabel="Don't show this again"
+        checkboxChecked={skipDraftDeleteConfirm}
+        onCheckboxChange={setSkipDraftDeleteConfirm}
+        onCancel={() => {
+          setSkipDraftDeleteConfirm(false)
+          setPendingDeleteJob(null)
+        }}
         onConfirm={() => {
           if (!pendingDeleteJob) {
             return
+          }
+          if (skipDraftDeleteConfirm) {
+            window.localStorage.setItem(SKIP_DRAFT_DELETE_CONFIRM_STORAGE_KEY, 'true')
           }
           void handleDeleteJob(pendingDeleteJob.id)
         }}
@@ -876,6 +1056,8 @@ function JobEditor({
     }
   }
 
+  const outputFilenameStem = filenameWithoutExt(editedJob.outputAudioPath).trim()
+
   const isNameValid = editedJob.name.trim().length > 0
   const isInputValid = editedJob.inputAudioPath.trim().length > 0
   const isOutputValid = editedJob.outputAudioPath.trim().length > 0
@@ -904,6 +1086,7 @@ function JobEditor({
       editedJob.appendEsrToModelFileName ? 'true' : 'false'
     )
     persistOutputRootPreference(outputRootMode, editedJob.outputRootDir)
+    persistReusableJobDefaults(editedJob, inputMode)
     await Promise.resolve(onSave(editedJob))
   }
 
@@ -964,9 +1147,22 @@ function JobEditor({
 
           {/* ── Job Name ── */}
           <div className="form-group">
-            <label className="form-label" htmlFor="job-name">
-              Job Name {showValidationErrors && !isNameValid && <span style={{ color: 'var(--neon-magenta)', fontSize: '12px' }}>(Required)</span>}
-            </label>
+            <div className="form-label-row">
+              <label className="form-label" htmlFor="job-name">
+                Job Name {showValidationErrors && !isNameValid && <span style={{ color: 'var(--neon-magenta)', fontSize: '12px' }}>(Required)</span>}
+              </label>
+              <button
+                type="button"
+                className="btn btn-xs btn-secondary"
+                disabled={!outputFilenameStem}
+                onClick={() => onSessionChange({
+                  ...session,
+                  job: { ...editedJob, name: outputFilenameStem }
+                })}
+              >
+                Use Output Filename
+              </button>
+            </div>
             <input
               id="job-name"
               type="text"
@@ -1299,7 +1495,17 @@ function JobEditor({
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
               <div className="form-group">
-                <label className="form-label" htmlFor="meta-name">Model Name</label>
+                <div className="form-label-row">
+                  <label className="form-label" htmlFor="meta-name">Model Name</label>
+                  <button
+                    type="button"
+                    className="btn btn-xs btn-secondary"
+                    disabled={!outputFilenameStem}
+                    onClick={() => updateMeta({ name: outputFilenameStem })}
+                  >
+                    Use Output Filename
+                  </button>
+                </div>
                 <input
                   id="meta-name"
                   type="text"

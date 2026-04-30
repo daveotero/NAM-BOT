@@ -74,6 +74,8 @@ export interface JobSpec {
   name: string
   createdAt: string
   updatedAt: string
+  batchId?: string
+  batchSourceName?: string
   presetId: string | null
   appendPresetToModelFileName: boolean
   appendEsrToModelFileName: boolean
@@ -701,6 +703,8 @@ export function normalizeJobSpec(value: unknown): JobSpec {
     name: asString(value.name, base.name),
     createdAt: asString(value.createdAt, base.createdAt),
     updatedAt: asString(value.updatedAt, base.updatedAt),
+    batchId: asOptionalTrimmedString(value.batchId),
+    batchSourceName: asOptionalTrimmedString(value.batchSourceName),
     presetId,
     appendPresetToModelFileName: typeof value.appendPresetToModelFileName === 'boolean'
       ? value.appendPresetToModelFileName

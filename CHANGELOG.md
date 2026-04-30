@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-04-30
+
+### Added
+
+- Batch draft creation from a template draft, producing one editable draft per selected output file while preserving shared metadata and training settings
+- Batch traceability labels across draft, training, and finished job cards so related jobs stay visually grouped after creation and completion
+- Finished-job templating that creates editable draft jobs from selected new output files, plus a `Create Draft` action for successful runs that need another pass
+- Remembered low-risk job defaults for custom input audio, latency samples, modeled-by metadata, send level, and return level
+- Optional `Don't show this again` preference for draft-delete confirmations
+- Focused Vitest coverage for template draft creation helpers
+
+### Changed
+
+- Jobs screen now separates active `Training` jobs from `Finished` runs for cleaner queue review
+- Finished run actions now distinguish successful reruns from failed retries: successful jobs create drafts, while failed or stopped jobs can be retried directly
+- Runtime card actions are grouped into compact primary and secondary rows instead of one wide button rail
+- Job editor now includes `Use Output Filename` shortcuts for Job Name and Model Name
+- Jobs documentation now covers batch/template workflows, finished run actions, batch traceability fields, and delete confirmation preferences
+
+### Fixed
+
+- Finished-card batch labels no longer stretch across the action area or render in inconsistent positions
+
 ## [0.4.4] - 2026-03-28
 
 ### Added

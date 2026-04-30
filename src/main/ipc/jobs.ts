@@ -194,6 +194,10 @@ export function setupJobIpcHandlers(): void {
     queueManager.removeQueueItem(jobId)
   })
 
+  ipcMain.handle('jobs:tagBatchSource', async (_event, jobId: string, batchId: string, batchSourceName: string) => {
+    return queueManager.tagQueueItemBatch(jobId, batchId, batchSourceName)
+  })
+
   ipcMain.handle('jobs:duplicate', async (_event, jobId: string) => {
     const job = drafts.get(jobId)
     if (!job) {

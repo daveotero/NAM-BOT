@@ -8,6 +8,9 @@ interface ConfirmDialogProps {
   cancelLabel?: string
   alternateLabel?: string
   alternateClassName?: string
+  checkboxLabel?: string
+  checkboxChecked?: boolean
+  onCheckboxChange?: (checked: boolean) => void
   onConfirm: () => void
   onCancel: () => void
   onAlternate?: () => void
@@ -21,6 +24,9 @@ export default function ConfirmDialog({
   cancelLabel = 'Cancel',
   alternateLabel,
   alternateClassName = 'btn btn-secondary',
+  checkboxLabel,
+  checkboxChecked = false,
+  onCheckboxChange,
   onConfirm,
   onCancel,
   onAlternate
@@ -53,6 +59,17 @@ export default function ConfirmDialog({
       <div className="modal-content" onClick={(event) => event.stopPropagation()}>
         <h3>{title}</h3>
         <p style={{ color: 'var(--text-steel)', lineHeight: '1.6' }}>{message}</p>
+        {checkboxLabel && onCheckboxChange && (
+          <label className="checkbox-container modal-option">
+            {checkboxLabel}
+            <input
+              type="checkbox"
+              checked={checkboxChecked}
+              onChange={(event) => onCheckboxChange(event.target.checked)}
+            />
+            <span className="checkmark" aria-hidden="true" />
+          </label>
+        )}
         <div className="modal-actions">
           <button ref={cancelButtonRef} type="button" className="btn btn-secondary" onClick={onCancel}>
             {cancelLabel}

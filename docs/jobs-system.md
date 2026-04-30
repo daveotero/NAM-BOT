@@ -31,7 +31,8 @@ The Jobs screen is split into a few major states:
 - an editor for creating or editing one job
 - a drafts list for saved-but-not-yet-queued jobs
 - a queue section for waiting jobs
-- a training/history section for active and finished runs
+- a training section for active runs
+- a finished section for completed, failed, and stopped runs
 
 When the page is empty, it invites the user to either:
 
@@ -46,10 +47,40 @@ Draft jobs are editable saved jobs that have not been frozen into the queue yet.
 - Saving a new job creates a backend draft through `jobs:createDraft`.
 - Saving an existing draft updates it through `jobs:saveDraft`.
 - Draft cards expose `Edit`, `Queue`, `Copy`, and `Delete`.
+- Draft cards also expose `Create Batch`, which uses that draft as a template for multiple output audio files.
 - `Queue All` enqueues every valid draft and skips drafts missing required fields.
-- New jobs remember the last-used preset, the last-used output root mode, and the last-used exported-model naming preferences to speed up repeated comparison runs.
+- Draft delete confirmation includes a `Don't show this again` option that bypasses future draft-delete confirmations on that device.
+- New jobs remember the last-used preset, the last-used output root mode, the last-used exported-model naming preferences, and a small set of low-risk reusable capture fields.
 
 Drafts are where users can iterate safely before they commit a run to the queue.
+
+### Create Batch From A Draft Template
+
+`Create Batch` creates one new editable draft per selected output audio file.
+
+- the selected draft is the explicit template source
+- shared template fields are copied into each generated draft
+- job name and NAM model name are regenerated from each output filename without its extension
+- the template draft, generated drafts, and their later training/finished cards show a `Batch: <template name>` badge for traceability
+- generated drafts are still normal drafts and can be edited independently before queueing
+
+Shared fields copied from the template include:
+
+- selected preset
+- input audio mode and path
+- training overrides such as epochs and latency
+- final model filename options
+- NAM metadata such as modeled by, gear type, gear make, gear model, tone type, send level, and return level
+- notes
+
+File-specific fields regenerated for each selected output file include:
+
+- job name
+- NAM metadata model name
+- output audio path
+- output root directory when the template follows the training output file folder
+
+The batch badge is display-only. It does not create a locked group, and editing one generated draft does not update the others.
 
 ### Drag And Drop Draft Creation
 
@@ -58,6 +89,7 @@ The Jobs page supports dragging output audio files directly onto the main panel.
 - supported file extensions include `.wav`, `.mp3`, and `.flac`
 - each dropped output file becomes its own draft
 - the draft name defaults to the output filename without extension
+- the NAM model name defaults to the output filename without extension
 - the output root defaults to the dropped file's directory
 - the input audio defaults to the bundled NAM training signal when available
 - the preset defaults to the last-used visible preset, then the default preset, then the first visible preset
@@ -86,6 +118,7 @@ The editor shows `Save Job` buttons at both the top and bottom of the form.
 
 - Save buttons stay neutral when the editor is clean.
 - Save buttons turn green only when the job has unsaved changes and the current editor state is valid to save.
+- `Use Output Filename` beside Job Name and Model Name copies the selected output audio filename stem into that field.
 - Clicking `Cancel` with unsaved edits opens a confirm dialog so the user can save, keep editing, or discard changes.
 
 ### Input Audio Modes
@@ -138,17 +171,26 @@ Queued jobs appear in their own section.
 
 The queue UI shows the queued list in reverse visual order compared to the internal logical queue so the “next up” behavior feels natural in the interface.
 
-### Training And History View
+### Training View
 
-Active and finished jobs appear in the training section.
+Active jobs appear in the training section.
 
 - active jobs surface stop and force-stop controls
-- finished jobs can be retried
-- result folders can be opened from the UI
 - terminal logs can be expanded and refreshed while a job is active
-- `Clear Finished` removes finished runtime entries from the queue history panel
 - while a run is active, elapsed time is measured from the start of the training run and remaining time is estimated against the full planned epoch count rather than the current epoch only
-- collapsed cards now show status-specific quick stats:
+
+### Finished View
+
+Completed, failed, and stopped jobs appear in the finished section.
+
+- failed and stopped jobs can be retried
+- successful jobs can create a new editable draft for another pass
+- successful result folders can be opened from the UI
+- finished cards can be used as templates for new editable drafts by selecting one or more new output audio files
+- terminal logs can be expanded after the run has finished
+- `Clear Finished` removes all finished runtime entries from the finished section
+- individual finished items can also be cleared from their card
+- across queue, training, and finished sections, collapsed runtime cards show status-specific quick stats:
   - queued and validating cards show preset and planned epochs
   - preparing cards show preset, detected device summary, and planned epochs
   - running and stopping cards show progress/ESR plus elapsed and remaining or stop mode details
@@ -165,6 +207,8 @@ interface JobSpec {
   name: string
   createdAt: string
   updatedAt: string
+  batchId?: string
+  batchSourceName?: string
   presetId: string | null
   appendPresetToModelFileName: boolean
   appendEsrToModelFileName: boolean
@@ -200,6 +244,7 @@ interface JobSpec {
 - `metadata` is for NAM artifact tagging, not for configuring the core training recipe.
 - `appendPresetToModelFileName` controls whether the exported `.nam` file includes the selected preset name after the job name.
 - `appendEsrToModelFileName` controls whether the exported `.nam` file includes the best validation ESR after training finishes.
+- `batchId` and `batchSourceName` are optional display-only traceability fields for drafts and runtime cards created from the same batch/template flow.
 - New jobs seed both filename options from the user's most recent checkbox choices in the job editor.
 
 ## Runtime State
@@ -290,8 +335,10 @@ This prevents a user from accidentally changing the meaning of an already queued
 
 - `Unqueue` restores a queued item back into drafts.
 - `Unqueue All` restores every waiting queue item back into drafts.
-- `Retry` reuses the frozen job from a finished run and schedules it again.
+- `Retry` reuses the exact frozen job from a failed or stopped run and schedules it again.
+- `Create Draft` copies a successful finished run into Drafts so the user can tweak settings before queueing another pass.
 - `Clear Finished` removes finished history items from the queue manager view.
+- `Use as Template` on a finished history item opens the batch file picker and creates new editable drafts from that frozen run's settings without immediately queueing them.
 
 ## Persistence
 
@@ -412,16 +459,18 @@ Current built-in job defaults are aligned with the default WaveNet preset path.
 - preset defaults to `wavenet-standard`
 - input audio defaults to the bundled NAM v3 training signal
 - epochs default to the preset epoch default
-- latency defaults to `0`
+- latency defaults to `0` until the user saves a different value
 - output root defaults to `Settings Default` when `Default Model Output Root` is configured
 - otherwise output root defaults to the training output file folder
 - once the user saves a different output-root mode, future new drafts reuse that preference
+- custom input audio mode/path, latency, modeled by, send level, and return level reuse the most recently saved job values
+- broader NAM metadata is not silently copied from the previous job unless the user explicitly uses a draft as a batch template
 
 ## Future Extensions
 
 Likely future additions to the jobs system:
 
-- richer batch creation flows
+- multi-select draft and history management
 - more explicit draft tagging or grouping
 - draft import/export
 - stronger run templates for repeated capture workflows

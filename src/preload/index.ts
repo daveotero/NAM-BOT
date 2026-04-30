@@ -31,6 +31,7 @@ export interface NamBotApi {
     retry: (jobId: string) => Promise<unknown>
     clearFinished: () => Promise<void>
     clearItem: (jobId: string) => Promise<void>
+    tagBatchSource: (jobId: string, batchId: string, batchSourceName: string) => Promise<unknown>
     duplicate: (jobId: string) => Promise<unknown>
     listQueue: () => Promise<unknown[]>
     getRuntime: (jobId: string) => Promise<unknown | null>
@@ -93,6 +94,7 @@ const api: NamBotApi = {
     retry: (jobId) => ipcRenderer.invoke('jobs:retry', jobId),
     clearFinished: () => ipcRenderer.invoke('jobs:clearFinished'),
     clearItem: (jobId) => ipcRenderer.invoke('jobs:clearItem', jobId),
+    tagBatchSource: (jobId, batchId, batchSourceName) => ipcRenderer.invoke('jobs:tagBatchSource', jobId, batchId, batchSourceName),
     duplicate: (jobId) => ipcRenderer.invoke('jobs:duplicate', jobId),
     listQueue: () => ipcRenderer.invoke('jobs:listQueue'),
     getRuntime: (jobId) => ipcRenderer.invoke('jobs:getRuntime', jobId),

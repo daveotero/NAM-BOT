@@ -632,6 +632,13 @@ input[type="number"] {
   margin-top: 24px;
 }
 
+.modal-option {
+  display: inline-block;
+  margin-top: 14px;
+  color: var(--text-steel);
+  text-align: left;
+}
+
 /* Navigation */
 .nav-sidebar {
   background-color: var(--bg-charcoal);
@@ -771,6 +778,28 @@ input[type="number"] {
   letter-spacing: 0.05em;
 }
 
+.job-batch-badge {
+  display: inline-block;
+  align-self: flex-start;
+  box-sizing: border-box;
+  width: fit-content;
+  max-width: 100%;
+  padding: 3px 8px;
+  border: 1px solid var(--neon-gold);
+  color: var(--neon-gold);
+  font-family: var(--font-arcade);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-batch-badge {
+  margin-top: 8px;
+  margin-bottom: 0;
+}
+
 .meta-label {
   color: var(--text-steel);
   font-family: var(--font-system);
@@ -782,6 +811,8 @@ input[type="number"] {
 .job-actions {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .queue-card {
@@ -924,9 +955,32 @@ input[type="number"] {
 }
 
 .queue-card-actions {
-  flex-wrap: wrap;
-  justify-content: flex-end;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 8px;
+  min-width: 360px;
+}
+
+.queue-card-action-row {
+  display: flex;
   align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: nowrap;
+  width: 100%;
+}
+
+.queue-card-action-row-primary {
+  order: 1;
+}
+
+.queue-card-action-row-secondary {
+  order: 2;
+}
+
+.queue-card-action-row-secondary .btn {
+  opacity: 0.86;
 }
 
 .queue-card-details {
@@ -1089,8 +1143,16 @@ input[type="number"] {
   }
 
   .queue-card-actions {
+    align-items: flex-start;
     justify-content: flex-start;
     margin-top: 8px;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .queue-card-action-row {
+    justify-content: flex-start;
+    flex-wrap: wrap;
   }
 
   .queue-card-status-row {
@@ -1212,6 +1274,19 @@ input[type="number"] {
 .file-picker-row .form-input {
   flex: 1;
   min-width: 0;
+}
+
+.form-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.form-label-row .form-label {
+  margin-bottom: 0;
 }
 
 /* Toggle Group */
