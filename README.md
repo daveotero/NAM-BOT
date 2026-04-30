@@ -52,15 +52,15 @@ NAM-BOT tries to make local training smoother by giving you:
 
 - Windows 10 or Windows 11, x64
 - [Miniconda or Anaconda](https://www.anaconda.com/download), unless you already run NAM another way
-- A Python environment with `neural-amp-modeler` installed
+- A Python environment with `neural-amp-modeler` 0.12.3 or newer installed
 - NVIDIA GPU recommended if you want faster local training
 
-**macOS (beta)**
+**macOS**
 
 - Apple Silicon (`arm64`) and Intel (`x64`) builds are available as separate DMGs
 - Use Terminal and the `conda` command rather than Command Prompt / PowerShell and `conda.exe`
 - Apple Silicon users should choose Apple Silicon Miniconda and expect MPS diagnostics rather than CUDA-first messaging
-- Current macOS DMGs are unsigned beta builds and may require right-click `Open` on first launch
+- Current macOS DMGs are unsigned and may require right-click `Open` on first launch
 
 ## Install
 
@@ -69,7 +69,7 @@ For a public repository, the typical user-friendly path is:
 1. Open the GitHub Releases page.
 2. Download the latest Windows installer if you are on Windows, or the matching `arm64` / `x64` DMG if you are on macOS.
    Windows installer example: `NAM-BOT-Setup-0.4.0-Win64.exe`
-   macOS beta examples: `NAM-BOT-0.4.0-macOS-beta-arm64.dmg` or `NAM-BOT-0.4.0-macOS-beta-x64.dmg`
+   macOS DMG examples: `NAM-BOT-0.4.5-macOS-arm64.dmg` or `NAM-BOT-0.4.5-macOS-x64.dmg`
 3. Run the installer on Windows, or open the DMG and move NAM-BOT into Applications on macOS.
 
 ## Setup Overview
@@ -94,7 +94,7 @@ If you do not already have a local NAM environment, NAM-BOT will help walk you t
 
 1. Install Miniconda or Anaconda.
 2. Create a Conda environment named `nam`.
-3. Install `neural-amp-modeler` into that environment.
+3. Install `neural-amp-modeler` 0.12.3 or newer into that environment.
 4. Open NAM-BOT and let Diagnostics confirm the setup.
 
 On macOS, use Terminal for those commands. On Apple Silicon, choose the Apple Silicon Miniconda installer and treat MPS as the expected accelerator path.
@@ -106,8 +106,21 @@ If you want to build the environment by hand, these are the commands NAM-BOT exp
 ```bash
 conda create -n nam python=3.11 -y
 conda activate nam
-pip install neural-amp-modeler
+pip install --upgrade "neural-amp-modeler>=0.12.3"
 ```
+
+NAM-BOT performs a metadata-only safety check before importing NAM or Lightning. If the selected environment contains the known compromised Lightning releases `2.6.2` or `2.6.3`, NAM-BOT blocks validation and training until the environment is repaired.
+
+To check and repair an existing environment:
+
+```bash
+pip show lightning pytorch-lightning
+pip uninstall -y lightning pytorch-lightning pytorch_lightning
+pip install "pytorch-lightning<=2.6.1"
+pip install --upgrade "neural-amp-modeler>=0.12.3"
+```
+
+If Lightning `2.6.2` or `2.6.3` was installed and imported in that environment, treat it as potentially compromised and rotate credentials used on that machine.
 
 ### If You Need CUDA Training
 
@@ -163,7 +176,7 @@ pip install --no-cache-dir https://repo.radeon.com/rocm/windows/rocm-rel-7.2/tor
 4. Install Neural Amp Modeler:
 
 ```bash
-pip install neural-amp-modeler
+pip install --upgrade "neural-amp-modeler>=0.12.3"
 ```
 
 5. Verify ROCm installation:

@@ -66,6 +66,22 @@ interface ParsedEpochProgress {
   totalBatches: number | null
 }
 
+interface ConfirmedNamTrainingMetadata {
+  validationEsr?: number
+  manualLatency?: number | null
+  trainedEpochs?: number
+  presetName?: string
+}
+
+interface NamExportDateMetadata {
+  year: number
+  month: number
+  day: number
+  hour: number
+  minute: number
+  second: number
+}
+
 function cloneJobSpec(jobSpec: JobSpec): JobSpec {
   return JSON.parse(JSON.stringify(jobSpec)) as JobSpec
 }
@@ -146,6 +162,91 @@ function stripTerminalControlSequences(value: string): string {
 function parseNumericToken(value: string): number | null {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : null
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0
+}
+
+function buildNamExportDate(date: Date): NamExportDateMetadata {
+  return {
+    year: date.getFullYear(),
+    month: date.getMonth() + 1,
+    day: date.getDate(),
+    hour: date.getHours(),
+    minute: date.getMinutes(),
+    second: date.getSeconds()
+  }
+}
+
+function deriveTrainedEpochs(runtime: JobRuntimeState): number | null {
+  const latestCheckpointEpoch = runtime.checkpointSummary?.latestCheckpointEpoch
+  if (typeof latestCheckpointEpoch === 'number' && Number.isInteger(latestCheckpointEpoch) && latestCheckpointEpoch >= 0) {
+    return latestCheckpointEpoch + 1
+  }
+
+  if (isPositiveInteger(runtime.currentEpoch)) {
+    return runtime.currentEpoch
+  }
+
+  if (runtime.status === 'succeeded' && isPositiveInteger(runtime.plannedEpochs)) {
+    return runtime.plannedEpochs
+  }
+
+  return null
+}
+
+function readConfirmedTrainingMetadata(runtime: JobRuntimeState): ConfirmedNamTrainingMetadata {
+  const trainingMetadata: ConfirmedNamTrainingMetadata = {}
+  const bestValidationEsr = runtime.checkpointSummary?.bestValidationEsr
+  if (bestValidationEsr != null) {
+    trainingMetadata.validationEsr = bestValidationEsr
+  }
+
+  const dataConfigPath = runtime.generatedConfigPaths?.dataConfig
+  if (!dataConfigPath || !existsSync(dataConfigPath)) {
+    return trainingMetadata
+  }
+
+  try {
+    const parsed = JSON.parse(readFileSync(dataConfigPath, 'utf-8')) as unknown
+    if (!isRecord(parsed) || !isRecord(parsed.common)) {
+      const trainedEpochs = deriveTrainedEpochs(runtime)
+      if (trainedEpochs != null) {
+        trainingMetadata.trainedEpochs = trainedEpochs
+      }
+
+      const presetName = getTrainingPresetById(runtime.frozenJob.presetId).name.trim()
+      if (presetName) {
+        trainingMetadata.presetName = presetName
+      }
+
+      return trainingMetadata
+    }
+
+    const delay = parsed.common.delay
+    if (typeof delay === 'number' && Number.isFinite(delay) && delay !== 0) {
+      trainingMetadata.manualLatency = delay
+    }
+  } catch (error) {
+    log.warn('Failed to read generated data config for NAM training metadata:', error)
+  }
+
+  const trainedEpochs = deriveTrainedEpochs(runtime)
+  if (trainedEpochs != null) {
+    trainingMetadata.trainedEpochs = trainedEpochs
+  }
+
+  const presetName = getTrainingPresetById(runtime.frozenJob.presetId).name.trim()
+  if (presetName) {
+    trainingMetadata.presetName = presetName
+  }
+
+  return trainingMetadata
 }
 
 function buildStructuredProgressLine(progress: JobTerminalProgress): string | null {
@@ -679,7 +780,14 @@ export class QueueManager extends EventEmitter {
     }
 
     const metadataPatch = buildNamMetadataPatch(runtime.frozenJob.metadata)
-    if (Object.keys(metadataPatch).length === 0) {
+    const confirmedTrainingMetadata = readConfirmedTrainingMetadata(runtime)
+    const exportDate = buildNamExportDate(new Date())
+    const hasValidationEsr = confirmedTrainingMetadata.validationEsr != null
+    const hasManualLatency = Object.prototype.hasOwnProperty.call(confirmedTrainingMetadata, 'manualLatency')
+    const hasTrainedEpochs = isPositiveInteger(confirmedTrainingMetadata.trainedEpochs)
+    const hasPresetName = typeof confirmedTrainingMetadata.presetName === 'string' && confirmedTrainingMetadata.presetName.length > 0
+
+    if (Object.keys(metadataPatch).length === 0 && !hasValidationEsr && !hasManualLatency && !hasTrainedEpochs && !hasPresetName) {
       return
     }
 
@@ -688,9 +796,51 @@ export class QueueManager extends EventEmitter {
       const currentMetadata = typeof parsed.metadata === 'object' && parsed.metadata !== null
         ? parsed.metadata as Record<string, unknown>
         : {}
+      const currentTraining = isRecord(currentMetadata.training)
+        ? currentMetadata.training
+        : {}
+      const currentTrainingData = isRecord(currentTraining.data)
+        ? currentTraining.data
+        : {}
+      const currentTrainingLatency = isRecord(currentTrainingData.latency)
+        ? currentTrainingData.latency
+        : {}
+      const currentNamBotTraining = isRecord(currentTraining.nam_bot)
+        ? currentTraining.nam_bot
+        : {}
+
+      let nextTraining: Record<string, unknown> | null = null
+      if (hasValidationEsr || hasManualLatency || hasTrainedEpochs || hasPresetName || Object.keys(currentTraining).length > 0) {
+        nextTraining = { ...currentTraining }
+
+        if (hasValidationEsr) {
+          nextTraining.validation_esr = confirmedTrainingMetadata.validationEsr
+        }
+
+        if (hasManualLatency) {
+          nextTraining.data = {
+            ...currentTrainingData,
+            latency: {
+              ...currentTrainingLatency,
+              manual: confirmedTrainingMetadata.manualLatency ?? null
+            }
+          }
+        }
+
+        if (hasTrainedEpochs || hasPresetName || Object.keys(currentNamBotTraining).length > 0) {
+          nextTraining.nam_bot = {
+            ...currentNamBotTraining,
+            ...(hasTrainedEpochs ? { trained_epochs: confirmedTrainingMetadata.trainedEpochs } : {}),
+            ...(hasPresetName ? { preset_name: confirmedTrainingMetadata.presetName } : {})
+          }
+        }
+      }
+
       parsed.metadata = {
         ...currentMetadata,
-        ...metadataPatch
+        date: exportDate,
+        ...metadataPatch,
+        ...(nextTraining ? { training: nextTraining } : {})
       }
       writeFileSync(modelPath, JSON.stringify(parsed, null, 2), 'utf-8')
     } catch (error) {

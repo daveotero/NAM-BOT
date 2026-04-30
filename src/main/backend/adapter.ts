@@ -51,11 +51,26 @@ interface AcceleratorProbePayload {
   errors: string[]
 }
 
+interface LightningPackageSecurityResult {
+  name: string
+  version: string | null
+  vulnerable: boolean
+}
+
+interface LightningSecuritySummary {
+  ok: boolean
+  packages: LightningPackageSecurityResult[]
+  output: string
+}
+
 interface HostNvidiaSummary {
   hostNvidiaSmiAvailable: boolean | null
   hostNvidiaGpuName: string | null
   hostDriverVersion: string | null
 }
+
+const VULNERABLE_LIGHTNING_VERSIONS = new Set(['2.6.2', '2.6.3'])
+const LIGHTNING_SECURITY_PREFIX = 'NAM_BOT_LIGHTNING_SECURITY='
 
 export interface TrainingProcessController {
   cancel: () => void
@@ -137,6 +152,34 @@ function hasMissingModuleMessage(errors: string[], moduleName: string): boolean 
   const singleQuoteNeedle = `No module named '${moduleName}'`
   const doubleQuoteNeedle = `No module named "${moduleName}"`
   return errors.some((entry) => entry.includes(singleQuoteNeedle) || entry.includes(doubleQuoteNeedle))
+}
+
+function getVulnerableLightningPackage(
+  summary: LightningSecuritySummary
+): LightningPackageSecurityResult | null {
+  return summary.packages.find((entry) => entry.vulnerable) ?? null
+}
+
+function formatLightningPackageList(packages: LightningPackageSecurityResult[]): string {
+  if (packages.length === 0) {
+    return 'No Lightning distributions were found in this environment.'
+  }
+
+  return packages
+    .map((entry) => `${entry.name}: ${entry.version ?? 'not installed'}`)
+    .join('; ')
+}
+
+function createLightningSecurityDetail(packageResult: LightningPackageSecurityResult): string {
+  return `${packageResult.name} ${packageResult.version} is one of the known compromised PyPI releases. NAM-BOT has not imported NAM or Lightning in this environment.`
+}
+
+function createLightningSecuritySuggestion(): string {
+  return 'Remove the affected Lightning package, install a safe version, upgrade neural-amp-modeler, and rotate credentials if this environment imported Lightning while affected.'
+}
+
+function createLightningSecurityErrorMessage(packageResult: LightningPackageSecurityResult): string {
+  return `${packageResult.name} ${packageResult.version} is blocked because Lightning 2.6.2 and 2.6.3 are known compromised PyPI releases. Remove the affected package before running NAM-BOT training.`
 }
 
 function formatCommandForLog(executable: string, args: string[]): string {
@@ -574,18 +617,55 @@ export async function validateBackend(settings: AppSettings): Promise<BackendVal
   }
 
   if (results.pythonReachable.ok) {
-    const namCheck = await runCondaCommand(settings, ['nam-hello-world'])
-    if (namCheck.ok) {
-      results.namInstalled = createCheckResult(true, 'nam_ok', 'NAM', 'NAM is installed')
-    } else {
+    const lightningSecurity = await inspectLightningPackageSecurity(settings)
+    const vulnerableLightningPackage = lightningSecurity.ok ? getVulnerableLightningPackage(lightningSecurity) : null
+
+    if (!lightningSecurity.ok) {
       results.namInstalled = createCheckResult(
         false,
-        'nam_not_installed',
-        'NAM',
-        'NAM is not installed in the environment',
-        namCheck.output,
-        'Install NAM in the Conda environment'
+        'lightning_security_check_failed',
+        'Lightning Security',
+        'Could not verify Lightning package versions safely',
+        lightningSecurity.output,
+        'Verify Python package metadata manually before running NAM commands in this environment.'
       )
+      results.namFullAvailable = createCheckResult(
+        false,
+        'blocked_until_security_check_passes',
+        'NAM Full Trainer',
+        'Skipped until Lightning package versions can be verified'
+      )
+    } else if (vulnerableLightningPackage) {
+      results.namInstalled = createCheckResult(
+        false,
+        'lightning_vulnerable',
+        'Lightning Security',
+        `${vulnerableLightningPackage.name} ${vulnerableLightningPackage.version} is blocked`,
+        createLightningSecurityDetail(vulnerableLightningPackage),
+        createLightningSecuritySuggestion()
+      )
+      results.namFullAvailable = createCheckResult(
+        false,
+        'blocked_vulnerable_lightning',
+        'NAM Full Trainer',
+        'Skipped because this environment contains a compromised Lightning version',
+        formatLightningPackageList(lightningSecurity.packages),
+        createLightningSecuritySuggestion()
+      )
+    } else {
+      const namCheck = await runCondaCommand(settings, ['nam-hello-world'])
+      if (namCheck.ok) {
+        results.namInstalled = createCheckResult(true, 'nam_ok', 'NAM', 'NAM is installed')
+      } else {
+        results.namInstalled = createCheckResult(
+          false,
+          'nam_not_installed',
+          'NAM',
+          'NAM is not installed in the environment',
+          namCheck.output,
+          'Install NAM in the Conda environment'
+        )
+      }
     }
   }
 
@@ -689,6 +769,79 @@ async function runPythonScriptInEnvironment(
   }
 }
 
+async function inspectLightningPackageSecurity(settings: AppSettings): Promise<LightningSecuritySummary> {
+  const script = [
+    'import json',
+    'from importlib.metadata import PackageNotFoundError, version',
+    '',
+    "blocked_versions = {'2.6.2', '2.6.3'}",
+    'packages = []',
+    "for package_name in ('lightning', 'pytorch-lightning'):",
+    '    try:',
+    '        package_version = version(package_name)',
+    '    except PackageNotFoundError:',
+    '        package_version = None',
+    '    packages.append({',
+    "        'name': package_name,",
+    "        'version': package_version,",
+    "        'vulnerable': package_version in blocked_versions,",
+    '    })',
+    '',
+    `print('${LIGHTNING_SECURITY_PREFIX}' + json.dumps({'packages': packages}))`
+  ].join('\n')
+
+  const result = await runPythonScriptInEnvironment(settings, script, 'lightning-security-probe.py')
+  const line = result.output
+    .split(/\r?\n/)
+    .find((entry) => entry.trim().startsWith(LIGHTNING_SECURITY_PREFIX))
+
+  if (!result.ok || !line) {
+    return {
+      ok: false,
+      packages: [],
+      output: result.output.trim()
+    }
+  }
+
+  try {
+    const payload = JSON.parse(line.trim().slice(LIGHTNING_SECURITY_PREFIX.length)) as {
+      packages?: Array<{ name?: string; version?: string | null; vulnerable?: boolean }>
+    }
+    const packages = (payload.packages ?? [])
+      .filter((entry) => typeof entry.name === 'string')
+      .map((entry) => ({
+        name: entry.name ?? 'unknown',
+        version: entry.version ?? null,
+        vulnerable: VULNERABLE_LIGHTNING_VERSIONS.has(entry.version ?? '') || entry.vulnerable === true
+      }))
+
+    return {
+      ok: true,
+      packages,
+      output: result.output.trim()
+    }
+  } catch (error) {
+    log.warn('Failed to parse Lightning security probe:', error)
+    return {
+      ok: false,
+      packages: [],
+      output: result.output.trim()
+    }
+  }
+}
+
+async function assertLightningPackageSafe(settings: AppSettings): Promise<void> {
+  const lightningSecurity = await inspectLightningPackageSecurity(settings)
+  if (!lightningSecurity.ok) {
+    throw new Error('NAM-BOT could not verify Lightning package versions safely. Verify package metadata manually before running NAM commands in this environment.')
+  }
+
+  const vulnerableLightningPackage = getVulnerableLightningPackage(lightningSecurity)
+  if (vulnerableLightningPackage) {
+    throw new Error(createLightningSecurityErrorMessage(vulnerableLightningPackage))
+  }
+}
+
 export async function inspectTorchRuntime(settings: AppSettings): Promise<TorchRuntimeSummary | null> {
   const script = [
     'import json',
@@ -786,6 +939,39 @@ export async function inspectAcceleratorDiagnostics(
       {
         ...hostNvidia,
         suggestion: 'Set the environment prefix path in Settings, then re-run diagnostics.'
+      }
+    )
+  }
+
+  const lightningSecurity = await inspectLightningPackageSecurity(settings)
+  const vulnerableLightningPackage = lightningSecurity.ok ? getVulnerableLightningPackage(lightningSecurity) : null
+
+  if (!lightningSecurity.ok) {
+    return createAcceleratorDiagnosticsSummary(
+      'error',
+      'lightning_security_check_failed',
+      'Lightning security check failed',
+      'NAM-BOT could not verify Lightning package versions without importing the Python packages, so accelerator probing was skipped.',
+      {
+        ...hostNvidia,
+        suggestion: 'Verify package metadata manually before running NAM commands in this environment.',
+        errors: [lightningSecurity.output].filter((entry) => entry.length > 0)
+      }
+    )
+  }
+
+  if (vulnerableLightningPackage) {
+    return createAcceleratorDiagnosticsSummary(
+      'error',
+      'lightning_vulnerable',
+      'Compromised Lightning version detected',
+      createLightningSecurityDetail(vulnerableLightningPackage),
+      {
+        ...hostNvidia,
+        lightningPackage: vulnerableLightningPackage.name,
+        lightningVersion: vulnerableLightningPackage.version,
+        suggestion: createLightningSecuritySuggestion(),
+        errors: [formatLightningPackageList(lightningSecurity.packages)]
       }
     )
   }
@@ -1065,6 +1251,13 @@ export async function inspectAcceleratorDiagnostics(
 export async function runNamHelloWorld(
   settings: AppSettings
 ): Promise<{ ok: boolean; output: string }> {
+  try {
+    await assertLightningPackageSafe(settings)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Lightning package security check failed'
+    return { ok: false, output: message }
+  }
+
   return runCondaCommand(settings, ['nam-hello-world'])
 }
 
@@ -1081,6 +1274,8 @@ export async function runNamFull(
   },
   hooks: RunHooks
 ): Promise<TrainingProcessController> {
+  await assertLightningPackageSafe(settings)
+
   return new Promise((resolve, reject) => {
     const namArgs = [
       'nam-full',
@@ -1303,6 +1498,13 @@ export async function fetchLatestNamVersion(): Promise<{
 }
 
 export async function detectNamVersion(settings: AppSettings): Promise<string | null> {
+  try {
+    await assertLightningPackageSafe(settings)
+  } catch (error) {
+    log.warn('Skipped NAM version detection because Lightning security preflight failed:', error)
+    return null
+  }
+
   const script = [
     'import json',
     'import nam',

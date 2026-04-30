@@ -89,6 +89,8 @@ export type AcceleratorDiagnosticsIssue =
   | 'probe_launch_failed'
   | 'probe_payload_missing'
   | 'probe_payload_malformed'
+  | 'lightning_security_check_failed'
+  | 'lightning_vulnerable'
   | 'torch_missing'
   | 'torch_import_failed'
   | 'nam_missing'
@@ -98,6 +100,7 @@ export type AcceleratorDiagnosticsIssue =
   | 'cuda_not_visible'
   | 'cuda_ready'
   | 'mps_ready'
+  | 'rocm_ready'
 
 export interface AcceleratorDiagnosticsSummary {
   checkedAt: string
@@ -112,6 +115,7 @@ export interface AcceleratorDiagnosticsSummary {
   torchImportOk: boolean | null
   torchVersion: string | null
   torchCudaVersion: string | null
+  hipVersion: string | null
   namVersion: string | null
   lightningPackage: string | null
   lightningVersion: string | null

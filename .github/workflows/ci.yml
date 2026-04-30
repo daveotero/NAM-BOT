@@ -2,8 +2,6 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
   pull_request:
 
 jobs:
@@ -28,7 +26,7 @@ jobs:
         run: npm run build
 
   build-macos:
-    name: Build macOS App (beta)
+    name: Build macOS App
     runs-on: macos-14
 
     steps:

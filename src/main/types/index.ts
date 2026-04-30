@@ -67,6 +67,8 @@ export type AcceleratorDiagnosticsIssue =
   | 'probe_launch_failed'
   | 'probe_payload_missing'
   | 'probe_payload_malformed'
+  | 'lightning_security_check_failed'
+  | 'lightning_vulnerable'
   | 'torch_missing'
   | 'torch_import_failed'
   | 'nam_missing'

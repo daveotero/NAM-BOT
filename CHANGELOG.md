@@ -25,10 +25,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Runtime card actions are grouped into compact primary and secondary rows instead of one wide button rail
 - Job editor now includes `Use Output Filename` shortcuts for Job Name and Model Name
 - Jobs documentation now covers batch/template workflows, finished run actions, batch traceability fields, and delete confirmation preferences
+- GitHub Releases now publish the matching `CHANGELOG.md` version section as the release notes instead of relying on empty auto-generated notes
 
 ### Fixed
 
 - Finished-card batch labels no longer stretch across the action area or render in inconsistent positions
+
+## [0.4.7] - 2026-04-30
+
+### Changed
+
+- Setup guidance now recommends `neural-amp-modeler>=0.12.3` so fresh NAM environments inherit NAM's safe Lightning dependency constraint
+- Diagnostics and setup docs now explain the PyTorch Lightning 2.6.2/2.6.3 security block and include repair commands for affected Python environments
+
+### Fixed
+
+- NAM-BOT now checks Lightning package metadata before importing NAM or Lightning and blocks validation, version checks, diagnostics, and training launch when compromised Lightning 2.6.2 or 2.6.3 is detected
+
+## [0.4.6] - 2026-04-25
+
+### Changed
+
+- The old terminal has started answering a little differently when addressed in the right forgotten dialect
+- Training telemetry now reports a stranger number, waits for the operator to read the room, and leaves a faint trail of relic static behind NAM-BOT
+- Some signals that used to arrive on a metronome now drift, hesitate, and dare the patient to keep listening
+
+## [0.4.5] - 2026-04-07
+
+### Changed
+
+- macOS is now a stable release platform; GitHub Actions release workflow now builds and publishes Windows installer, portable ZIP, and macOS DMG assets together for each `v*` tag
+- Removed the separate macOS release workflow; all stable release assets are now built and published automatically by the main release workflow
+
+## [0.4.5-rc.2] - 2026-04-06
+
+### Changed
+
+- Exported `.nam` files now also stamp a NAM-style `metadata.date` block at final write time for easier model sorting and provenance
+
+### Fixed
+
+- Exported `.nam` files now include additional NAM-BOT training metadata for the completed run, including `metadata.training.nam_bot.trained_epochs` and `metadata.training.nam_bot.preset_name`
+
+## [0.4.5-rc.1] - 2026-04-06
+
+### Added
+
+- Pushes to `main` now publish GitHub prerelease preview builds for Windows and macOS so testers can download fresh binaries from the Releases page without replacing the latest stable tagged release
+- Preview prerelease automation now keeps only the newest ten `main` push builds so the Releases page stays useful instead of filling indefinitely with old test builds
+
+### Changed
+
+- Jobs docs now note that exported `.nam` files keep confirmed training metadata NAM-BOT can derive after a successful run
+
+### Fixed
+
+- Exported `.nam` files now write confirmed training metadata back into the final model, including final validation ESR and non-zero manual latency values when available
 
 ## [0.4.4] - 2026-03-28
 

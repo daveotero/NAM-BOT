@@ -242,6 +242,7 @@ interface JobSpec {
 - `outputRootDirIsDefault` tracks whether the root is following an automatic mode versus a custom folder choice.
 - `trainingOverrides` are intentionally narrow. Jobs override only the fields that need run-specific flexibility.
 - `metadata` is for NAM artifact tagging, not for configuring the core training recipe.
+- After a successful export, NAM-BOT also writes back metadata it can derive reliably, currently `metadata.date`, the final validation ESR, the effective manual latency value used in the generated data config, and NAM-BOT-specific fields under `metadata.training.nam_bot` for `trained_epochs` and `preset_name`.
 - `appendPresetToModelFileName` controls whether the exported `.nam` file includes the selected preset name after the job name.
 - `appendEsrToModelFileName` controls whether the exported `.nam` file includes the best validation ESR after training finishes.
 - `batchId` and `batchSourceName` are optional display-only traceability fields for drafts and runtime cards created from the same batch/template flow.

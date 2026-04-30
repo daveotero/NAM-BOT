@@ -1,0 +1,185 @@
+name: Preview Releases
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+env:
+  PREVIEW_RETENTION_COUNT: 10
+
+jobs:
+  prepare:
+    name: Prepare Preview Metadata
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      short_sha: ${{ steps.meta.outputs.short_sha }}
+      preview_tag: ${{ steps.meta.outputs.preview_tag }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Compute preview identifiers
+        id: meta
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          SHORT_SHA="${GITHUB_SHA::7}"
+          PREVIEW_TAG="preview-main-${SHORT_SHA}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "preview_tag=$PREVIEW_TAG" >> "$GITHUB_OUTPUT"
+
+  build-windows:
+    name: Build Windows Preview
+    runs-on: windows-2022
+    needs: prepare
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build production app
+        run: npm run build
+
+      - name: Package Windows preview app
+        run: npx electron-builder --win --config electron-builder.yml --publish never
+
+      - name: Compress portable preview app
+        shell: powershell
+        run: |
+          $previewVersion = '${{ needs.prepare.outputs.version }}'
+          $shortSha = '${{ needs.prepare.outputs.short_sha }}'
+          $portableAsset = "release\NAM-BOT-Portable-$previewVersion-preview-$shortSha-Win64.zip"
+          Compress-Archive -Path 'release\win-unpacked\*' -DestinationPath $portableAsset -Force
+
+      - name: Upload Windows preview artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-preview-assets
+          path: |
+            release/NAM-BOT-Setup-*.exe
+            release/NAM-BOT-Portable-*-Win64.zip
+          if-no-files-found: error
+
+  build-macos:
+    name: Build macOS Preview
+    runs-on: macos-14
+    needs: prepare
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build production app
+        run: npm run build
+
+      - name: Package macOS preview app
+        run: npx electron-builder --mac --config electron-builder.yml --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: Upload macOS preview artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-preview-assets
+          path: release/*.dmg
+          if-no-files-found: error
+
+  publish-preview:
+    name: Publish GitHub Prerelease
+    runs-on: ubuntu-latest
+    needs:
+      - prepare
+      - build-windows
+      - build-macos
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Download Windows preview artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: windows-preview-assets
+          path: preview-assets/windows
+
+      - name: Download macOS preview artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: macos-preview-assets
+          path: preview-assets/macos
+
+      - name: Create or update GitHub prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          if gh release view "${{ needs.prepare.outputs.preview_tag }}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release edit "${{ needs.prepare.outputs.preview_tag }}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "Preview ${{ needs.prepare.outputs.version }} (${{ needs.prepare.outputs.short_sha }})" \
+              --notes "Automated preview build for commit ${{ github.sha }} on main. This is a prerelease build for testing and does not replace the latest stable tagged release." \
+              --prerelease
+          else
+            gh release create "${{ needs.prepare.outputs.preview_tag }}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --target "${{ github.sha }}" \
+              --title "Preview ${{ needs.prepare.outputs.version }} (${{ needs.prepare.outputs.short_sha }})" \
+              --notes "Automated preview build for commit ${{ github.sha }} on main. This is a prerelease build for testing and does not replace the latest stable tagged release." \
+              --prerelease
+          fi
+
+      - name: Upload preview assets to GitHub prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh release upload "${{ needs.prepare.outputs.preview_tag }}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            preview-assets/windows/* \
+            preview-assets/macos/* \
+            --clobber
+
+      - name: Clean up older preview prereleases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          mapfile -t PREVIEW_TAGS < <(
+            gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+              --jq '.[] | select(.prerelease == true and (.tag_name | startswith("preview-main-"))) | .tag_name'
+          )
+
+          if [ "${#PREVIEW_TAGS[@]}" -le "$PREVIEW_RETENTION_COUNT" ]; then
+            echo "Preview prereleases within retention limit ($PREVIEW_RETENTION_COUNT)."
+            exit 0
+          fi
+
+          for TAG in "${PREVIEW_TAGS[@]:$PREVIEW_RETENTION_COUNT}"; do
+            echo "Deleting old preview prerelease: $TAG"
+            gh release delete "$TAG" --repo "${GITHUB_REPOSITORY}" --cleanup-tag --yes
+          done

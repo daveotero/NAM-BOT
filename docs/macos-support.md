@@ -62,17 +62,17 @@ npm install
 npm run package:mac
 ```
 
-Output: `release/NAM-BOT-{version}-macOS-beta-arm64.dmg` (Apple Silicon) and `release/NAM-BOT-{version}-macOS-beta-x64.dmg` (Intel)
+Output: `release/NAM-BOT-{version}-macOS-arm64.dmg` (Apple Silicon) and `release/NAM-BOT-{version}-macOS-x64.dmg` (Intel)
 
 ## Release Policy
 
-- `v*` tags continue to publish the standard Windows release automatically.
-- macOS beta DMGs are built separately by a maintainer using the `Release macOS Beta` workflow.
-- The macOS workflow checks out an existing release tag and attaches DMGs to that same GitHub Release later, so macOS assets can lag behind Windows until they are verified.
+- `v*` tags publish the stable GitHub release for both Windows and macOS.
+- The shared `release.yml` workflow builds the Windows installer, Windows portable ZIP, and both macOS DMGs from the tagged commit.
+- `preview-release.yml` still publishes prerelease preview builds from `main`, but those entries do not replace the latest stable tagged release.
 
 ## Code Signing & Notarization
 
-**CI-built DMGs are unsigned (beta).** macOS will show a Gatekeeper warning on first launch.
+**CI-built DMGs are unsigned.** macOS may show a Gatekeeper warning on first launch.
 To bypass: right-click the app → Open → Open anyway.
 
 Signed + notarized releases can be produced manually by the maintainer using a Developer ID Application certificate. CI builds intentionally skip signing (`CSC_IDENTITY_AUTO_DISCOVERY=false`) so releases are reproducible by anyone without Apple credentials.

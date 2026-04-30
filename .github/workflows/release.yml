@@ -59,25 +59,134 @@ jobs:
             release/NAM-BOT-Portable-*-Win64.zip
           if-no-files-found: error
 
+  release-macos:
+    name: Package macOS Release
+    runs-on: macos-14
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build production app
+        run: npm run build
+
+      - name: Package macOS app
+        run: npx electron-builder --mac --config electron-builder.yml --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: Upload macOS artifacts to workflow run
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-release-artifacts
+          path: release/*.dmg
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs:
+      - release-windows
+      - release-macos
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Download Windows release artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: windows-release-artifacts
+          path: release-assets/windows
+
+      - name: Download macOS release artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: macos-release-artifacts
+          path: release-assets/macos
+
+      - name: Build release notes from changelog
+        env:
+          RELEASE_NOTES_FILE: ${{ runner.temp }}/release-notes.md
+        shell: bash
+        run: |
+          python <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          tag = os.environ['RELEASE_TAG']
+          version = tag[1:] if tag.startswith('v') else tag
+          changelog = Path('CHANGELOG.md').read_text(encoding='utf-8').splitlines()
+          start = None
+
+          for index, line in enumerate(changelog):
+              if re.match(rf'^## \[{re.escape(version)}\](?:\s+-\s+.+)?\s*$', line):
+                  start = index + 1
+                  break
+
+          notes = []
+          if start is not None:
+              for line in changelog[start:]:
+                  if line.startswith('## ['):
+                      break
+                  notes.append(line)
+
+          body = '\n'.join(notes).strip()
+          if not body:
+              body = f'See CHANGELOG.md for {tag}.'
+
+          Path(os.environ['RELEASE_NOTES_FILE']).write_text(body + '\n', encoding='utf-8')
+          PY
+
       - name: Create or update GitHub Release
         if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: powershell
+          RELEASE_NOTES_FILE: ${{ runner.temp }}/release-notes.md
+        shell: bash
         run: |
-          cmd /c "gh release view %RELEASE_TAG% --json tagName 1>nul 2>nul"
-          if ($LASTEXITCODE -ne 0) {
-            gh release create $env:RELEASE_TAG --generate-notes
-          }
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$RELEASE_TAG" \
+              --notes-file "$RELEASE_NOTES_FILE"
+          else
+            gh release create "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$RELEASE_TAG" \
+              --notes-file "$RELEASE_NOTES_FILE"
+          fi
 
-      - name: Upload assets to GitHub Release
+      - name: Upload Windows assets to GitHub Release
         if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: powershell
+        shell: bash
         run: |
-          $releaseVersion = $env:RELEASE_TAG.TrimStart('v')
-          gh release upload $env:RELEASE_TAG `
-            release\NAM-BOT-Setup-*.exe `
-            release\NAM-BOT-Portable-$releaseVersion-Win64.zip `
+          gh release upload "$RELEASE_TAG" \
+            release-assets/windows/* \
+            --clobber
+
+      - name: Upload macOS assets to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh release upload "$RELEASE_TAG" \
+            release-assets/macos/* \
             --clobber
