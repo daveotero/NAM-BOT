@@ -22,6 +22,7 @@ Security reports are especially helpful for issues involving:
 - IPC exposure between renderer and main
 - Packaging or installer trust concerns
 - Sensitive data exposure in logs or exported diagnostics
+- Unsafe Python backend dependency versions surfaced through NAM-BOT setup or diagnostics guidance
 
 ## Disclosure
 

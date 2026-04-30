@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.7] - 2026-04-30
+
+### Changed
+
+- Setup guidance now recommends `neural-amp-modeler>=0.12.3` so fresh NAM environments inherit NAM's safe Lightning dependency constraint
+- Diagnostics and setup docs now explain the PyTorch Lightning 2.6.2/2.6.3 security block and include repair commands for affected Python environments
+
+### Fixed
+
+- NAM-BOT now checks Lightning package metadata before importing NAM or Lightning and blocks validation, version checks, diagnostics, and training launch when compromised Lightning 2.6.2 or 2.6.3 is detected
+
 ## [0.4.6] - 2026-04-25
 
 ### Changed

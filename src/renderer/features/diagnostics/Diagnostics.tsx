@@ -43,7 +43,10 @@ interface DiagnosticsExportPayload {
     verifyPython: string
     verifyTorch: string
     verifyNam: string
+    inspectLightningSecurity: string
     reinstallNam: string
+    uninstallLightning: string
+    installSafeLightning: string
     reinstallTorchCuda: string
     reinstallTorchDefault: string
     verifyRocm: string
@@ -55,7 +58,10 @@ interface DiagnosticCommandSet {
   verifyTorch: string
   verifyNam: string
   inspectLightning: string
+  inspectLightningSecurity: string
   reinstallNam: string
+  uninstallLightning: string
+  installSafeLightning: string
   uninstallTorch: string
   reinstallTorchCuda: string
   reinstallTorchDefault: string
@@ -290,7 +296,10 @@ function getDiagnosticCommands(settings: AppSettings | null): DiagnosticCommandS
       settings,
       "import importlib.util, importlib, torch; print(torch.__version__); print(torch.cuda.is_available()); print(importlib.import_module('lightning').__version__ if importlib.util.find_spec('lightning') else 'lightning not installed'); print(importlib.import_module('pytorch_lightning').__version__ if importlib.util.find_spec('pytorch_lightning') else 'pytorch_lightning not installed')"
     ),
-    reinstallNam: buildPipCommand(settings, 'install --upgrade neural-amp-modeler'),
+    inspectLightningSecurity: buildPipCommand(settings, 'show lightning pytorch-lightning'),
+    reinstallNam: buildPipCommand(settings, 'install --upgrade "neural-amp-modeler>=0.12.3"'),
+    uninstallLightning: buildPipCommand(settings, 'uninstall -y lightning pytorch-lightning pytorch_lightning'),
+    installSafeLightning: buildPipCommand(settings, 'install "pytorch-lightning<=2.6.1"'),
     uninstallTorch: buildPipCommand(settings, 'uninstall -y torch'),
     reinstallTorchCuda: buildPipCommand(
       settings,
@@ -356,6 +365,12 @@ function getAcceleratorLabel(status: AcceleratorDiagnosticsSummary['status']): s
 }
 
 function getAcceleratorLabelForIssue(issue: AcceleratorDiagnosticsSummary['issue']): string {
+  if (issue === 'lightning_vulnerable') {
+    return '✗ SECURITY BLOCKED'
+  }
+  if (issue === 'lightning_security_check_failed') {
+    return '✗ SECURITY CHECK FAILED'
+  }
   if (issue === 'rocm_ready') {
     return '✓ ROCM GPU READY'
   }
@@ -437,6 +452,31 @@ function getAcceleratorGuidance(
           { label: 'Verify Python Target', command: commands.verifyPython },
           { label: 'Verify NAM Import', command: commands.verifyNam },
           { label: 'Reinstall Neural Amp Modeler', command: commands.reinstallNam }
+        ]
+      }
+    case 'lightning_security_check_failed':
+      return {
+        title: 'Security Check Required',
+        body: 'NAM-BOT could not verify Lightning package versions without importing Python packages, so it skipped NAM and Lightning imports for safety.',
+        setupSteps,
+        note: `These commands target ${environmentReference}. Do not import Lightning manually until package metadata confirms it is not 2.6.2 or 2.6.3.`,
+        steps: [
+          { label: 'Verify Python Target', command: commands.verifyPython },
+          { label: 'Inspect Lightning Metadata', command: commands.inspectLightningSecurity }
+        ]
+      }
+    case 'lightning_vulnerable':
+      return {
+        title: 'Security Fix Required',
+        body: 'This environment contains Lightning 2.6.2 or 2.6.3, which are known compromised PyPI releases. NAM-BOT blocked NAM commands before importing Lightning.',
+        setupSteps,
+        note: 'If this environment already imported Lightning while affected, treat it as potentially compromised and rotate credentials used on this machine.',
+        steps: [
+          { label: 'Inspect Lightning Metadata', command: commands.inspectLightningSecurity },
+          { label: 'Remove Affected Lightning', command: commands.uninstallLightning },
+          { label: 'Install Safe Lightning', command: commands.installSafeLightning },
+          { label: 'Upgrade Neural Amp Modeler', command: commands.reinstallNam },
+          { label: 'Verify NAM Import', command: commands.verifyNam }
         ]
       }
     case 'torch_cpu_only':
@@ -556,7 +596,10 @@ function buildDiagnosticsExportPayload(
       verifyPython: commands.verifyPython,
       verifyTorch: commands.verifyTorch,
       verifyNam: commands.verifyNam,
+      inspectLightningSecurity: commands.inspectLightningSecurity,
       reinstallNam: commands.reinstallNam,
+      uninstallLightning: commands.uninstallLightning,
+      installSafeLightning: commands.installSafeLightning,
       reinstallTorchCuda: commands.reinstallTorchCuda,
       reinstallTorchDefault: commands.reinstallTorchDefault,
       verifyRocm: commands.verifyRocm
@@ -639,8 +682,11 @@ function buildAiTroubleshootingPrompt(
     `- Verify Python target: ${commands.verifyPython}`,
     `- Verify torch: ${commands.verifyTorch}`,
     `- Verify NAM: ${commands.verifyNam}`,
+    `- Inspect Lightning package metadata: ${commands.inspectLightningSecurity}`,
     `- Verify ROCm: ${commands.verifyRocm}`,
     `- Reinstall NAM: ${commands.reinstallNam}`,
+    `- Remove Lightning: ${commands.uninstallLightning}`,
+    `- Install safe Lightning: ${commands.installSafeLightning}`,
     `- Reinstall torch default: ${commands.reinstallTorchDefault}`,
     `- Reinstall torch CUDA: ${commands.reinstallTorchCuda}`,
     '',
@@ -665,7 +711,7 @@ function getUpgradeCommands(settings: AppSettings | null): CopyableCodeBlockProp
 
   commands.push({
     label: 'Upgrade NAM',
-    command: buildPipCommand(settings, 'install --upgrade neural-amp-modeler')
+    command: buildPipCommand(settings, 'install --upgrade "neural-amp-modeler>=0.12.3"')
   })
 
   commands.push({

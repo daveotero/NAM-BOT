@@ -8,6 +8,7 @@ It is designed to answer two practical questions before or during training:
 
 - can NAM-BOT actually reach the configured NAM backend
 - can that backend use the accelerator path you expect, especially CUDA on Windows or MPS on Apple Silicon
+- does the environment avoid known compromised Lightning releases before NAM-BOT imports NAM or Lightning
 
 The screen is intentionally split into backend validation and accelerator diagnostics so users can tell the difference between "NAM is not set up correctly" and "NAM works, but GPU support is not healthy yet."
 
@@ -46,6 +47,8 @@ It then breaks the result into individual checks:
 - Python reachable
 - NAM installed
 - full NAM entry path available
+
+Before NAM-BOT runs NAM commands, it performs a metadata-only Lightning package check with Python package metadata. This avoids importing `nam`, `lightning`, or `pytorch_lightning` until the selected environment has been checked for the known compromised Lightning `2.6.2` and `2.6.3` releases.
 
 Each check shows:
 
@@ -133,6 +136,8 @@ The current guided paths cover cases such as:
 
 - torch missing
 - torch import failing
+- compromised Lightning `2.6.2` or `2.6.3` detected
+- Lightning package metadata could not be verified safely
 - NAM missing
 - NAM import failing
 - CPU-only torch on a machine that appears to have NVIDIA hardware
@@ -207,6 +212,22 @@ Start with the accelerator panel.
 - if the machine should use NVIDIA CUDA, pay attention to torch build state, CUDA availability, and host NVIDIA visibility
 - if the machine is Apple Silicon, pay attention to the reported `MPS available` field rather than NVIDIA host checks
 - if torch sees CUDA but Lightning does not, inspect package mismatch rather than reinstalling NAM immediately
+- if NAM-BOT reports a Lightning security block, repair the Python environment before running validation or training
+
+### Lightning Security Block
+
+NAM-BOT blocks validation, version detection, accelerator probing, `nam-hello-world`, and training launch if package metadata reports `lightning` or `pytorch-lightning` version `2.6.2` or `2.6.3`.
+
+Recommended repair commands for the affected environment:
+
+```bash
+pip show lightning pytorch-lightning
+pip uninstall -y lightning pytorch-lightning pytorch_lightning
+pip install "pytorch-lightning<=2.6.1"
+pip install --upgrade "neural-amp-modeler>=0.12.3"
+```
+
+If the affected Lightning package was already imported in that environment, treat the machine or environment as potentially compromised and rotate credentials that may have been present.
 
 ### If The Built-In Fixes Are Not Enough
 
