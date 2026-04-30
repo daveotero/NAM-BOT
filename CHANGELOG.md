@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- GitHub Releases now publish the matching `CHANGELOG.md` version section as the release notes instead of relying on empty auto-generated notes
+
 ## [0.4.7] - 2026-04-30
 
 ### Changed

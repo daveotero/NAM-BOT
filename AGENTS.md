@@ -63,6 +63,7 @@ npm run package
 - When an agent pushes `main` for release work, it should always mention whether a matching version tag should also be pushed for a full GitHub release.
 - Agents must never push a release tag automatically without an explicit user confirmation in that thread, even when the version bump and release commit are already prepared.
 - Release tags publish Windows installer, portable ZIP, and macOS DMG assets.
+- GitHub Release notes are generated from the matching `CHANGELOG.md` version section, so keep release entries user-facing and concise before pushing the `v*` tag.
 - Preferred release trigger example:
 
 ```bash
