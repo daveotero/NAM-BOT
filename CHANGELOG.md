@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1-rc.1] - 2026-05-02
+
+### Changed
+
+- NAM-BOT now writes its own export traceability under `metadata.nam_bot` so custom fields stay out of the official NAM `training` object
+- Jobs documentation now explains the metadata split between official NAM fields and NAM-BOT-specific fields
+
+### Fixed
+
+- Exported `.nam` files now preserve zero manual latency values and rewrite finalized metadata as compact JSON for better plugin compatibility
+- Legacy `metadata.training.nam_bot` values are still migrated forward when NAM-BOT rewrites an existing export
+
 ## [0.5.0] - 2026-04-30
 
 ### Added

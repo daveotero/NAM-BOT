@@ -17,7 +17,6 @@ import { v4 as uuidv4 } from 'uuid'
 import { inspectTorchRuntime, runNamFull, TorchRuntimeSummary, TrainingProcessController } from '../backend/adapter'
 import { buildJobConfigs } from '../config/configBuilder'
 import { getTrainingPresetById } from '../persistence/presetStore'
-import { selectOutputRunDirectory } from './runDirectoryResolver'
 import {
   JobCheckpointSummary,
   JobDeviceSummary,
@@ -30,6 +29,13 @@ import {
   normalizeJobSpec
 } from '../types/jobs'
 import { AppSettings } from '../types'
+import {
+  buildUpdatedNamModelMetadata,
+  hasNamModelMetadataUpdates,
+  type ConfirmedNamTrainingMetadata,
+  type NamExportDateMetadata
+} from './namModelMetadata'
+import { selectOutputRunDirectory } from './runDirectoryResolver'
 
 const userDataPath = app.getPath('userData')
 const queuePath = join(userDataPath, 'queue.json')
@@ -64,22 +70,6 @@ interface ParsedEpochProgress {
   totalEpochs: number | null
   currentBatch: number | null
   totalBatches: number | null
-}
-
-interface ConfirmedNamTrainingMetadata {
-  validationEsr?: number
-  manualLatency?: number | null
-  trainedEpochs?: number
-  presetName?: string
-}
-
-interface NamExportDateMetadata {
-  year: number
-  month: number
-  day: number
-  hour: number
-  minute: number
-  second: number
 }
 
 function cloneJobSpec(jobSpec: JobSpec): JobSpec {
@@ -229,7 +219,7 @@ function readConfirmedTrainingMetadata(runtime: JobRuntimeState): ConfirmedNamTr
     }
 
     const delay = parsed.common.delay
-    if (typeof delay === 'number' && Number.isFinite(delay) && delay !== 0) {
+    if (typeof delay === 'number' && Number.isFinite(delay)) {
       trainingMetadata.manualLatency = delay
     }
   } catch (error) {
@@ -782,12 +772,7 @@ export class QueueManager extends EventEmitter {
     const metadataPatch = buildNamMetadataPatch(runtime.frozenJob.metadata)
     const confirmedTrainingMetadata = readConfirmedTrainingMetadata(runtime)
     const exportDate = buildNamExportDate(new Date())
-    const hasValidationEsr = confirmedTrainingMetadata.validationEsr != null
-    const hasManualLatency = Object.prototype.hasOwnProperty.call(confirmedTrainingMetadata, 'manualLatency')
-    const hasTrainedEpochs = isPositiveInteger(confirmedTrainingMetadata.trainedEpochs)
-    const hasPresetName = typeof confirmedTrainingMetadata.presetName === 'string' && confirmedTrainingMetadata.presetName.length > 0
-
-    if (Object.keys(metadataPatch).length === 0 && !hasValidationEsr && !hasManualLatency && !hasTrainedEpochs && !hasPresetName) {
+    if (!hasNamModelMetadataUpdates(metadataPatch, confirmedTrainingMetadata)) {
       return
     }
 
@@ -796,53 +781,14 @@ export class QueueManager extends EventEmitter {
       const currentMetadata = typeof parsed.metadata === 'object' && parsed.metadata !== null
         ? parsed.metadata as Record<string, unknown>
         : {}
-      const currentTraining = isRecord(currentMetadata.training)
-        ? currentMetadata.training
-        : {}
-      const currentTrainingData = isRecord(currentTraining.data)
-        ? currentTraining.data
-        : {}
-      const currentTrainingLatency = isRecord(currentTrainingData.latency)
-        ? currentTrainingData.latency
-        : {}
-      const currentNamBotTraining = isRecord(currentTraining.nam_bot)
-        ? currentTraining.nam_bot
-        : {}
 
-      let nextTraining: Record<string, unknown> | null = null
-      if (hasValidationEsr || hasManualLatency || hasTrainedEpochs || hasPresetName || Object.keys(currentTraining).length > 0) {
-        nextTraining = { ...currentTraining }
-
-        if (hasValidationEsr) {
-          nextTraining.validation_esr = confirmedTrainingMetadata.validationEsr
-        }
-
-        if (hasManualLatency) {
-          nextTraining.data = {
-            ...currentTrainingData,
-            latency: {
-              ...currentTrainingLatency,
-              manual: confirmedTrainingMetadata.manualLatency ?? null
-            }
-          }
-        }
-
-        if (hasTrainedEpochs || hasPresetName || Object.keys(currentNamBotTraining).length > 0) {
-          nextTraining.nam_bot = {
-            ...currentNamBotTraining,
-            ...(hasTrainedEpochs ? { trained_epochs: confirmedTrainingMetadata.trainedEpochs } : {}),
-            ...(hasPresetName ? { preset_name: confirmedTrainingMetadata.presetName } : {})
-          }
-        }
-      }
-
-      parsed.metadata = {
-        ...currentMetadata,
-        date: exportDate,
-        ...metadataPatch,
-        ...(nextTraining ? { training: nextTraining } : {})
-      }
-      writeFileSync(modelPath, JSON.stringify(parsed, null, 2), 'utf-8')
+      parsed.metadata = buildUpdatedNamModelMetadata({
+        currentMetadata,
+        metadataPatch,
+        confirmedTrainingMetadata,
+        exportDate
+      })
+      writeFileSync(modelPath, JSON.stringify(parsed), 'utf-8')
     } catch (error) {
       this.appendUserMessage(runtime, `Training completed, but writing NAM metadata failed: ${String(error)}`)
     }
