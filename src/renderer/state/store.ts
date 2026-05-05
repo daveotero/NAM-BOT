@@ -132,6 +132,59 @@ export interface AcceleratorDiagnosticsSummary {
   errors: string[]
 }
 
+export type TrainingLaunchDiagnosticsStatus =
+  | 'ready'
+  | 'advisory'
+  | 'not_checked'
+  | 'error'
+
+export type TrainingLaunchDiagnosticsIssue =
+  | 'ready'
+  | 'not_checked'
+  | 'conda_not_configured'
+  | 'conda_unreachable'
+  | 'environment_not_configured'
+  | 'direct_python_unsupported'
+  | 'lightning_security_check_failed'
+  | 'lightning_vulnerable'
+  | 'workspace_unwritable'
+  | 'pty_launch_failed'
+  | 'pty_launch_timeout'
+  | 'pty_payload_missing'
+  | 'nam_full_pty_failed'
+  | 'nam_full_pty_timeout'
+  | 'mac_app_on_dmg'
+  | 'mac_app_translocated'
+  | 'bare_conda_path'
+
+export type TrainingLaunchCheckStatus = 'pass' | 'warn' | 'fail' | 'skip'
+
+export interface TrainingLaunchCheckResult {
+  status: TrainingLaunchCheckStatus
+  code: string
+  title: string
+  message: string
+  detail?: string
+  suggestion?: string
+  command?: string
+  outputTail?: string
+}
+
+export interface TrainingLaunchDiagnosticsSummary {
+  checkedAt: string
+  status: TrainingLaunchDiagnosticsStatus
+  issue: TrainingLaunchDiagnosticsIssue
+  headline: string
+  detail: string
+  suggestion?: string
+  workspaceRoot: string | null
+  workspacePath: string | null
+  appExecutablePath: string | null
+  processArch: string
+  checks: TrainingLaunchCheckResult[]
+  errors: string[]
+}
+
 export interface CondaDiscoverySummary {
   checkedAt: string
   isOnPath: boolean
@@ -178,6 +231,7 @@ interface AppState {
   settings: AppSettings | null
   validation: BackendValidationSummary | null
   acceleratorDiagnostics: AcceleratorDiagnosticsSummary | null
+  trainingLaunchDiagnostics: TrainingLaunchDiagnosticsSummary | null
   condaDiscovery: CondaDiscoverySummary | null
   namVersionInfo: NamVersionInfo | null
   updateStatus: UpdateStatus
@@ -186,6 +240,8 @@ interface AppState {
   jobEditorSession: JobEditorSession | null
   isLoading: boolean;
   isAcceleratorDiagnosticsLoading: boolean;
+  isTrainingLaunchDiagnosticsLoading: boolean;
+  isNamVersionInfoLoading: boolean;
   isTraining: boolean;
   drafts: JobSpec[];
   queue: JobRuntimeState[];
@@ -193,6 +249,7 @@ interface AppState {
   setSettings: (settings: AppSettings) => void
   setValidation: (validation: BackendValidationSummary) => void
   setAcceleratorDiagnostics: (diagnostics: AcceleratorDiagnosticsSummary) => void
+  setTrainingLaunchDiagnostics: (diagnostics: TrainingLaunchDiagnosticsSummary) => void
   setCondaDiscovery: (condaDiscovery: CondaDiscoverySummary) => void
   setNamVersionInfo: (namVersionInfo: NamVersionInfo | null) => void
   setUpdateStatus: (updateStatus: UpdateStatus) => void
@@ -203,6 +260,7 @@ interface AppState {
   clearJobEditorSession: () => void
   setLoading: (loading: boolean) => void
   setAcceleratorDiagnosticsLoading: (loading: boolean) => void
+  setTrainingLaunchDiagnosticsLoading: (loading: boolean) => void
   setIsTraining: (isTraining: boolean) => void
   setDrafts: (drafts: JobSpec[] | ((prev: JobSpec[]) => JobSpec[])) => void
   setQueue: (queue: JobRuntimeState[] | ((prev: JobRuntimeState[]) => JobRuntimeState[])) => void
@@ -211,6 +269,7 @@ interface AppState {
   saveSettings: (settings: AppSettings) => Promise<void>
   validateBackend: () => Promise<void>
   loadAcceleratorDiagnostics: () => Promise<void>
+  loadTrainingLaunchDiagnostics: () => Promise<void>
   loadNamVersionInfo: () => Promise<void>
   detectConda: () => Promise<void>
   loadUpdateStatus: () => Promise<void>
@@ -223,6 +282,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   settings: null,
   validation: null,
   acceleratorDiagnostics: null,
+  trainingLaunchDiagnostics: null,
   condaDiscovery: null,
   namVersionInfo: null,
   updateStatus: createDefaultUpdateStatus('0.0.0'),
@@ -231,6 +291,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   jobEditorSession: null,
   isLoading: false,
   isAcceleratorDiagnosticsLoading: false,
+  isTrainingLaunchDiagnosticsLoading: false,
+  isNamVersionInfoLoading: false,
   isTraining: false,
   drafts: [],
   queue: [],
@@ -238,6 +300,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setSettings: (settings) => set({ settings }),
   setValidation: (validation) => set({ validation }),
   setAcceleratorDiagnostics: (acceleratorDiagnostics) => set({ acceleratorDiagnostics }),
+  setTrainingLaunchDiagnostics: (trainingLaunchDiagnostics) => set({ trainingLaunchDiagnostics }),
   setCondaDiscovery: (condaDiscovery) => set({ condaDiscovery }),
   setNamVersionInfo: (namVersionInfo) => set({ namVersionInfo }),
   setUpdateStatus: (updateStatus) => set({ updateStatus }),
@@ -248,6 +311,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   clearJobEditorSession: () => set({ jobEditorSession: null }),
   setLoading: (isLoading) => set({ isLoading }),
   setAcceleratorDiagnosticsLoading: (isAcceleratorDiagnosticsLoading) => set({ isAcceleratorDiagnosticsLoading }),
+  setTrainingLaunchDiagnosticsLoading: (isTrainingLaunchDiagnosticsLoading) => set({ isTrainingLaunchDiagnosticsLoading }),
   setIsTraining: (isTraining) => set({ isTraining }),
   setDrafts: (drafts) => set((state) => ({ 
     drafts: typeof drafts === 'function' ? drafts(state.drafts) : drafts 
@@ -281,7 +345,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   
   validateBackend: async () => {
-    set({ isLoading: true, validation: null })
+    if (get().isLoading) {
+      return
+    }
+    set({ isLoading: true })
     try {
       const validation = await window.namBot.settings.validate() as BackendValidationSummary
       set({ validation })
@@ -293,7 +360,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   loadAcceleratorDiagnostics: async () => {
-    set({ isAcceleratorDiagnosticsLoading: true, acceleratorDiagnostics: null })
+    if (get().isAcceleratorDiagnosticsLoading) {
+      return
+    }
+    set({ isAcceleratorDiagnosticsLoading: true })
     try {
       const acceleratorDiagnostics =
         await window.namBot.settings.getAcceleratorDiagnostics() as AcceleratorDiagnosticsSummary
@@ -305,13 +375,35 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  loadTrainingLaunchDiagnostics: async () => {
+    if (get().isTrainingLaunchDiagnosticsLoading) {
+      return
+    }
+    set({ isTrainingLaunchDiagnosticsLoading: true })
+    try {
+      const trainingLaunchDiagnostics =
+        await window.namBot.settings.getTrainingLaunchDiagnostics() as TrainingLaunchDiagnosticsSummary
+      set({ trainingLaunchDiagnostics })
+    } catch (error) {
+      console.error('Failed to load training launch diagnostics:', error)
+    } finally {
+      set({ isTrainingLaunchDiagnosticsLoading: false })
+    }
+  },
+
   loadNamVersionInfo: async () => {
+    if (get().isNamVersionInfoLoading) {
+      return
+    }
+    set({ isNamVersionInfoLoading: true })
     try {
       const namVersionInfo = await window.namBot.settings.getNamVersionInfo() as NamVersionInfo
       set({ namVersionInfo })
     } catch (error) {
       console.error('Failed to load NAM version info:', error)
       set({ namVersionInfo: null })
+    } finally {
+      set({ isNamVersionInfoLoading: false })
     }
   },
 
