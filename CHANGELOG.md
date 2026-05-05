@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1-rc.2] - 2026-05-04
+
+### Added
+
+- Diagnostics now include Training Launch readiness checks that verify workspace writability and the same PTY-based `nam-full` launch path used by real training jobs
+
+### Changed
+
+- Diagnostics screen now uses compact readiness tiles, a prioritized action center, and a dense check matrix so setup guidance is easier to scan
+- Lightning package metadata checks are de-duplicated across simultaneous diagnostics runs to reduce repeated Conda probes
+
+### Fixed
+
+- Diagnostics no longer starts overlapping launch probes while earlier checks are still running, reducing status churn and repeated terminal commands
+
 ## [0.5.1-rc.1] - 2026-05-02
 
 ### Changed

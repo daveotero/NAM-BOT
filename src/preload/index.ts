@@ -11,6 +11,7 @@ export interface NamBotApi {
     validate: () => Promise<unknown>
     detectConda: () => Promise<unknown>
     getAcceleratorDiagnostics: () => Promise<unknown>
+    getTrainingLaunchDiagnostics: () => Promise<unknown>
     getNamVersionInfo: () => Promise<unknown>
     chooseCondaPath: () => Promise<string | null>
     chooseDirectory: () => Promise<string | null>
@@ -74,6 +75,7 @@ const api: NamBotApi = {
     validate: () => ipcRenderer.invoke('settings:validate'),
     detectConda: () => ipcRenderer.invoke('settings:detectConda'),
     getAcceleratorDiagnostics: () => ipcRenderer.invoke('settings:getAcceleratorDiagnostics'),
+    getTrainingLaunchDiagnostics: () => ipcRenderer.invoke('settings:getTrainingLaunchDiagnostics'),
     getNamVersionInfo: () => ipcRenderer.invoke('settings:getNamVersionInfo'),
     chooseCondaPath: () => ipcRenderer.invoke('settings:chooseCondaPath'),
     chooseDirectory: () => ipcRenderer.invoke('settings:chooseDirectory'),

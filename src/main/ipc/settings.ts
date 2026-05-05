@@ -1,7 +1,13 @@
 import { ipcMain, dialog, BrowserWindow } from 'electron'
 import log from 'electron-log/main'
 import { loadSettings, saveSettings } from '../persistence/settingsStore'
-import { detectCondaOnPath, getNamVersionInfo, inspectAcceleratorDiagnostics, validateBackend } from '../backend/adapter'
+import {
+  detectCondaOnPath,
+  getNamVersionInfo,
+  inspectAcceleratorDiagnostics,
+  inspectTrainingLaunchDiagnostics,
+  validateBackend
+} from '../backend/adapter'
 import { AppSettings, NamVersionInfo } from '../types'
 import { getQueueManager } from '../jobs/queueManager'
 
@@ -73,6 +79,17 @@ export function setupIpcHandlers(): void {
       return await inspectAcceleratorDiagnostics(settings)
     } catch (error) {
       log.error('Failed to inspect accelerator diagnostics:', error)
+      throw error
+    }
+  })
+
+  ipcMain.handle('settings:getTrainingLaunchDiagnostics', async () => {
+    try {
+      const settings: AppSettings = cachedSettings || loadSettings()
+      cachedSettings = settings
+      return await inspectTrainingLaunchDiagnostics(settings)
+    } catch (error) {
+      log.error('Failed to inspect training launch diagnostics:', error)
       throw error
     }
   })

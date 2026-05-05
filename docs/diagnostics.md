@@ -9,13 +9,15 @@ It is designed to answer two practical questions before or during training:
 - can NAM-BOT actually reach the configured NAM backend
 - can that backend use the accelerator path you expect, especially CUDA on Windows or MPS on Apple Silicon
 - does the environment avoid known compromised Lightning releases before NAM-BOT imports NAM or Lightning
+- can NAM-BOT launch the same terminal process path used by real training jobs
 
-The screen is intentionally split into backend validation and accelerator diagnostics so users can tell the difference between "NAM is not set up correctly" and "NAM works, but GPU support is not healthy yet."
+The screen is intentionally split into compact readiness areas so users can tell the difference between "NAM is not set up correctly," "NAM works but GPU support is not healthy yet," and "basic checks pass but the actual training launch path is blocked."
 
 ## Goals
 
 - Give users a fast pass/fail check for the currently selected backend target.
 - Explain common Conda, Python, NAM, torch, and accelerator problems in plain language.
+- Catch real process-launch failures before the user queues a training job.
 - Provide copyable commands for the most likely fixes without forcing users to build commands by hand.
 - Export enough context for deeper troubleshooting in support threads or LLM tools when the built-in guidance is not enough.
 
@@ -27,9 +29,50 @@ The Diagnostics screen auto-loads its checks when the page opens.
 
 - backend validation runs if there is no current validation snapshot
 - accelerator diagnostics run if there is no current accelerator snapshot
-- the `Re-check` button refreshes both panels together
+- training launch diagnostics run if there is no current launch-readiness snapshot
+- the `Re-check All` button refreshes backend, accelerator, training launch, and NAM version checks together
 
 This keeps the page useful as a quick status check even when the user has not manually triggered anything yet.
+
+### Summary Tiles And Action Center
+
+The top of the screen shows four compact readiness tiles:
+
+- Backend
+- Accelerator
+- Training Launch
+- NAM Version
+
+Each tile shows a short status, a one-line result, and the latest check time when applicable.
+
+Below the tiles, Diagnostics shows one action center rather than a stack of separate troubleshooting panels.
+
+- If everything is ready, the action center reports `Ready To Train`.
+- If something needs attention, it chooses the highest-priority issue and shows what happened, what it likely means, how to fix it, and how to verify the fix.
+- Lower-priority issues are summarized as compact `Also detected` badges so the user is not forced to juggle many open sections.
+
+The priority order is:
+
+1. backend reachability problems
+2. Lightning security blocks
+3. training launch failures
+4. workspace/output path problems
+5. NAM installation or trainer command problems
+6. accelerator problems
+7. version/update advisories
+
+### Check Matrix
+
+The detailed results are shown as a compact check matrix instead of large repeated cards.
+
+The matrix groups rows by:
+
+- Backend
+- Training Launch
+- Accelerator
+- NAM Version
+
+Rows use `PASS`, `CHECK`, `FAIL`, and `SKIP` labels. Failed rows can include one-line guidance directly in the row, while full troubleshooting exports and raw facts stay in `Advanced Details`.
 
 ### Backend Diagnostics Panel
 
@@ -57,6 +100,35 @@ Each check shows:
 - a suggested next action when one is available
 
 This panel is meant to answer "Can NAM-BOT actually run the configured training environment at all?"
+
+### Training Launch Readiness
+
+The Training Launch check answers a different question from backend validation:
+
+"Can NAM-BOT launch the same terminal process path that real training uses?"
+
+This matters because backend validation uses short `child_process` checks, while real training uses `node-pty` so the app can stream terminal output. A machine can pass backend validation and still fail to launch training with an OS-level error such as `posix_spawnp failed`.
+
+Training launch diagnostics check:
+
+- Conda is reachable from the app
+- the selected backend mode is compatible with the current trainer launch path
+- NAM-BOT can create and write a temporary training workspace
+- a PTY can launch Python through `conda run --no-capture-output`
+- a PTY can launch `nam-full --help` through the same path
+- macOS app location warnings such as running from a DMG or app translocation
+- fragile Conda settings such as relying on bare `conda` instead of a full executable path
+
+The launch probe intentionally runs harmless commands. It does not start a training run or require a queued job.
+
+If launch readiness fails, Diagnostics should explain whether the likely problem is:
+
+- a bare or unreachable Conda executable
+- unsupported Direct Python launch mode
+- a blocked or unwritable workspace folder
+- a PTY launch failure before NAM starts
+- a `nam-full` launch failure through the training terminal path
+- macOS app location or architecture issues
 
 ### Accelerator Diagnostics Panel
 
@@ -144,6 +216,10 @@ The current guided paths cover cases such as:
 - CUDA not visible from the selected environment
 - torch and Lightning disagreeing about CUDA
 - probe execution failures
+- PTY launch failures such as `posix_spawnp failed`
+- NAM-BOT running from fragile macOS app locations such as a DMG or app translocation path
+- workspace folder creation/write failures
+- Conda configured as a bare command when a full executable path would be more reliable
 
 The commands are generated against the user's currently selected backend target, so the same screen works for:
 
@@ -172,6 +248,7 @@ It includes:
 - the active NAM-BOT backend configuration
 - backend validation results
 - accelerator diagnostics results
+- training launch readiness results
 - already-prepared verification and repair commands for the exact target environment
 
 The prompt explicitly asks the assistant for:
@@ -213,6 +290,17 @@ Start with the accelerator panel.
 - if the machine is Apple Silicon, pay attention to the reported `MPS available` field rather than NVIDIA host checks
 - if torch sees CUDA but Lightning does not, inspect package mismatch rather than reinstalling NAM immediately
 - if NAM-BOT reports a Lightning security block, repair the Python environment before running validation or training
+
+### If Backend Is Ready But Training Launch Fails
+
+Start with the Training Launch rows.
+
+- if `PTY Python launch` fails, the environment may be valid but the operating system or app runtime cannot start the training terminal process
+- if Conda is configured as `conda`, use the full Conda executable path from `which conda` on macOS/Linux or `where conda` on Windows
+- on macOS, move NAM-BOT into `/Applications`, right-click it, choose Open, and re-run Diagnostics
+- make sure the app build matches the CPU architecture, especially Apple Silicon `arm64`
+- set the Default Workspace Root to a local writable folder while troubleshooting
+- if Python launches but `nam-full` does not, repair or reinstall `neural-amp-modeler` in the same environment
 
 ### Lightning Security Block
 

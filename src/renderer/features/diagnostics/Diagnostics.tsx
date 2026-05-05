@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   AcceleratorDiagnosticsSummary,
   AppSettings,
   BackendCheckResult,
   BackendValidationSummary,
   NamVersionInfo,
+  TrainingLaunchCheckResult,
+  TrainingLaunchDiagnosticsSummary,
   useAppStore
 } from '../../state/store'
 
@@ -39,6 +42,7 @@ interface DiagnosticsExportPayload {
   }
   validation: BackendValidationSummary | null
   acceleratorDiagnostics: AcceleratorDiagnosticsSummary | null
+  trainingLaunchDiagnostics: TrainingLaunchDiagnosticsSummary | null
   commands: {
     verifyPython: string
     verifyTorch: string
@@ -568,10 +572,28 @@ function formatBackendResultForPrompt(result: BackendCheckResult): string {
   return `- ${result.title}: ${parts.join(' | ')}`
 }
 
+function formatTrainingLaunchResultForPrompt(result: TrainingLaunchCheckResult): string {
+  const parts: string[] = [`${result.status.toUpperCase()} (${result.code})`, compactText(result.message)]
+  if (result.detail) {
+    parts.push(`detail: ${compactText(result.detail)}`)
+  }
+  if (result.suggestion) {
+    parts.push(`suggestion: ${compactText(result.suggestion)}`)
+  }
+  if (result.command) {
+    parts.push(`command: ${result.command}`)
+  }
+  if (result.outputTail) {
+    parts.push(`output tail: ${compactText(result.outputTail)}`)
+  }
+  return `- ${result.title}: ${parts.join(' | ')}`
+}
+
 function buildDiagnosticsExportPayload(
   settings: AppSettings | null,
   validation: BackendValidationSummary | null,
-  acceleratorDiagnostics: AcceleratorDiagnosticsSummary | null
+  acceleratorDiagnostics: AcceleratorDiagnosticsSummary | null,
+  trainingLaunchDiagnostics: TrainingLaunchDiagnosticsSummary | null
 ): DiagnosticsExportPayload {
   const commands = getDiagnosticCommands(settings)
   return {
@@ -592,6 +614,7 @@ function buildDiagnosticsExportPayload(
     },
     validation,
     acceleratorDiagnostics,
+    trainingLaunchDiagnostics,
     commands: {
       verifyPython: commands.verifyPython,
       verifyTorch: commands.verifyTorch,
@@ -610,7 +633,8 @@ function buildDiagnosticsExportPayload(
 function buildAiTroubleshootingPrompt(
   settings: AppSettings | null,
   validation: BackendValidationSummary | null,
-  acceleratorDiagnostics: AcceleratorDiagnosticsSummary | null
+  acceleratorDiagnostics: AcceleratorDiagnosticsSummary | null,
+  trainingLaunchDiagnostics: TrainingLaunchDiagnosticsSummary | null
 ): string {
   const commands = getDiagnosticCommands(settings)
   const backendLines = validation
@@ -653,6 +677,21 @@ function buildAiTroubleshootingPrompt(
       ].join('\n')
     : '- No accelerator diagnostics available.'
 
+  const trainingLaunchLines = trainingLaunchDiagnostics
+    ? [
+        `- Status: ${trainingLaunchDiagnostics.status}`,
+        `- Issue: ${trainingLaunchDiagnostics.issue}`,
+        `- Headline: ${compactText(trainingLaunchDiagnostics.headline)}`,
+        `- Detail: ${compactText(trainingLaunchDiagnostics.detail)}`,
+        `- Suggestion: ${compactText(trainingLaunchDiagnostics.suggestion, 'None')}`,
+        `- Workspace root: ${formatMaybeText(trainingLaunchDiagnostics.workspaceRoot, 'Not reported')}`,
+        `- App executable: ${formatMaybeText(trainingLaunchDiagnostics.appExecutablePath, 'Not reported')}`,
+        `- Process arch: ${trainingLaunchDiagnostics.processArch}`,
+        ...trainingLaunchDiagnostics.checks.map(formatTrainingLaunchResultForPrompt),
+        `- Launch errors: ${trainingLaunchDiagnostics.errors.length > 0 ? trainingLaunchDiagnostics.errors.map((entry) => compactText(entry)).join(' || ') : 'None'}`
+      ].join('\n')
+    : '- No training launch diagnostics available.'
+
   return [
     'I am troubleshooting a NAM-BOT local training environment.',
     'The user is likely a novice, so explain the root cause plainly and give step-by-step commands.',
@@ -677,6 +716,9 @@ function buildAiTroubleshootingPrompt(
     '',
     'Accelerator diagnostics',
     acceleratorLines,
+    '',
+    'Training launch diagnostics',
+    trainingLaunchLines,
     '',
     'Useful commands already prepared for this exact NAM-BOT target',
     `- Verify Python target: ${commands.verifyPython}`,
@@ -798,56 +840,683 @@ function shouldShowTroubleshootingExport(
   return acceleratorDiagnostics.status !== 'ready'
 }
 
+type MatrixStatus = 'pass' | 'warn' | 'fail' | 'skip'
+
+interface SummaryTile {
+  title: string
+  status: MatrixStatus
+  label: string
+  detail: string
+  checkedAt: string | null
+}
+
+interface MatrixRow {
+  status: MatrixStatus
+  title: string
+  message: string
+  detail?: string
+  suggestion?: string
+  command?: string
+  outputTail?: string
+}
+
+interface MatrixGroup {
+  title: string
+  rows: MatrixRow[]
+}
+
+interface ActionItem {
+  title: string
+  headline: string
+  body: string
+  steps: string[]
+  commands: CopyableCodeBlockProps[]
+  verify: string
+  tone: MatrixStatus
+}
+
+function getStatusColor(status: MatrixStatus): string {
+  switch (status) {
+    case 'pass':
+      return 'var(--neon-green)'
+    case 'warn':
+      return 'var(--neon-cyan)'
+    case 'fail':
+      return 'var(--neon-magenta)'
+    case 'skip':
+    default:
+      return 'var(--text-steel)'
+  }
+}
+
+function getStatusLabel(status: MatrixStatus): string {
+  switch (status) {
+    case 'pass':
+      return 'PASS'
+    case 'warn':
+      return 'CHECK'
+    case 'fail':
+      return 'FAIL'
+    case 'skip':
+    default:
+      return 'SKIP'
+  }
+}
+
+function SummaryTileCard({ tile }: { tile: SummaryTile }) {
+  const color = getStatusColor(tile.status)
+  return (
+    <div
+      style={{
+        border: `2px solid ${color}`,
+        backgroundColor: 'rgba(9, 9, 11, 0.55)',
+        padding: '12px',
+        minHeight: '118px',
+        display: 'grid',
+        alignContent: 'space-between',
+        gap: '8px'
+      }}
+    >
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'baseline', marginBottom: '8px' }}>
+          <p style={{ color: 'var(--text-steel)', fontSize: '10px', letterSpacing: '0.12em', textTransform: 'uppercase' }}>{tile.title}</p>
+          <span style={{ color, fontFamily: 'var(--font-arcade)', fontSize: '16px' }}>{getStatusLabel(tile.status)}</span>
+        </div>
+        <p style={{ color, fontFamily: 'var(--font-arcade)', fontSize: '22px', lineHeight: 1.05, marginBottom: '6px' }}>{tile.label}</p>
+        <p style={{ color: 'var(--text-steel)', fontSize: '12px', lineHeight: 1.35 }}>{tile.detail}</p>
+      </div>
+      <p style={{ color: 'var(--text-steel)', fontSize: '10px' }}>{tile.checkedAt ? `Checked ${new Date(tile.checkedAt).toLocaleTimeString()}` : 'Not checked yet'}</p>
+    </div>
+  )
+}
+
+function DiagnosticMatrixRow({ row }: { row: MatrixRow }) {
+  const color = getStatusColor(row.status)
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: '70px minmax(150px, 220px) minmax(0, 1fr)',
+        gap: '12px',
+        padding: '9px 10px',
+        borderBottom: '1px solid rgba(255,255,255,0.08)',
+        backgroundColor: row.status === 'fail' ? 'rgba(255, 0, 60, 0.06)' : 'rgba(9, 9, 11, 0.25)'
+      }}
+    >
+      <span style={{ color, fontFamily: 'var(--font-arcade)', fontSize: '16px' }}>{getStatusLabel(row.status)}</span>
+      <span style={{ color: 'var(--text-ash)', fontFamily: 'var(--font-arcade)', fontSize: '16px' }}>{row.title}</span>
+      <div style={{ minWidth: 0 }}>
+        <p style={{ color: 'var(--text-steel)', fontSize: '13px', lineHeight: 1.35 }}>{row.message}</p>
+        {row.detail && <p style={{ color: 'var(--text-steel)', fontSize: '11px', lineHeight: 1.35, marginTop: '4px', wordBreak: 'break-word' }}>{row.detail}</p>}
+        {row.suggestion && <p style={{ color: 'var(--neon-cyan)', fontSize: '12px', lineHeight: 1.35, marginTop: '4px' }}>→ {row.suggestion}</p>}
+        {row.outputTail && <p style={{ color: 'var(--neon-gold)', fontSize: '11px', lineHeight: 1.35, marginTop: '4px', wordBreak: 'break-word' }}>{row.outputTail}</p>}
+      </div>
+    </div>
+  )
+}
+
+function DiagnosticMatrix({ groups }: { groups: MatrixGroup[] }) {
+  return (
+    <div className="panel" style={{ marginBottom: '16px' }}>
+      <div className="panel-header" style={{ marginBottom: '10px' }}>
+        <h3>Check Matrix</h3>
+      </div>
+      <div style={{ display: 'grid', gap: '12px' }}>
+        {groups.map((group) => (
+          <div key={group.title} style={{ border: '1px solid var(--border-dim)' }}>
+            <div style={{ padding: '7px 10px', borderBottom: '1px solid var(--border-dim)', backgroundColor: 'rgba(9, 9, 11, 0.55)' }}>
+              <p style={{ color: 'var(--neon-cyan)', fontFamily: 'var(--font-arcade)', fontSize: '18px', letterSpacing: '0.05em' }}>{group.title}</p>
+            </div>
+            {group.rows.map((row) => <DiagnosticMatrixRow key={`${group.title}-${row.title}-${row.message}`} row={row} />)}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function getBackendRows(validation: BackendValidationSummary | null): MatrixRow[] {
+  if (!validation) {
+    return [{ status: 'skip', title: 'Backend checks', message: 'Waiting for backend validation results.' }]
+  }
+
+  return [
+    validation.condaReachable,
+    validation.environmentReachable,
+    validation.pythonReachable,
+    validation.namInstalled,
+    validation.namFullAvailable
+  ].map((result) => ({
+    status: result.ok ? 'pass' : result.message === 'Not checked' || result.code === 'unknown' ? 'skip' : 'fail',
+    title: result.title,
+    message: result.message,
+    detail: result.detail,
+    suggestion: result.suggestion
+  }))
+}
+
+function getTrainingLaunchRows(trainingLaunchDiagnostics: TrainingLaunchDiagnosticsSummary | null): MatrixRow[] {
+  if (!trainingLaunchDiagnostics) {
+    return [{ status: 'skip', title: 'Training launch', message: 'Waiting for training launch diagnostics.' }]
+  }
+
+  return trainingLaunchDiagnostics.checks.map((check) => ({
+    status: check.status,
+    title: check.title,
+    message: check.message,
+    detail: check.detail,
+    suggestion: check.suggestion,
+    command: check.command,
+    outputTail: check.outputTail
+  }))
+}
+
+function getAcceleratorRows(acceleratorDiagnostics: AcceleratorDiagnosticsSummary | null): MatrixRow[] {
+  if (!acceleratorDiagnostics) {
+    return [{ status: 'skip', title: 'Accelerator probe', message: 'Waiting for accelerator diagnostics.' }]
+  }
+
+  const summaryStatus: MatrixStatus = acceleratorDiagnostics.status === 'ready' || (acceleratorDiagnostics.status === 'cpu_only' && !acceleratorDiagnostics.hostNvidiaSmiAvailable)
+    ? 'pass'
+    : acceleratorDiagnostics.status === 'advisory' || acceleratorDiagnostics.status === 'cpu_only'
+    ? 'warn'
+    : acceleratorDiagnostics.status === 'not_checked'
+    ? 'skip'
+    : 'fail'
+
+  const rows: MatrixRow[] = [
+    {
+      status: summaryStatus,
+      title: getAcceleratorLabel(acceleratorDiagnostics.status),
+      message: acceleratorDiagnostics.headline,
+      detail: acceleratorDiagnostics.detail,
+      suggestion: acceleratorDiagnostics.suggestion
+    }
+  ]
+
+  if (acceleratorDiagnostics.torchImportOk != null) {
+    rows.push({
+      status: acceleratorDiagnostics.torchImportOk ? 'pass' : 'fail',
+      title: 'Torch import',
+      message: acceleratorDiagnostics.torchImportOk ? `Torch ${formatMaybeText(acceleratorDiagnostics.torchVersion, 'version not reported')}` : 'Torch could not import.',
+      detail: `CUDA build: ${formatMaybeText(acceleratorDiagnostics.torchCudaVersion, 'CPU-only or not reported')}; ROCm HIP: ${formatMaybeText(acceleratorDiagnostics.hipVersion, 'not reported')}`
+    })
+  }
+
+  if (acceleratorDiagnostics.cudaAvailable != null || acceleratorDiagnostics.mpsAvailable != null) {
+    rows.push({
+      status: acceleratorDiagnostics.cudaAvailable || acceleratorDiagnostics.mpsAvailable ? 'pass' : acceleratorDiagnostics.hostNvidiaSmiAvailable ? 'fail' : 'pass',
+      title: 'Hardware visibility',
+      message: acceleratorDiagnostics.cudaAvailable
+        ? `CUDA/ROCm visible: ${formatMaybeText(acceleratorDiagnostics.deviceName, 'device name not reported')}`
+        : acceleratorDiagnostics.mpsAvailable
+        ? 'Apple MPS is visible.'
+        : acceleratorDiagnostics.hostNvidiaSmiAvailable
+        ? 'Host NVIDIA GPU exists, but PyTorch cannot see CUDA.'
+        : 'No supported GPU visible; CPU training can still work.',
+      detail: `Device count: ${acceleratorDiagnostics.cudaDeviceCount != null ? String(acceleratorDiagnostics.cudaDeviceCount) : 'unknown'}`
+    })
+  }
+
+  if (acceleratorDiagnostics.lightningImportOk != null) {
+    rows.push({
+      status: acceleratorDiagnostics.lightningImportOk ? (acceleratorDiagnostics.lightningCudaAvailable === false && acceleratorDiagnostics.cudaAvailable ? 'warn' : 'pass') : 'warn',
+      title: 'Lightning',
+      message: acceleratorDiagnostics.lightningImportOk
+        ? `${formatMaybeText(acceleratorDiagnostics.lightningPackage, 'Lightning')} ${formatMaybeText(acceleratorDiagnostics.lightningVersion, 'version not reported')}`
+        : 'Lightning was not importable or not reported.',
+      detail: `Lightning CUDA available: ${formatMaybeBoolean(acceleratorDiagnostics.lightningCudaAvailable)}`
+    })
+  }
+
+  return rows
+}
+
+function getVersionRows(namVersionInfo: NamVersionInfo | null): MatrixRow[] {
+  if (!namVersionInfo) {
+    return [{ status: 'skip', title: 'NAM version', message: 'Waiting for version check.' }]
+  }
+
+  if (namVersionInfo.checkStatus !== 'ok') {
+    return [{ status: 'warn', title: 'NAM version', message: namVersionInfo.errorMessage ?? 'Version check could not complete.' }]
+  }
+
+  return [{
+    status: namVersionInfo.isUpToDate === false ? 'warn' : 'pass',
+    title: 'NAM version',
+    message: namVersionInfo.isUpToDate === false ? 'A newer NAM version is available.' : 'Installed NAM is up to date.',
+    detail: `Installed: ${namVersionInfo.installedVersion ?? 'not detected'}; Latest: ${namVersionInfo.latestVersion ?? 'not reported'}`
+  }]
+}
+
+function getSummaryTiles(
+  validation: BackendValidationSummary | null,
+  acceleratorDiagnostics: AcceleratorDiagnosticsSummary | null,
+  trainingLaunchDiagnostics: TrainingLaunchDiagnosticsSummary | null,
+  namVersionInfo: NamVersionInfo | null
+): SummaryTile[] {
+  const acceleratorStatus: MatrixStatus = !acceleratorDiagnostics
+    ? 'skip'
+    : acceleratorDiagnostics.status === 'ready' || (acceleratorDiagnostics.status === 'cpu_only' && !acceleratorDiagnostics.hostNvidiaSmiAvailable)
+    ? 'pass'
+    : acceleratorDiagnostics.status === 'advisory' || acceleratorDiagnostics.status === 'cpu_only'
+    ? 'warn'
+    : acceleratorDiagnostics.status === 'not_checked'
+    ? 'skip'
+    : 'fail'
+
+  return [
+    {
+      title: 'Backend',
+      status: validation ? (validation.overallOk ? 'pass' : 'fail') : 'skip',
+      label: validation ? (validation.overallOk ? 'Ready' : 'Needs Fix') : 'Checking',
+      detail: validation ? (validation.overallOk ? 'Conda, Python, NAM, and nam-full are reachable.' : 'One or more backend checks failed.') : 'Waiting for backend validation.',
+      checkedAt: validation?.checkedAt ?? null
+    },
+    {
+      title: 'Accelerator',
+      status: acceleratorStatus,
+      label: acceleratorDiagnostics ? getAcceleratorLabelForIssue(acceleratorDiagnostics.issue).replace(/^✓ |^⚠ |^✗ /, '') : 'Checking',
+      detail: acceleratorDiagnostics?.headline ?? 'Waiting for accelerator diagnostics.',
+      checkedAt: acceleratorDiagnostics?.checkedAt ?? null
+    },
+    {
+      title: 'Training Launch',
+      status: trainingLaunchDiagnostics
+        ? trainingLaunchDiagnostics.status === 'ready'
+          ? 'pass'
+          : trainingLaunchDiagnostics.status === 'advisory'
+          ? 'warn'
+          : trainingLaunchDiagnostics.status === 'not_checked'
+          ? 'skip'
+          : 'fail'
+        : 'skip',
+      label: trainingLaunchDiagnostics ? (trainingLaunchDiagnostics.status === 'ready' ? 'Ready' : trainingLaunchDiagnostics.status === 'advisory' ? 'Check Setup' : 'Blocked') : 'Checking',
+      detail: trainingLaunchDiagnostics?.headline ?? 'Waiting for launch readiness diagnostics.',
+      checkedAt: trainingLaunchDiagnostics?.checkedAt ?? null
+    },
+    {
+      title: 'NAM Version',
+      status: !namVersionInfo ? 'skip' : namVersionInfo.checkStatus !== 'ok' || namVersionInfo.isUpToDate === false ? 'warn' : 'pass',
+      label: getVersionStatusBadge(namVersionInfo).label,
+      detail: namVersionInfo?.checkStatus === 'ok'
+        ? `Installed ${namVersionInfo.installedVersion ?? 'unknown'}; latest ${namVersionInfo.latestVersion ?? 'unknown'}.`
+        : namVersionInfo?.errorMessage ?? 'Waiting for version check.',
+      checkedAt: null
+    }
+  ]
+}
+
+function findFirstBackendFailure(validation: BackendValidationSummary | null): BackendCheckResult | null {
+  if (!validation || validation.overallOk) {
+    return null
+  }
+
+  return [
+    validation.condaReachable,
+    validation.environmentReachable,
+    validation.pythonReachable,
+    validation.namInstalled,
+    validation.namFullAvailable
+  ].find((result) => !result.ok && result.code !== 'unknown') ?? null
+}
+
+function buildBackendAction(settings: AppSettings | null, failure: BackendCheckResult): ActionItem {
+  const commands = getDiagnosticCommands(settings)
+  const condaLookupCommand = window.namBot.platform === 'win32' ? 'where conda' : 'which conda'
+
+  if (failure.code.includes('conda')) {
+    return {
+      title: 'Fix This First',
+      headline: 'Conda is not reachable',
+      body: 'NAM-BOT cannot train until it can launch Conda from the desktop app.',
+      steps: ['Open a terminal.', `Run ${condaLookupCommand}.`, 'Copy the full Conda executable path into Settings.', 'Return here and click Re-check All.'],
+      commands: [{ label: 'Find Conda', command: condaLookupCommand }],
+      verify: 'The Backend tile should change to Ready.',
+      tone: 'fail'
+    }
+  }
+
+  if (failure.code.includes('env')) {
+    return {
+      title: 'Fix This First',
+      headline: 'The selected Conda environment is not ready',
+      body: 'NAM-BOT needs the exact Conda environment name or prefix where NAM is installed.',
+      steps: ['Open Settings.', 'Confirm the Conda environment name or prefix.', 'Use the exact name shown by Conda, then re-check Diagnostics.'],
+      commands: [{ label: 'List Conda Environments', command: 'conda env list' }],
+      verify: 'The Environment and Python rows should pass.',
+      tone: 'fail'
+    }
+  }
+
+  return {
+    title: 'Fix This First',
+    headline: failure.title,
+    body: failure.message,
+    steps: ['Repair the selected environment.', 'Keep NAM, torch, and Lightning in the same environment.', 'Re-run Diagnostics after the command completes.'],
+    commands: failure.code.includes('nam') ? [{ label: 'Install or Repair NAM', command: commands.reinstallNam }] : [],
+    verify: failure.suggestion ?? 'The failed backend row should pass after repair.',
+    tone: 'fail'
+  }
+}
+
+function buildTrainingLaunchAction(settings: AppSettings | null, diagnostics: TrainingLaunchDiagnosticsSummary): ActionItem | null {
+  if (diagnostics.status === 'ready') {
+    return null
+  }
+
+  const condaLookupCommand = window.namBot.platform === 'win32' ? 'where conda' : 'which conda'
+  const failedCheck = diagnostics.checks.find((check) => check.status === 'fail')
+  const warningCheck = diagnostics.checks.find((check) => check.status === 'warn')
+  const primaryCheck = failedCheck ?? warningCheck
+
+  if (diagnostics.issue === 'workspace_unwritable') {
+    return {
+      title: 'Fix This First',
+      headline: 'Training workspace is not writable',
+      body: 'NAM-BOT must create a temporary workspace before it launches training.',
+      steps: ['Open Settings.', 'Set Default Workspace Root to a local folder you can write to.', 'Avoid iCloud, OneDrive, Dropbox, network drives, and external drives while troubleshooting.', 'Re-check Diagnostics.'],
+      commands: [],
+      verify: 'The Workspace write row should pass.',
+      tone: 'fail'
+    }
+  }
+
+  if (diagnostics.issue === 'pty_launch_failed') {
+    return {
+      title: 'Fix This First',
+      headline: 'Training process could not start',
+      body: 'NAM-BOT can see the environment, but the operating system would not launch the terminal process used by real training.',
+      steps: ['Use a full Conda executable path instead of relying on PATH.', 'On macOS, move NAM-BOT to /Applications and open it from there.', 'Make sure the app build matches your CPU architecture.', 'Re-check Diagnostics.'],
+      commands: settings && settings.condaExecutablePath && isBareCondaSetting(settings) ? [{ label: 'Find Conda', command: condaLookupCommand }] : [],
+      verify: 'The PTY Python launch row should pass.',
+      tone: 'fail'
+    }
+  }
+
+  if (diagnostics.issue === 'mac_app_on_dmg' || diagnostics.issue === 'mac_app_translocated') {
+    return {
+      title: 'Recommended Setup Fix',
+      headline: 'macOS app location may be fragile',
+      body: primaryCheck?.message ?? diagnostics.detail,
+      steps: ['Drag NAM-BOT into /Applications.', 'Right-click NAM-BOT and choose Open.', 'Run Diagnostics again from the installed app.'],
+      commands: [],
+      verify: 'The App location row should pass or disappear.',
+      tone: 'warn'
+    }
+  }
+
+  if (diagnostics.issue === 'bare_conda_path') {
+    return {
+      title: 'Recommended Setup Fix',
+      headline: 'Conda path relies on PATH',
+      body: 'Training launch currently works, but desktop apps can lose terminal PATH settings. A full Conda path is more reliable.',
+      steps: ['Open a terminal.', `Run ${condaLookupCommand}.`, 'Paste the full executable path into Settings.', 'Re-check Diagnostics.'],
+      commands: [{ label: 'Find Conda', command: condaLookupCommand }],
+      verify: 'The Conda path style row should pass or disappear.',
+      tone: 'warn'
+    }
+  }
+
+  return {
+    title: diagnostics.status === 'advisory' ? 'Recommended Setup Fix' : 'Fix This First',
+    headline: diagnostics.headline,
+    body: diagnostics.detail,
+    steps: [primaryCheck?.suggestion ?? diagnostics.suggestion ?? 'Review the failing launch row, apply the suggested fix, then re-check Diagnostics.'],
+    commands: primaryCheck?.command ? [{ label: primaryCheck.title, command: primaryCheck.command }] : [],
+    verify: 'The Training Launch tile should change to Ready.',
+    tone: diagnostics.status === 'advisory' ? 'warn' : 'fail'
+  }
+}
+
+function isBareCondaSetting(settings: AppSettings): boolean {
+  const condaPath = settings.condaExecutablePath ?? ''
+  return condaPath.length > 0 && !condaPath.includes('\\') && !condaPath.includes('/')
+}
+
+function buildAcceleratorAction(
+  settings: AppSettings | null,
+  acceleratorDiagnostics: AcceleratorDiagnosticsSummary | null,
+  acceleratorGuidance: AcceleratorGuidance | null
+): ActionItem | null {
+  if (!acceleratorDiagnostics || !acceleratorGuidance) {
+    return null
+  }
+
+  if (acceleratorDiagnostics.status === 'ready') {
+    return null
+  }
+
+  if (acceleratorDiagnostics.status === 'cpu_only' && !acceleratorDiagnostics.hostNvidiaSmiAvailable) {
+    return null
+  }
+
+  const commands = [...(acceleratorGuidance.setupSteps ?? []), ...acceleratorGuidance.steps]
+  return {
+    title: acceleratorDiagnostics.status === 'advisory' ? 'Recommended Setup Fix' : 'Fix This First',
+    headline: acceleratorGuidance.title,
+    body: acceleratorGuidance.body,
+    steps: [acceleratorGuidance.note ?? acceleratorDiagnostics.suggestion ?? 'Run the suggested repair command, then re-check Diagnostics.'],
+    commands,
+    verify: `After repair, run: ${getDiagnosticCommands(settings).verifyTorch}`,
+    tone: acceleratorDiagnostics.status === 'advisory' || acceleratorDiagnostics.status === 'cpu_only' ? 'warn' : 'fail'
+  }
+}
+
+function buildVersionAction(settings: AppSettings | null, namVersionInfo: NamVersionInfo | null): ActionItem | null {
+  if (!namVersionInfo || namVersionInfo.checkStatus !== 'ok' || namVersionInfo.isUpToDate !== false) {
+    return null
+  }
+
+  return {
+    title: 'Recommended Update',
+    headline: 'A newer NAM version is available',
+    body: 'Updating NAM is not always required, but newer releases can include training fixes and compatibility improvements.',
+    steps: ['Run the upgrade command in your selected environment.', 'Return to Diagnostics.', 'Click Re-check All.'],
+    commands: getUpgradeCommands(settings),
+    verify: 'The NAM Version tile should report Up to date.',
+    tone: 'warn'
+  }
+}
+
+function buildActionItems(
+  settings: AppSettings | null,
+  validation: BackendValidationSummary | null,
+  acceleratorDiagnostics: AcceleratorDiagnosticsSummary | null,
+  trainingLaunchDiagnostics: TrainingLaunchDiagnosticsSummary | null,
+  namVersionInfo: NamVersionInfo | null,
+  acceleratorGuidance: AcceleratorGuidance | null
+): ActionItem[] {
+  const backendFailure = findFirstBackendFailure(validation)
+  const actions: ActionItem[] = []
+  if (backendFailure) {
+    actions.push(buildBackendAction(settings, backendFailure))
+  }
+
+  if (trainingLaunchDiagnostics) {
+    const launchAction = buildTrainingLaunchAction(settings, trainingLaunchDiagnostics)
+    if (launchAction) {
+      actions.push(launchAction)
+    }
+  }
+
+  const acceleratorAction = buildAcceleratorAction(settings, acceleratorDiagnostics, acceleratorGuidance)
+  if (acceleratorAction) {
+    actions.push(acceleratorAction)
+  }
+
+  const versionAction = buildVersionAction(settings, namVersionInfo)
+  if (versionAction) {
+    actions.push(versionAction)
+  }
+
+  return actions
+}
+
+function isSetupReady(
+  validation: BackendValidationSummary | null,
+  acceleratorDiagnostics: AcceleratorDiagnosticsSummary | null,
+  trainingLaunchDiagnostics: TrainingLaunchDiagnosticsSummary | null
+): boolean {
+  const acceleratorReady = acceleratorDiagnostics?.status === 'ready' || (acceleratorDiagnostics?.status === 'cpu_only' && !acceleratorDiagnostics.hostNvidiaSmiAvailable)
+  return validation?.overallOk === true && acceleratorReady && trainingLaunchDiagnostics?.status === 'ready'
+}
+
+function ActionCenter({ actions, allReady, onOpenSettings }: { actions: ActionItem[]; allReady: boolean; onOpenSettings: () => void }) {
+  if (actions.length === 0) {
+    if (!allReady) {
+      return (
+        <div className="panel" style={{ marginBottom: '16px' }}>
+          <p style={{ color: 'var(--text-steel)', fontFamily: 'var(--font-arcade)', fontSize: '24px', marginBottom: '4px' }}>Diagnostics Pending</p>
+          <p style={{ color: 'var(--text-steel)', fontSize: '13px', lineHeight: 1.5 }}>
+            NAM-BOT is still waiting for enough diagnostic data to make a setup recommendation.
+          </p>
+        </div>
+      )
+    }
+
+    return (
+      <div className="panel" style={{ marginBottom: '16px', borderColor: 'var(--neon-green)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'center' }}>
+          <div>
+            <p style={{ color: 'var(--neon-green)', fontFamily: 'var(--font-arcade)', fontSize: '28px', marginBottom: '4px' }}>Ready To Train</p>
+            <p style={{ color: 'var(--text-steel)', fontSize: '13px', lineHeight: 1.5 }}>
+              NAM-BOT can reach the environment, inspect accelerator support, and launch the training process path successfully.
+            </p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const primary = actions[0]
+  const color = getStatusColor(primary.tone)
+  return (
+    <div className="panel" style={{ marginBottom: '16px', borderColor: color }}>
+      <div style={{ display: 'grid', gap: '12px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start' }}>
+          <div>
+            <p style={{ color, fontFamily: 'var(--font-arcade)', fontSize: '28px', marginBottom: '4px' }}>{primary.title}</p>
+            <p style={{ color: 'var(--text-ash)', fontSize: '18px', marginBottom: '6px' }}>{primary.headline}</p>
+            <p style={{ color: 'var(--text-steel)', fontSize: '13px', lineHeight: 1.55 }}>{primary.body}</p>
+          </div>
+          <button className="btn btn-sm btn-secondary" onClick={onOpenSettings}>Open Settings</button>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '14px' }}>
+          <div style={{ border: '1px solid var(--border-dim)', padding: '12px', backgroundColor: 'rgba(9, 9, 11, 0.45)' }}>
+            <p style={{ color: 'var(--text-ash)', fontFamily: 'var(--font-arcade)', fontSize: '18px', marginBottom: '8px' }}>How To Fix</p>
+            <ol style={{ color: 'var(--text-steel)', paddingLeft: '18px', lineHeight: 1.55, fontSize: '13px' }}>
+              {primary.steps.map((step) => <li key={step}>{step}</li>)}
+            </ol>
+            <p style={{ color: 'var(--neon-cyan)', fontSize: '12px', lineHeight: 1.45, marginTop: '10px' }}>Verify: {primary.verify}</p>
+          </div>
+          <div style={{ display: 'grid', alignContent: 'start' }}>
+            {primary.commands.length > 0 ? (
+              primary.commands.slice(0, 2).map((command) => <CopyableCodeBlock key={command.label} label={command.label} command={command.command} />)
+            ) : (
+              <div style={{ border: '1px solid var(--border-dim)', padding: '12px', color: 'var(--text-steel)', fontSize: '13px', lineHeight: 1.45 }}>
+                No command is needed for this fix. Update the setting, folder, or app location, then re-check.
+              </div>
+            )}
+          </div>
+        </div>
+
+        {actions.length > 1 && (
+          <div style={{ borderTop: '1px solid var(--border-dim)', paddingTop: '10px' }}>
+            <p style={{ color: 'var(--text-steel)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: '6px' }}>Also detected</p>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              {actions.slice(1).map((action) => (
+                <span key={action.headline} style={{ color: getStatusColor(action.tone), border: `1px solid ${getStatusColor(action.tone)}`, padding: '4px 8px', fontFamily: 'var(--font-arcade)', fontSize: '14px' }}>
+                  {action.headline}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function Diagnostics() {
+  const navigate = useNavigate()
   const {
     settings,
     validation,
     acceleratorDiagnostics,
+    trainingLaunchDiagnostics,
     namVersionInfo,
     isLoading,
     isAcceleratorDiagnosticsLoading,
+    isTrainingLaunchDiagnosticsLoading,
+    isNamVersionInfoLoading,
     loadSettings,
     validateBackend,
     loadAcceleratorDiagnostics,
+    loadTrainingLaunchDiagnostics,
     loadNamVersionInfo
   } = useAppStore()
 
-  const isChecking = isLoading || isAcceleratorDiagnosticsLoading
+  const isChecking = isLoading || isAcceleratorDiagnosticsLoading || isTrainingLaunchDiagnosticsLoading || isNamVersionInfoLoading
   const [showAiPrompt, setShowAiPrompt] = useState(false)
   const [showRawJson, setShowRawJson] = useState(false)
-  const [showAcceleratorExtended, setShowAcceleratorExtended] = useState(false)
-  const [showUpgradeSteps, setShowUpgradeSteps] = useState(false)
+  const [showAdvancedDetails, setShowAdvancedDetails] = useState(false)
   const acceleratorGuidance = getAcceleratorGuidance(acceleratorDiagnostics, settings)
-  const exportPanelCopy = getExportPanelCopy(validation, acceleratorDiagnostics)
-  const showTroubleshootingExport = shouldShowTroubleshootingExport(validation, acceleratorDiagnostics)
-  const diagnosticsJson = JSON.stringify(buildDiagnosticsExportPayload(settings, validation, acceleratorDiagnostics), null, 2)
-  const aiTroubleshootingPrompt = buildAiTroubleshootingPrompt(settings, validation, acceleratorDiagnostics)
+  const diagnosticsJson = JSON.stringify(buildDiagnosticsExportPayload(settings, validation, acceleratorDiagnostics, trainingLaunchDiagnostics), null, 2)
+  const aiTroubleshootingPrompt = buildAiTroubleshootingPrompt(settings, validation, acceleratorDiagnostics, trainingLaunchDiagnostics)
+  const tiles = getSummaryTiles(validation, acceleratorDiagnostics, trainingLaunchDiagnostics, namVersionInfo)
+  const actions = buildActionItems(settings, validation, acceleratorDiagnostics, trainingLaunchDiagnostics, namVersionInfo, acceleratorGuidance)
+  const matrixGroups: MatrixGroup[] = [
+    { title: 'Backend', rows: getBackendRows(validation) },
+    { title: 'Training Launch', rows: getTrainingLaunchRows(trainingLaunchDiagnostics) },
+    { title: 'Accelerator', rows: getAcceleratorRows(acceleratorDiagnostics) },
+    { title: 'NAM Version', rows: getVersionRows(namVersionInfo) }
+  ]
 
   useEffect(() => {
-    if (!settings) {
+    if (!settings && !isLoading) {
       void loadSettings()
     }
-    if (!validation) {
+    if (!validation && !isLoading) {
       void validateBackend()
     }
-    if (!acceleratorDiagnostics) {
+    if (!acceleratorDiagnostics && !isAcceleratorDiagnosticsLoading) {
       void loadAcceleratorDiagnostics()
     }
-    if (!namVersionInfo) {
+    if (!trainingLaunchDiagnostics && !isTrainingLaunchDiagnosticsLoading) {
+      void loadTrainingLaunchDiagnostics()
+    }
+    if (!namVersionInfo && !isNamVersionInfoLoading) {
       void loadNamVersionInfo()
     }
-  }, [acceleratorDiagnostics, loadAcceleratorDiagnostics, loadNamVersionInfo, loadSettings, namVersionInfo, settings, validation, validateBackend])
+  }, [
+    acceleratorDiagnostics,
+    isAcceleratorDiagnosticsLoading,
+    isLoading,
+    isNamVersionInfoLoading,
+    isTrainingLaunchDiagnosticsLoading,
+    loadAcceleratorDiagnostics,
+    loadNamVersionInfo,
+    loadSettings,
+    loadTrainingLaunchDiagnostics,
+    namVersionInfo,
+    settings,
+    trainingLaunchDiagnostics,
+    validation,
+    validateBackend
+  ])
 
   const handleRecheck = async () => {
-    await Promise.all([validateBackend(), loadAcceleratorDiagnostics()])
+    await Promise.all([validateBackend(), loadAcceleratorDiagnostics(), loadTrainingLaunchDiagnostics(), loadNamVersionInfo()])
   }
 
-  if (isChecking && !validation && !acceleratorDiagnostics) {
+  if (isChecking && !validation && !acceleratorDiagnostics && !trainingLaunchDiagnostics) {
     return (
       <div className="layout-main">
         <div className="panel">
-          <p className="processing-text" style={{ color: 'var(--text-steel)', textAlign: 'center', padding: '40px' }}>
-            Running backend and accelerator diagnostics
+          <p className="processing-text" style={{ color: 'var(--text-steel)', textAlign: 'center', padding: '32px' }}>
+            Running setup, accelerator, and launch diagnostics
           </p>
         </div>
       </div>
@@ -857,475 +1526,81 @@ export default function Diagnostics() {
   return (
     <div className="layout-main">
       <div className="panel" style={{ marginBottom: '16px' }}>
-        <div className="panel-header">
-          <h3>Backend Diagnostics</h3>
+        <div className="panel-header" style={{ marginBottom: '12px' }}>
+          <h3>Diagnostics</h3>
           <button className={`btn btn-sm btn-green ${isChecking ? 'processing-text' : ''}`} onClick={handleRecheck} disabled={isChecking}>
-            {isChecking ? 'Checking' : 'Re-check'}
+            {isChecking ? 'Checking' : 'Re-check All'}
+          </button>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+          {tiles.map((tile) => <SummaryTileCard key={tile.title} tile={tile} />)}
+        </div>
+      </div>
+
+      <ActionCenter actions={actions} allReady={isSetupReady(validation, acceleratorDiagnostics, trainingLaunchDiagnostics)} onOpenSettings={() => navigate('/settings')} />
+      <DiagnosticMatrix groups={matrixGroups} />
+
+      <div className="panel" style={{ marginBottom: '16px' }}>
+        <div className="panel-header" style={{ marginBottom: showAdvancedDetails ? '12px' : 0 }}>
+          <h3>Advanced Details</h3>
+          <button className={`btn btn-sm ${showAdvancedDetails ? 'btn-blue is-toggled' : 'btn-secondary'}`} onClick={() => setShowAdvancedDetails((value) => !value)}>
+            {showAdvancedDetails ? 'Hide Details' : 'Show Details'}
           </button>
         </div>
 
-        {validation ? (
-          <>
-            <div
-              style={{
-                padding: '20px',
-                marginBottom: '20px',
-                border: `2px solid ${validation.overallOk ? 'var(--neon-green)' : 'var(--neon-magenta)'}`,
-                backgroundColor: 'var(--bg-void)',
-                textAlign: 'center'
-              }}
-            >
-              <h2
-                style={{
-                  fontFamily: 'var(--font-arcade)',
-                  fontSize: '32px',
-                  color: validation.overallOk ? 'var(--neon-green)' : 'var(--neon-magenta)',
-                  marginBottom: '8px'
-                }}
-              >
-                {validation.overallOk ? '✓ BACKEND READY' : '✗ BACKEND NOT READY'}
-              </h2>
-              <p style={{ color: 'var(--text-steel)' }}>Last checked: {new Date(validation.checkedAt).toLocaleString()}</p>
+        {showAdvancedDetails && (
+          <div style={{ display: 'grid', gap: '16px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', border: '1px solid var(--border-dim)' }}>
+              <DiagnosticFact label="Target environment" value={getEnvironmentReference(settings)} />
+              <DiagnosticFact label="Workspace root" value={formatMaybeText(trainingLaunchDiagnostics?.workspaceRoot, 'Not reported')} />
+              <DiagnosticFact label="App executable" value={formatMaybeText(trainingLaunchDiagnostics?.appExecutablePath, 'Not reported')} />
+              <DiagnosticFact label="Process arch" value={trainingLaunchDiagnostics?.processArch ?? 'Not reported'} />
+              <DiagnosticFact label="Python version" value={formatMaybeText(acceleratorDiagnostics?.pythonVersion, 'Not reported')} />
+              <DiagnosticFact label="Python executable" value={formatMaybeText(acceleratorDiagnostics?.pythonExecutable, 'Not reported')} />
+              <DiagnosticFact label="Python platform" value={formatMaybeText(acceleratorDiagnostics?.pythonPlatform, 'Not reported')} />
+              <DiagnosticFact label="Host NVIDIA" value={formatMaybeBoolean(acceleratorDiagnostics?.hostNvidiaSmiAvailable)} />
+              <DiagnosticFact label="Host GPU" value={formatMaybeText(acceleratorDiagnostics?.hostNvidiaGpuName, 'Not detected')} />
+              <DiagnosticFact label="NVIDIA driver" value={formatMaybeText(acceleratorDiagnostics?.hostDriverVersion, 'Not reported')} />
+              <DiagnosticFact label="Torch version" value={formatMaybeText(acceleratorDiagnostics?.torchVersion, 'Not reported')} />
+              <DiagnosticFact label="Torch CUDA build" value={formatMaybeText(acceleratorDiagnostics?.torchCudaVersion, 'CPU-only or not reported')} />
+              <DiagnosticFact label="ROCm HIP version" value={formatMaybeText(acceleratorDiagnostics?.hipVersion, 'Not reported')} />
+              <DiagnosticFact label="CUDA available" value={formatMaybeBoolean(acceleratorDiagnostics?.cudaAvailable)} />
+              <DiagnosticFact label="MPS available" value={formatMaybeBoolean(acceleratorDiagnostics?.mpsAvailable)} />
+              <DiagnosticFact label="NAM version" value={formatMaybeText(acceleratorDiagnostics?.namVersion, 'Not reported')} />
+              <DiagnosticFact label="Lightning package" value={formatMaybeText(acceleratorDiagnostics?.lightningPackage, 'Not installed or not importable')} />
+              <DiagnosticFact label="Lightning version" value={formatMaybeText(acceleratorDiagnostics?.lightningVersion, 'Not reported')} />
             </div>
 
-            <CheckResult result={validation.condaReachable} />
-            <CheckResult result={validation.environmentReachable} />
-            <CheckResult result={validation.pythonReachable} />
-            <CheckResult result={validation.namInstalled} />
-            <CheckResult result={validation.namFullAvailable} />
-          </>
-        ) : (
-          <div style={{ textAlign: 'center', padding: '40px' }}>
-            <p style={{ color: 'var(--text-steel)', marginBottom: '16px' }}>No validation results yet.</p>
-            <button className={`btn btn-primary ${isChecking ? 'processing-text' : ''}`} onClick={handleRecheck} disabled={isChecking}>
-              {isChecking ? 'Validating' : 'Run Validation'}
-            </button>
-          </div>
-        )}
-      </div>
-
-      <div className="panel" style={{ marginBottom: '16px' }}>
-        <div className="panel-header">
-          <h3>Accelerator Diagnostics</h3>
-          <button 
-            className="btn btn-sm btn-secondary" 
-            onClick={() => setShowAcceleratorExtended(!showAcceleratorExtended)}
-            style={{ minWidth: '100px' }}
-          >
-            {showAcceleratorExtended ? 'Hide Details' : 'Show Details'}
-          </button>
-        </div>
-
-        {acceleratorDiagnostics ? (
-          <>
-            <div
-              style={{
-                padding: '20px',
-                marginBottom: '20px',
-                border: `2px solid ${getAcceleratorAccent(acceleratorDiagnostics.status)}`,
-                backgroundColor: 'var(--bg-void)'
-              }}
-            >
-              <p
-                style={{
-                  color: getAcceleratorAccent(acceleratorDiagnostics.status),
-                  fontFamily: 'var(--font-arcade)',
-                  fontSize: '28px',
-                  marginBottom: '10px'
-                }}
-              >
-                {getAcceleratorLabelForIssue(acceleratorDiagnostics.issue)}
+            <div style={{ border: '1px solid var(--border-dim)', backgroundColor: 'rgba(9, 9, 11, 0.45)', padding: '14px' }}>
+              <p style={{ color: 'var(--text-ash)', fontFamily: 'var(--font-arcade)', fontSize: '18px', marginBottom: '8px' }}>Troubleshooting Export</p>
+              <p style={{ color: 'var(--text-steel)', fontSize: '13px', lineHeight: 1.5, marginBottom: '12px' }}>
+                These exports include backend checks, accelerator state, training launch readiness, host context, and prepared repair commands.
               </p>
-              <p style={{ color: 'var(--text-ash)', fontSize: '18px', marginBottom: '8px' }}>{acceleratorDiagnostics.headline}</p>
-              <p
-                style={{
-                  color: 'var(--text-steel)',
-                  fontSize: '14px',
-                  lineHeight: '1.6',
-                  marginBottom: acceleratorDiagnostics.suggestion ? '10px' : '8px'
-                }}
-              >
-                {acceleratorDiagnostics.detail}
-              </p>
-              {acceleratorDiagnostics.suggestion && (
-                <p style={{ color: 'var(--neon-cyan)', fontSize: '13px', lineHeight: '1.5' }}>→ {acceleratorDiagnostics.suggestion}</p>
-              )}
-              <p style={{ color: 'var(--text-steel)', fontSize: '12px', marginTop: '10px' }}>
-                Last checked: {new Date(acceleratorDiagnostics.checkedAt).toLocaleString()}
-              </p>
-            </div>
-            
-            {showAcceleratorExtended && (
-              <>
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '1fr',
-                    border: '1px solid var(--border-dim)',
-                    marginBottom: acceleratorDiagnostics.errors.length > 0 || acceleratorGuidance ? '16px' : '0'
-                  }}
-                >
-                  <DiagnosticFact label="Probe issue" value={formatMaybeText(acceleratorDiagnostics.issue, 'Unknown')} />
-                  <DiagnosticFact label="Target environment" value={getEnvironmentReference(settings)} />
-                  <DiagnosticFact label="Python version" value={formatMaybeText(acceleratorDiagnostics.pythonVersion, 'Not reported')} />
-                  <DiagnosticFact label="Python executable" value={formatMaybeText(acceleratorDiagnostics.pythonExecutable, 'Not reported')} />
-                  <DiagnosticFact label="Python platform" value={formatMaybeText(acceleratorDiagnostics.pythonPlatform, 'Not reported')} />
-                  <DiagnosticFact label="Host NVIDIA" value={formatMaybeBoolean(acceleratorDiagnostics.hostNvidiaSmiAvailable)} />
-                  <DiagnosticFact label="Host GPU" value={formatMaybeText(acceleratorDiagnostics.hostNvidiaGpuName, 'Not detected')} />
-                  <DiagnosticFact label="NVIDIA driver" value={formatMaybeText(acceleratorDiagnostics.hostDriverVersion, 'Not reported')} />
-                  <DiagnosticFact label="Torch import" value={formatMaybeBoolean(acceleratorDiagnostics.torchImportOk)} />
-                  <DiagnosticFact label="Torch version" value={formatMaybeText(acceleratorDiagnostics.torchVersion, 'Not reported')} />
-                  <DiagnosticFact label="Torch CUDA build" value={formatMaybeText(acceleratorDiagnostics.torchCudaVersion, 'CPU-only or not reported')} />
-                  <DiagnosticFact label="ROCm HIP version" value={formatMaybeText(acceleratorDiagnostics.hipVersion, 'Not reported')} />
-                  <DiagnosticFact label="CUDA available" value={formatMaybeBoolean(acceleratorDiagnostics.cudaAvailable)} />
-                  <DiagnosticFact
-                    label="CUDA device count"
-                    value={acceleratorDiagnostics.cudaDeviceCount != null ? String(acceleratorDiagnostics.cudaDeviceCount) : 'Unknown'}
-                  />
-                  <DiagnosticFact label="Primary device" value={formatMaybeText(acceleratorDiagnostics.deviceName, 'No CUDA device detected')} />
-                  <DiagnosticFact label="NAM import" value={formatMaybeBoolean(acceleratorDiagnostics.namImportOk)} />
-                  <DiagnosticFact label="NAM version" value={formatMaybeText(acceleratorDiagnostics.namVersion, 'Not reported')} />
-                  <DiagnosticFact label="Lightning package" value={formatMaybeText(acceleratorDiagnostics.lightningPackage, 'Not installed or not importable')} />
-                  <DiagnosticFact label="Lightning version" value={formatMaybeText(acceleratorDiagnostics.lightningVersion, 'Not reported')} />
-                  <DiagnosticFact label="Lightning CUDA check" value={formatMaybeBoolean(acceleratorDiagnostics.lightningCudaAvailable)} />
-                  <DiagnosticFact label="MPS available" value={formatMaybeBoolean(acceleratorDiagnostics.mpsAvailable)} />
-                </div>
-
-                {acceleratorGuidance && (
-                  <div
-                    style={{
-                      border: '1px solid var(--border-dim)',
-                      backgroundColor: 'rgba(9, 9, 11, 0.45)',
-                      padding: '14px',
-                      marginBottom: '16px'
-                    }}
-                  >
-                    <p
-                      style={{
-                        color: 'var(--text-ash)',
-                        fontFamily: 'var(--font-arcade)',
-                        fontSize: '18px',
-                        marginBottom: '8px'
-                      }}
-                    >
-                      {acceleratorGuidance.title}
-                    </p>
-                    <p
-                      style={{
-                        color: 'var(--text-steel)',
-                        fontSize: '13px',
-                        lineHeight: '1.6',
-                        marginBottom: '12px'
-                      }}
-                    >
-                      {acceleratorGuidance.body}
-                    </p>
-                    {acceleratorGuidance.setupSteps?.map((step) => (
-                      <CopyableCodeBlock key={step.label} label={step.label} command={step.command} />
-                    ))}
-                    {acceleratorGuidance.steps.map((step) => (
-                      <CopyableCodeBlock key={step.label} label={step.label} command={step.command} />
-                    ))}
-                    {acceleratorGuidance.note && (
-                      <p style={{ color: 'var(--neon-cyan)', fontSize: '13px', lineHeight: '1.5' }}>→ {acceleratorGuidance.note}</p>
-                    )}
-                  </div>
-                )}
-
-                {showTroubleshootingExport && (
-                  <div
-                    style={{
-                      border: '1px solid var(--border-dim)',
-                      backgroundColor: 'rgba(9, 9, 11, 0.45)',
-                      padding: '14px',
-                      marginBottom: acceleratorDiagnostics.errors.length > 0 ? '16px' : '0'
-                    }}
-                  >
-                    <p
-                      style={{
-                        color: 'var(--text-ash)',
-                        fontFamily: 'var(--font-arcade)',
-                        fontSize: '18px',
-                        marginBottom: '8px'
-                      }}
-                    >
-                      {exportPanelCopy.title}
-                    </p>
-                    <p
-                      style={{
-                        color: 'var(--text-steel)',
-                        fontSize: '13px',
-                        lineHeight: '1.6',
-                        marginBottom: '12px'
-                      }}
-                    >
-                      {exportPanelCopy.body}
-                    </p>
-                    <div style={{ display: 'grid', gap: '12px', marginBottom: showAiPrompt || showRawJson ? '12px' : '10px' }}>
-                      <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
-                        <button className="btn btn-primary" onClick={() => copyText(aiTroubleshootingPrompt)}>
-                          Copy AI Troubleshooting Prompt
-                        </button>
-                        <button
-                          className={`btn ${showAiPrompt ? 'btn-blue is-toggled' : 'btn-secondary'}`}
-                          onClick={() => setShowAiPrompt((value) => !value)}
-                        >
-                          {showAiPrompt ? 'Hide AI Prompt' : 'Show AI Prompt'}
-                        </button>
-                      </div>
-                      <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
-                        <button className="btn btn-secondary" onClick={() => copyText(diagnosticsJson)}>
-                          Copy Raw Diagnostics JSON
-                        </button>
-                        <button
-                          className={`btn ${showRawJson ? 'btn-blue is-toggled' : 'btn-secondary'}`}
-                          onClick={() => setShowRawJson((value) => !value)}
-                        >
-                          {showRawJson ? 'Hide Raw JSON' : 'Show Raw JSON'}
-                        </button>
-                      </div>
-                    </div>
-                    {showAiPrompt && <CopyableCodeBlock label="AI Troubleshooting Prompt" command={aiTroubleshootingPrompt} />}
-                    {showRawJson && <CopyableCodeBlock label="Raw Diagnostics JSON" command={diagnosticsJson} />}
-                    <p style={{ color: 'var(--neon-cyan)', fontSize: '13px', lineHeight: '1.5' }}>
-                      → The AI prompt asks for root cause, exact commands, verification steps, and whether NAM should use GPU after the fix.
-                    </p>
-                  </div>
-                )}
-
-                {acceleratorDiagnostics.errors.length > 0 && (
-                  <div
-                    style={{
-                      border: '1px solid var(--border-dim)',
-                      backgroundColor: 'rgba(9, 9, 11, 0.45)',
-                      padding: '14px'
-                    }}
-                  >
-                    <p
-                      style={{
-                        color: 'var(--text-ash)',
-                        fontFamily: 'var(--font-arcade)',
-                        fontSize: '18px',
-                        marginBottom: '10px'
-                      }}
-                    >
-                      Probe Notes
-                    </p>
-                    {acceleratorDiagnostics.errors.map((entry) => (
-                      <p
-                        key={entry}
-                        style={{
-                          color: 'var(--text-steel)',
-                          fontSize: '13px',
-                          lineHeight: '1.5',
-                          marginBottom: '8px'
-                        }}
-                      >
-                        {entry}
-                      </p>
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
-          </>
-        ) : (
-          <div style={{ textAlign: 'center', padding: '32px' }}>
-            <p style={{ color: 'var(--text-steel)' }}>No accelerator diagnostics yet.</p>
-          </div>
-        )}
-      </div>
-
-      {!validation?.overallOk && (
-        <div className="panel">
-          <div className="panel-header">
-            <h3>Next Steps</h3>
-          </div>
-          <ol style={{ color: 'var(--text-steel)', paddingLeft: '20px', lineHeight: '1.8' }}>
-            <li>Go to Settings and configure your Conda executable path</li>
-            <li>Use <strong>conda</strong> on PATH or set a full Conda path in Settings</li>
-            <li>Set your Conda environment name or prefix. The default environment name is <strong>nam</strong></li>
-            <li>Click "Re-check" to verify everything is working</li>
-          </ol>
-        </div>
-      )}
-
-      <div className="panel" style={{ marginBottom: '16px' }}>
-        <div className="panel-header">
-          <h3>NAM Version Check</h3>
-        </div>
-
-        {namVersionInfo ? (
-          <>
-            <div
-              style={{
-                padding: '20px',
-                marginBottom: '20px',
-                border: `2px solid ${
-                  namVersionInfo.checkStatus === 'ok' && namVersionInfo.isUpToDate
-                    ? 'var(--neon-green)'
-                    : namVersionInfo.checkStatus === 'ok' && namVersionInfo.isUpToDate === false
-                    ? 'var(--neon-cyan)'
-                    : 'var(--border-dim)'
-                }`,
-                backgroundColor: 'var(--bg-void)'
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-                <span
-                  style={{
-                    color: getVersionStatusBadge(namVersionInfo).color,
-                    fontSize: '28px',
-                    fontFamily: 'var(--font-arcade)'
-                  }}
-                >
-                  {getVersionStatusBadge(namVersionInfo).icon} {getVersionStatusBadge(namVersionInfo).label}
-                </span>
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: showAiPrompt || showRawJson ? '12px' : 0 }}>
+                <button className="btn btn-primary" onClick={() => copyText(aiTroubleshootingPrompt)}>Copy AI Prompt</button>
+                <button className={`btn ${showAiPrompt ? 'btn-blue is-toggled' : 'btn-secondary'}`} onClick={() => setShowAiPrompt((value) => !value)}>
+                  {showAiPrompt ? 'Hide AI Prompt' : 'Show AI Prompt'}
+                </button>
+                <button className="btn btn-secondary" onClick={() => copyText(diagnosticsJson)}>Copy Raw JSON</button>
+                <button className={`btn ${showRawJson ? 'btn-blue is-toggled' : 'btn-secondary'}`} onClick={() => setShowRawJson((value) => !value)}>
+                  {showRawJson ? 'Hide Raw JSON' : 'Show Raw JSON'}
+                </button>
               </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
-                <div>
-                  <p style={{ color: 'var(--text-steel)', fontSize: '11px', textTransform: 'uppercase', marginBottom: '4px' }}>
-                    Installed Version
-                  </p>
-                  <p style={{ color: 'var(--text-ash)', fontSize: '16px', fontFamily: 'Consolas, Monaco, monospace' }}>
-                    {namVersionInfo.installedVersion ?? 'Not detected'}
-                  </p>
-                </div>
-                <div>
-                  <p style={{ color: 'var(--text-steel)', fontSize: '11px', textTransform: 'uppercase', marginBottom: '4px' }}>
-                    Latest Version
-                  </p>
-                  <p style={{ color: 'var(--text-ash)', fontSize: '16px', fontFamily: 'Consolas, Monaco, monospace' }}>
-                    {namVersionInfo.latestVersion ?? 'Unable to check'}
-                  </p>
-                </div>
-              </div>
-
-              {namVersionInfo.isUpToDate === false && namVersionInfo.latestReleaseUrl && (
-                <div style={{ marginBottom: '16px' }}>
-                  <p style={{ color: 'var(--neon-cyan)', fontSize: '13px', marginBottom: '8px' }}>
-                    → A newer version is available. Upgrading is recommended to access the latest features, bug fixes, and training improvements.
-                  </p>
-                  {namVersionInfo.publishedAt && (
-                    <p style={{ color: 'var(--text-steel)', fontSize: '12px' }}>
-                      Latest release published: {new Date(namVersionInfo.publishedAt).toLocaleDateString()}
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {namVersionInfo.checkStatus !== 'ok' && namVersionInfo.errorMessage && (
-                <div style={{ marginBottom: '16px' }}>
-                  <p style={{ color: 'var(--neon-magenta)', fontSize: '13px', marginBottom: '8px' }}>
-                    → {namVersionInfo.errorMessage}
-                  </p>
-                  {namVersionInfo.checkStatus === 'offline' && (
-                    <p style={{ color: 'var(--text-steel)', fontSize: '12px' }}>
-                      Check your internet connection and try again.
-                    </p>
-                  )}
-                  {namVersionInfo.checkStatus === 'rate_limited' && (
-                    <p style={{ color: 'var(--text-steel)', fontSize: '12px' }}>
-                      GitHub API rate limit exceeded. Please try again later.
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {namVersionInfo.isUpToDate === false && (
-                <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
-                  <button
-                    className={`btn ${showUpgradeSteps ? 'btn-blue is-toggled' : 'btn-secondary'}`}
-                    onClick={() => setShowUpgradeSteps(!showUpgradeSteps)}
-                  >
-                    {showUpgradeSteps ? 'Hide Upgrade Steps' : 'View Upgrade Steps'}
-                  </button>
-                  <button
-                    className="btn btn-secondary"
-                    onClick={() => {
-                      const commands = getUpgradeCommands(settings)
-                      const upgradeCommand = commands.find((cmd) => cmd.label === 'Upgrade NAM')
-                      if (upgradeCommand) {
-                        copyText(upgradeCommand.command)
-                      }
-                    }}
-                  >
-                    Copy Upgrade Command
-                  </button>
-                  {namVersionInfo.latestReleaseUrl && (
-                    <a
-                      href={namVersionInfo.latestReleaseUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="btn btn-secondary"
-                      style={{ textDecoration: 'none' }}
-                    >
-                      View Release Notes
-                    </a>
-                  )}
-                </div>
-              )}
+              {showAiPrompt && <CopyableCodeBlock label="AI Troubleshooting Prompt" command={aiTroubleshootingPrompt} />}
+              {showRawJson && <CopyableCodeBlock label="Raw Diagnostics JSON" command={diagnosticsJson} />}
             </div>
 
-            {showUpgradeSteps && namVersionInfo.isUpToDate === false && (
-              <div
-                style={{
-                  border: '1px solid var(--border-dim)',
-                  backgroundColor: 'rgba(9, 9, 11, 0.45)',
-                  padding: '14px',
-                  marginBottom: '16px'
-                }}
-              >
-                <p
-                  style={{
-                    color: 'var(--text-ash)',
-                    fontFamily: 'var(--font-arcade)',
-                    fontSize: '18px',
-                    marginBottom: '12px'
-                  }}
-                >
-                  Manual Upgrade Steps
-                </p>
-                <p
-                  style={{
-                    color: 'var(--text-steel)',
-                    fontSize: '13px',
-                    lineHeight: '1.6',
-                    marginBottom: '16px'
-                  }}
-                >
-                  Run these commands in your terminal to upgrade NAM to the latest version:
-                </p>
-                {getUpgradeCommands(settings).map((step) => (
-                  <CopyableCodeBlock key={step.label} label={step.label} command={step.command} />
+            {(acceleratorDiagnostics?.errors.length ?? 0) > 0 && (
+              <div style={{ border: '1px solid var(--border-dim)', backgroundColor: 'rgba(9, 9, 11, 0.45)', padding: '14px' }}>
+                <p style={{ color: 'var(--text-ash)', fontFamily: 'var(--font-arcade)', fontSize: '18px', marginBottom: '8px' }}>Probe Notes</p>
+                {acceleratorDiagnostics?.errors.map((entry) => (
+                  <p key={entry} style={{ color: 'var(--text-steel)', fontSize: '13px', lineHeight: 1.45, marginBottom: '8px' }}>{entry}</p>
                 ))}
-                <p style={{ color: 'var(--neon-cyan)', fontSize: '13px', lineHeight: '1.5' }}>
-                  → After upgrading, return to this screen and click "Re-check" to verify the new version.
-                </p>
               </div>
             )}
-          </>
-        ) : (
-          <div style={{ textAlign: 'center', padding: '32px' }}>
-            <p style={{ color: 'var(--text-steel)' }}>Loading version information...</p>
           </div>
         )}
       </div>
-
-      {!validation?.overallOk && (
-        <div className="panel">
-          <div className="panel-header">
-            <h3>Next Steps</h3>
-          </div>
-          <ol style={{ color: 'var(--text-steel)', paddingLeft: '20px', lineHeight: '1.8' }}>
-            <li>Go to Settings and configure your Conda executable path</li>
-            <li>Use <strong>conda</strong> on PATH or set a full Conda path in Settings</li>
-            <li>Set your Conda environment name or prefix. The default environment name is <strong>nam</strong></li>
-            <li>Click "Re-check" to verify everything is working</li>
-          </ol>
-        </div>
-      )}
     </div>
   )
 }

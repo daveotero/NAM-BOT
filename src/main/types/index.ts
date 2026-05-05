@@ -110,6 +110,59 @@ export interface AcceleratorDiagnosticsSummary {
   errors: string[]
 }
 
+export type TrainingLaunchDiagnosticsStatus =
+  | 'ready'
+  | 'advisory'
+  | 'not_checked'
+  | 'error'
+
+export type TrainingLaunchDiagnosticsIssue =
+  | 'ready'
+  | 'not_checked'
+  | 'conda_not_configured'
+  | 'conda_unreachable'
+  | 'environment_not_configured'
+  | 'direct_python_unsupported'
+  | 'lightning_security_check_failed'
+  | 'lightning_vulnerable'
+  | 'workspace_unwritable'
+  | 'pty_launch_failed'
+  | 'pty_launch_timeout'
+  | 'pty_payload_missing'
+  | 'nam_full_pty_failed'
+  | 'nam_full_pty_timeout'
+  | 'mac_app_on_dmg'
+  | 'mac_app_translocated'
+  | 'bare_conda_path'
+
+export type TrainingLaunchCheckStatus = 'pass' | 'warn' | 'fail' | 'skip'
+
+export interface TrainingLaunchCheckResult {
+  status: TrainingLaunchCheckStatus
+  code: string
+  title: string
+  message: string
+  detail?: string
+  suggestion?: string
+  command?: string
+  outputTail?: string
+}
+
+export interface TrainingLaunchDiagnosticsSummary {
+  checkedAt: string
+  status: TrainingLaunchDiagnosticsStatus
+  issue: TrainingLaunchDiagnosticsIssue
+  headline: string
+  detail: string
+  suggestion?: string
+  workspaceRoot: string | null
+  workspacePath: string | null
+  appExecutablePath: string | null
+  processArch: string
+  checks: TrainingLaunchCheckResult[]
+  errors: string[]
+}
+
 export interface CondaDiscoverySummary {
   checkedAt: string
   isOnPath: boolean

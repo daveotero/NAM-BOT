@@ -12,7 +12,11 @@ import {
   BackendCheckResult,
   BackendValidationSummary,
   CondaDiscoverySummary,
-  NamVersionInfo
+  NamVersionInfo,
+  TrainingLaunchCheckResult,
+  TrainingLaunchDiagnosticsIssue,
+  TrainingLaunchDiagnosticsStatus,
+  TrainingLaunchDiagnosticsSummary
 } from '../types'
 
 export interface RunHooks {
@@ -71,6 +75,19 @@ interface HostNvidiaSummary {
 
 const VULNERABLE_LIGHTNING_VERSIONS = new Set(['2.6.2', '2.6.3'])
 const LIGHTNING_SECURITY_PREFIX = 'NAM_BOT_LIGHTNING_SECURITY='
+const TRAINING_LAUNCH_PTY_PREFIX = 'NAM_BOT_PTY_OK'
+const TRAINING_LAUNCH_TIMEOUT_MS = 30_000
+const LIGHTNING_SECURITY_RECENT_RESULT_TTL_MS = 5_000
+const lightningSecurityInFlight = new Map<string, Promise<LightningSecuritySummary>>()
+const lightningSecurityRecentResults = new Map<string, { checkedAt: number; summary: LightningSecuritySummary }>()
+
+interface PtyCommandResult {
+  ok: boolean
+  output: string
+  exitCode: number | null
+  timedOut: boolean
+  errorMessage: string | null
+}
 
 export interface TrainingProcessController {
   cancel: () => void
@@ -146,6 +163,126 @@ function createAcceleratorDiagnosticsSummary(
     hostDriverVersion: extras?.hostDriverVersion ?? null,
     errors: extras?.errors ?? []
   }
+}
+
+function createTrainingLaunchCheck(
+  status: TrainingLaunchCheckResult['status'],
+  code: string,
+  title: string,
+  message: string,
+  extras?: Partial<Omit<TrainingLaunchCheckResult, 'status' | 'code' | 'title' | 'message'>>
+): TrainingLaunchCheckResult {
+  return {
+    status,
+    code,
+    title,
+    message,
+    detail: extras?.detail,
+    suggestion: extras?.suggestion,
+    command: extras?.command,
+    outputTail: extras?.outputTail
+  }
+}
+
+function createTrainingLaunchDiagnosticsSummary(
+  status: TrainingLaunchDiagnosticsStatus,
+  issue: TrainingLaunchDiagnosticsIssue,
+  headline: string,
+  detail: string,
+  extras?: Partial<Omit<TrainingLaunchDiagnosticsSummary, 'checkedAt' | 'status' | 'issue' | 'headline' | 'detail'>>
+): TrainingLaunchDiagnosticsSummary {
+  return {
+    checkedAt: new Date().toISOString(),
+    status,
+    issue,
+    headline,
+    detail,
+    suggestion: extras?.suggestion,
+    workspaceRoot: extras?.workspaceRoot ?? null,
+    workspacePath: extras?.workspacePath ?? null,
+    appExecutablePath: extras?.appExecutablePath ?? process.execPath,
+    processArch: extras?.processArch ?? process.arch,
+    checks: extras?.checks ?? [],
+    errors: extras?.errors ?? []
+  }
+}
+
+function tailOutput(output: string, maxLength = 2_000): string {
+  const trimmed = output.trim()
+  if (trimmed.length <= maxLength) {
+    return trimmed
+  }
+
+  return trimmed.slice(trimmed.length - maxLength)
+}
+
+function isBareExecutablePath(command: string): boolean {
+  return !command.includes('\\') && !command.includes('/')
+}
+
+function resolveWorkspaceRoot(settings: AppSettings): string {
+  const configuredRoot = settings.defaultWorkspaceRoot?.trim()
+  if (configuredRoot && configuredRoot.length > 0) {
+    return configuredRoot
+  }
+
+  return join(app.getPath('userData'), 'workspaces')
+}
+
+function formatCondaDiagnosticCommand(settings: AppSettings, args: string[]): string | undefined {
+  if (!settings.condaExecutablePath) {
+    return undefined
+  }
+
+  try {
+    return formatCommandForLog(
+      settings.condaExecutablePath,
+      buildCondaArgv(settings, args, { noCaptureOutput: true })
+    )
+  } catch {
+    return undefined
+  }
+}
+
+function createMacAppLocationCheck(): TrainingLaunchCheckResult | null {
+  if (process.platform !== 'darwin') {
+    return null
+  }
+
+  const executablePath = process.execPath
+  if (executablePath.includes('/AppTranslocation/')) {
+    return createTrainingLaunchCheck(
+      'warn',
+      'mac_app_translocated',
+      'App location',
+      'macOS appears to be running NAM-BOT from a translocated app path.',
+      {
+        detail: executablePath,
+        suggestion: 'Move NAM-BOT to /Applications, right-click it, choose Open, then re-run Diagnostics.'
+      }
+    )
+  }
+
+  if (executablePath.startsWith('/Volumes/')) {
+    return createTrainingLaunchCheck(
+      'warn',
+      'mac_app_on_dmg',
+      'App location',
+      'NAM-BOT appears to be running from a mounted DMG or external volume.',
+      {
+        detail: executablePath,
+        suggestion: 'Drag NAM-BOT into /Applications, open it from there, then re-run Diagnostics.'
+      }
+    )
+  }
+
+  return createTrainingLaunchCheck(
+    'pass',
+    'mac_app_location_ok',
+    'App location',
+    'NAM-BOT is not running from a common macOS translocation or DMG path.',
+    { detail: executablePath }
+  )
 }
 
 function hasMissingModuleMessage(errors: string[], moduleName: string): boolean {
@@ -363,6 +500,71 @@ function spawnCondaPty(
     cwd: options?.cwd,
     env: createTrainingEnv(),
     useConpty: process.platform === 'win32'
+  })
+}
+
+function runCondaPtyCommand(
+  settings: AppSettings,
+  args: string[],
+  options?: { cwd?: string; timeoutMs?: number }
+): Promise<PtyCommandResult> {
+  return new Promise((resolve) => {
+    let pty: IPty
+    try {
+      pty = spawnCondaPty(settings, args, { cwd: options?.cwd })
+    } catch (error) {
+      resolve({
+        ok: false,
+        output: '',
+        exitCode: null,
+        timedOut: false,
+        errorMessage: error instanceof Error ? error.message : 'PTY process launch failed'
+      })
+      return
+    }
+
+    let output = ''
+    let settled = false
+    const timeoutMs = options?.timeoutMs ?? TRAINING_LAUNCH_TIMEOUT_MS
+    let timeout: NodeJS.Timeout
+
+    const settle = (result: PtyCommandResult): void => {
+      if (settled) {
+        return
+      }
+      settled = true
+      clearTimeout(timeout)
+      resolve(result)
+    }
+
+    timeout = setTimeout(() => {
+      void forceKillPtyProcessTree(pty).finally(() => {
+        settle({
+          ok: false,
+          output,
+          exitCode: null,
+          timedOut: true,
+          errorMessage: 'PTY command timed out'
+        })
+      })
+    }, timeoutMs)
+
+    pty.onData((data: string) => {
+      output += data
+      if (output.length > 20_000) {
+        output = output.slice(output.length - 20_000)
+      }
+    })
+
+    pty.onExit(({ exitCode }) => {
+      settle({
+        ok: exitCode === 0,
+        output,
+        exitCode,
+        timedOut: false,
+        errorMessage: null
+      })
+    })
   })
 }
 
@@ -769,7 +971,17 @@ async function runPythonScriptInEnvironment(
   }
 }
 
-async function inspectLightningPackageSecurity(settings: AppSettings): Promise<LightningSecuritySummary> {
+function getLightningSecurityCacheKey(settings: AppSettings): string {
+  return JSON.stringify({
+    backendMode: settings.backendMode,
+    condaExecutablePath: settings.condaExecutablePath ?? null,
+    environmentName: settings.environmentName ?? null,
+    environmentPrefixPath: settings.environmentPrefixPath ?? null,
+    pythonExecutablePath: settings.pythonExecutablePath ?? null
+  })
+}
+
+async function runLightningPackageSecurityProbe(settings: AppSettings): Promise<LightningSecuritySummary> {
   const script = [
     'import json',
     'from importlib.metadata import PackageNotFoundError, version',
@@ -830,8 +1042,38 @@ async function inspectLightningPackageSecurity(settings: AppSettings): Promise<L
   }
 }
 
+async function inspectLightningPackageSecurity(
+  settings: AppSettings,
+  options?: { allowRecentResult?: boolean }
+): Promise<LightningSecuritySummary> {
+  const cacheKey = getLightningSecurityCacheKey(settings)
+  const allowRecentResult = options?.allowRecentResult ?? true
+  const recentResult = lightningSecurityRecentResults.get(cacheKey)
+  if (allowRecentResult && recentResult && Date.now() - recentResult.checkedAt < LIGHTNING_SECURITY_RECENT_RESULT_TTL_MS) {
+    log.info('Reusing recent Lightning security probe result')
+    return recentResult.summary
+  }
+
+  const inFlight = lightningSecurityInFlight.get(cacheKey)
+  if (inFlight) {
+    log.info('Reusing in-flight Lightning security probe')
+    return inFlight
+  }
+
+  const probe = runLightningPackageSecurityProbe(settings)
+    .then((summary) => {
+      lightningSecurityRecentResults.set(cacheKey, { checkedAt: Date.now(), summary })
+      return summary
+    })
+    .finally(() => {
+      lightningSecurityInFlight.delete(cacheKey)
+    })
+  lightningSecurityInFlight.set(cacheKey, probe)
+  return probe
+}
+
 async function assertLightningPackageSafe(settings: AppSettings): Promise<void> {
-  const lightningSecurity = await inspectLightningPackageSecurity(settings)
+  const lightningSecurity = await inspectLightningPackageSecurity(settings, { allowRecentResult: false })
   if (!lightningSecurity.ok) {
     throw new Error('NAM-BOT could not verify Lightning package versions safely. Verify package metadata manually before running NAM commands in this environment.')
   }
@@ -1246,6 +1488,479 @@ export async function inspectAcceleratorDiagnostics(
         : 'Check the NVIDIA driver, confirm the GPU is visible on the host, and make sure NAM-BOT is pointing at the environment where the CUDA-enabled PyTorch build is installed.'
     }
   )
+}
+
+export async function inspectTrainingLaunchDiagnostics(
+  settings: AppSettings
+): Promise<TrainingLaunchDiagnosticsSummary> {
+  const checks: TrainingLaunchCheckResult[] = []
+  const appLocationCheck = createMacAppLocationCheck()
+  if (appLocationCheck) {
+    checks.push(appLocationCheck)
+  }
+
+  if (settings.backendMode === 'direct-python') {
+    checks.push(
+      createTrainingLaunchCheck(
+        'fail',
+        'direct_python_unsupported',
+        'Training launch mode',
+        'Direct Python mode is not supported by the current training launch path.',
+        {
+          detail: settings.pythonExecutablePath ?? 'No Python executable configured',
+          suggestion: 'Use Conda environment name or Conda prefix mode for training launch readiness.'
+        }
+      ),
+      createTrainingLaunchCheck('skip', 'pty_python_skipped', 'PTY Python launch', 'Skipped because direct Python launch is not wired to the trainer yet.'),
+      createTrainingLaunchCheck('skip', 'nam_full_pty_skipped', 'nam-full PTY launch', 'Skipped because direct Python launch is not wired to the trainer yet.')
+    )
+
+    return createTrainingLaunchDiagnosticsSummary(
+      'error',
+      'direct_python_unsupported',
+      'Training launch is not ready',
+      'NAM-BOT currently launches training through Conda, but Settings is using Direct Python mode.',
+      {
+        checks,
+        suggestion: 'Switch Settings to a Conda environment name or prefix before training.'
+      }
+    )
+  }
+
+  const condaExecutablePath = settings.condaExecutablePath?.trim() ?? ''
+  if (!condaExecutablePath) {
+    checks.push(
+      createTrainingLaunchCheck(
+        'fail',
+        'conda_not_configured',
+        'Conda executable',
+        'No Conda executable is configured.',
+        { suggestion: 'Open Settings and select your Conda executable before running training.' }
+      ),
+      createTrainingLaunchCheck('skip', 'workspace_skipped', 'Workspace write', 'Skipped until Conda is configured.'),
+      createTrainingLaunchCheck('skip', 'pty_python_skipped', 'PTY Python launch', 'Skipped until Conda is configured.'),
+      createTrainingLaunchCheck('skip', 'nam_full_pty_skipped', 'nam-full PTY launch', 'Skipped until Conda is configured.')
+    )
+
+    return createTrainingLaunchDiagnosticsSummary(
+      'not_checked',
+      'conda_not_configured',
+      'Training launch was not checked',
+      'Configure Conda before NAM-BOT can test the real training launch path.',
+      {
+        checks,
+        suggestion: 'Open Settings and select your Conda executable.'
+      }
+    )
+  }
+
+  if (!(await isConfiguredCondaReachable(condaExecutablePath))) {
+    checks.push(
+      createTrainingLaunchCheck(
+        'fail',
+        'conda_unreachable',
+        'Conda executable',
+        `Conda is not reachable at ${condaExecutablePath}.`,
+        { suggestion: 'Use the full Conda executable path in Settings, then re-run Diagnostics.' }
+      ),
+      createTrainingLaunchCheck('skip', 'workspace_skipped', 'Workspace write', 'Skipped until Conda is reachable.'),
+      createTrainingLaunchCheck('skip', 'pty_python_skipped', 'PTY Python launch', 'Skipped until Conda is reachable.'),
+      createTrainingLaunchCheck('skip', 'nam_full_pty_skipped', 'nam-full PTY launch', 'Skipped until Conda is reachable.')
+    )
+
+    return createTrainingLaunchDiagnosticsSummary(
+      'not_checked',
+      'conda_unreachable',
+      'Training launch was not checked',
+      'NAM-BOT cannot test the training launch path until Conda is reachable.',
+      {
+        checks,
+        suggestion: 'Fix the Conda executable path in Settings.'
+      }
+    )
+  }
+
+  checks.push(
+    createTrainingLaunchCheck(
+      'pass',
+      'conda_reachable',
+      'Conda executable',
+      'Conda is reachable for launch testing.',
+      { detail: condaExecutablePath }
+    )
+  )
+
+  if (process.platform !== 'win32' && isBareExecutablePath(condaExecutablePath)) {
+    checks.push(
+      createTrainingLaunchCheck(
+        'warn',
+        'bare_conda_path',
+        'Conda path style',
+        `Conda is configured as "${condaExecutablePath}" instead of a full executable path.`,
+        { suggestion: 'If launch fails on this machine, paste the full Conda path into Settings instead of relying on PATH.' }
+      )
+    )
+  }
+
+  if (settings.backendMode === 'conda-name' && !settings.environmentName) {
+    checks.push(
+      createTrainingLaunchCheck(
+        'fail',
+        'environment_not_configured',
+        'Conda environment',
+        'No Conda environment name is configured.',
+        { suggestion: 'Set the Conda environment name in Settings.' }
+      ),
+      createTrainingLaunchCheck('skip', 'pty_python_skipped', 'PTY Python launch', 'Skipped until the Conda environment is configured.'),
+      createTrainingLaunchCheck('skip', 'nam_full_pty_skipped', 'nam-full PTY launch', 'Skipped until the Conda environment is configured.')
+    )
+
+    return createTrainingLaunchDiagnosticsSummary(
+      'not_checked',
+      'environment_not_configured',
+      'Training launch was not checked',
+      'Choose a Conda environment before NAM-BOT can test the real training launch path.',
+      { checks, suggestion: 'Set the Conda environment name in Settings.' }
+    )
+  }
+
+  if (settings.backendMode === 'conda-prefix' && !settings.environmentPrefixPath) {
+    checks.push(
+      createTrainingLaunchCheck(
+        'fail',
+        'environment_not_configured',
+        'Conda environment',
+        'No Conda environment prefix is configured.',
+        { suggestion: 'Set the Conda environment prefix path in Settings.' }
+      ),
+      createTrainingLaunchCheck('skip', 'pty_python_skipped', 'PTY Python launch', 'Skipped until the Conda environment is configured.'),
+      createTrainingLaunchCheck('skip', 'nam_full_pty_skipped', 'nam-full PTY launch', 'Skipped until the Conda environment is configured.')
+    )
+
+    return createTrainingLaunchDiagnosticsSummary(
+      'not_checked',
+      'environment_not_configured',
+      'Training launch was not checked',
+      'Choose a Conda environment prefix before NAM-BOT can test the real training launch path.',
+      { checks, suggestion: 'Set the Conda environment prefix path in Settings.' }
+    )
+  }
+
+  const lightningSecurity = await inspectLightningPackageSecurity(settings)
+  const vulnerableLightningPackage = lightningSecurity.ok ? getVulnerableLightningPackage(lightningSecurity) : null
+  if (!lightningSecurity.ok || vulnerableLightningPackage) {
+    const detail = vulnerableLightningPackage
+      ? createLightningSecurityDetail(vulnerableLightningPackage)
+      : 'NAM-BOT could not verify Lightning package metadata safely.'
+    checks.push(
+      createTrainingLaunchCheck(
+        'fail',
+        vulnerableLightningPackage ? 'lightning_vulnerable' : 'lightning_security_check_failed',
+        'Lightning safety',
+        vulnerableLightningPackage ? `${vulnerableLightningPackage.name} ${vulnerableLightningPackage.version} is blocked.` : 'Lightning package safety could not be verified.',
+        {
+          detail,
+          suggestion: createLightningSecuritySuggestion(),
+          outputTail: tailOutput(lightningSecurity.output)
+        }
+      ),
+      createTrainingLaunchCheck('skip', 'nam_full_pty_skipped', 'nam-full PTY launch', 'Skipped until Lightning package safety is resolved.')
+    )
+
+    return createTrainingLaunchDiagnosticsSummary(
+      'error',
+      vulnerableLightningPackage ? 'lightning_vulnerable' : 'lightning_security_check_failed',
+      'Training launch is blocked',
+      detail,
+      {
+        checks,
+        suggestion: createLightningSecuritySuggestion(),
+        errors: [lightningSecurity.output.trim()].filter((entry) => entry.length > 0)
+      }
+    )
+  }
+
+  const workspaceRoot = resolveWorkspaceRoot(settings)
+  let workspacePath: string | null = null
+
+  try {
+    if (!existsSync(workspaceRoot)) {
+      mkdirSync(workspaceRoot, { recursive: true })
+    }
+    workspacePath = mkdtempSync(join(workspaceRoot, 'diagnostics-'))
+    const writeProbePath = join(workspacePath, 'write-test.txt')
+    writeFileSync(writeProbePath, 'NAM_BOT_WORKSPACE_OK', 'utf8')
+    rmSync(writeProbePath, { force: true })
+    checks.push(
+      createTrainingLaunchCheck(
+        'pass',
+        'workspace_writable',
+        'Workspace write',
+        'NAM-BOT can create and write to a temporary training workspace.',
+        { detail: workspacePath }
+      )
+    )
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Workspace write failed'
+    checks.push(
+      createTrainingLaunchCheck(
+        'fail',
+        'workspace_unwritable',
+        'Workspace write',
+        'NAM-BOT could not create or write to the training workspace.',
+        {
+          detail: message,
+          suggestion: 'Set Default Workspace Root to a local writable folder in Settings.'
+        }
+      ),
+      createTrainingLaunchCheck('skip', 'pty_python_skipped', 'PTY Python launch', 'Skipped until the training workspace is writable.'),
+      createTrainingLaunchCheck('skip', 'nam_full_pty_skipped', 'nam-full PTY launch', 'Skipped until the training workspace is writable.')
+    )
+
+    return createTrainingLaunchDiagnosticsSummary(
+      'error',
+      'workspace_unwritable',
+      'Training workspace is not writable',
+      'NAM-BOT must be able to create a workspace before it can launch training.',
+      {
+        workspaceRoot,
+        workspacePath,
+        checks,
+        suggestion: 'Choose a local writable Default Workspace Root in Settings.',
+        errors: [message]
+      }
+    )
+  }
+
+  try {
+    const pythonArgs = ['python', '-c', `print('${TRAINING_LAUNCH_PTY_PREFIX}')`]
+    const pythonCommand = formatCondaDiagnosticCommand(settings, pythonArgs)
+    const pythonResult = await runCondaPtyCommand(settings, pythonArgs, { cwd: workspacePath })
+
+    if (pythonResult.timedOut) {
+      checks.push(
+        createTrainingLaunchCheck(
+          'fail',
+          'pty_launch_timeout',
+          'PTY Python launch',
+          'The training-style terminal launch timed out before Python responded.',
+          {
+            command: pythonCommand,
+            outputTail: tailOutput(pythonResult.output),
+            suggestion: 'Conda may be slow or stuck. Re-run Diagnostics, and if it repeats, verify the environment manually in Terminal.'
+          }
+        ),
+        createTrainingLaunchCheck('skip', 'nam_full_pty_skipped', 'nam-full PTY launch', 'Skipped until PTY Python launch works.')
+      )
+
+      return createTrainingLaunchDiagnosticsSummary(
+        'error',
+        'pty_launch_timeout',
+        'Training launch timed out',
+        'NAM-BOT could not confirm that the training terminal launch path can start Python in time.',
+        {
+          workspaceRoot,
+          workspacePath,
+          checks,
+          suggestion: 'Try again once. If it still times out, inspect the Conda environment from Terminal.',
+          errors: [tailOutput(pythonResult.output)].filter((entry) => entry.length > 0)
+        }
+      )
+    }
+
+    if (!pythonResult.ok) {
+      const errorDetail = pythonResult.errorMessage ?? (tailOutput(pythonResult.output) || 'PTY launch failed')
+      checks.push(
+        createTrainingLaunchCheck(
+          'fail',
+          'pty_launch_failed',
+          'PTY Python launch',
+          'NAM-BOT could not start the terminal process used for training.',
+          {
+            detail: errorDetail,
+            command: pythonCommand,
+            outputTail: tailOutput(pythonResult.output),
+            suggestion: isBareExecutablePath(condaExecutablePath)
+              ? 'Use the full Conda executable path in Settings instead of relying on PATH.'
+              : 'Move the app to a normal local application folder and verify that security software is not blocking child processes.'
+          }
+        ),
+        createTrainingLaunchCheck('skip', 'nam_full_pty_skipped', 'nam-full PTY launch', 'Skipped until PTY Python launch works.')
+      )
+
+      return createTrainingLaunchDiagnosticsSummary(
+        'error',
+        'pty_launch_failed',
+        'Training launch failed before NAM started',
+        'The configured environment passed basic checks, but NAM-BOT could not start the same terminal process used by real training.',
+        {
+          workspaceRoot,
+          workspacePath,
+          checks,
+          suggestion: isBareExecutablePath(condaExecutablePath)
+            ? 'Paste the full Conda executable path into Settings, then re-run Diagnostics.'
+            : 'Check the app location, app architecture, workspace folder, and security software.',
+          errors: [errorDetail]
+        }
+      )
+    }
+
+    if (!pythonResult.output.includes(TRAINING_LAUNCH_PTY_PREFIX)) {
+      checks.push(
+        createTrainingLaunchCheck(
+          'fail',
+          'pty_payload_missing',
+          'PTY Python launch',
+          'The terminal process started, but Python did not return the expected readiness marker.',
+          {
+            command: pythonCommand,
+            outputTail: tailOutput(pythonResult.output),
+            suggestion: 'Inspect the output below and verify the selected Conda environment can run Python cleanly.'
+          }
+        ),
+        createTrainingLaunchCheck('skip', 'nam_full_pty_skipped', 'nam-full PTY launch', 'Skipped until PTY Python launch returns the expected marker.')
+      )
+
+      return createTrainingLaunchDiagnosticsSummary(
+        'error',
+        'pty_payload_missing',
+        'Training launch returned unexpected output',
+        'NAM-BOT started the training terminal process, but did not receive the expected readiness marker from Python.',
+        {
+          workspaceRoot,
+          workspacePath,
+          checks,
+          suggestion: 'Verify Python in the selected environment and re-run Diagnostics.',
+          errors: [tailOutput(pythonResult.output)].filter((entry) => entry.length > 0)
+        }
+      )
+    }
+
+    checks.push(
+      createTrainingLaunchCheck(
+        'pass',
+        'pty_python_ok',
+        'PTY Python launch',
+        'NAM-BOT can launch Python through the same terminal path used for training.',
+        { command: pythonCommand }
+      )
+    )
+
+    const namFullArgs = ['nam-full', '--help']
+    const namFullCommand = formatCondaDiagnosticCommand(settings, namFullArgs)
+    const namFullResult = await runCondaPtyCommand(settings, namFullArgs, { cwd: workspacePath })
+    const namFullOutput = namFullResult.output
+    const namFullHelpOk = namFullResult.ok || namFullOutput.includes('usage') || namFullOutput.includes('Options')
+
+    if (namFullResult.timedOut) {
+      checks.push(
+        createTrainingLaunchCheck(
+          'fail',
+          'nam_full_pty_timeout',
+          'nam-full PTY launch',
+          'The trainer command timed out when launched through the training terminal path.',
+          {
+            command: namFullCommand,
+            outputTail: tailOutput(namFullOutput),
+            suggestion: 'Re-run Diagnostics. If it repeats, verify that nam-full --help returns promptly in Terminal.'
+          }
+        )
+      )
+
+      return createTrainingLaunchDiagnosticsSummary(
+        'error',
+        'nam_full_pty_timeout',
+        'Trainer launch timed out',
+        'Python can launch through NAM-BOT, but the NAM trainer command did not return in time.',
+        {
+          workspaceRoot,
+          workspacePath,
+          checks,
+          suggestion: 'Repair or reinstall neural-amp-modeler in this environment if nam-full hangs in Terminal too.',
+          errors: [tailOutput(namFullOutput)].filter((entry) => entry.length > 0)
+        }
+      )
+    }
+
+    if (!namFullHelpOk) {
+      const errorDetail = namFullResult.errorMessage ?? (tailOutput(namFullOutput) || 'nam-full launch failed')
+      checks.push(
+        createTrainingLaunchCheck(
+          'fail',
+          'nam_full_pty_failed',
+          'nam-full PTY launch',
+          'NAM-BOT could not launch the NAM trainer command through the training terminal path.',
+          {
+            detail: errorDetail,
+            command: namFullCommand,
+            outputTail: tailOutput(namFullOutput),
+            suggestion: 'Repair neural-amp-modeler in this environment, then re-run Diagnostics.'
+          }
+        )
+      )
+
+      return createTrainingLaunchDiagnosticsSummary(
+        'error',
+        'nam_full_pty_failed',
+        'Trainer command is not launch-ready',
+        'The terminal launch path works for Python, but not for the NAM trainer command.',
+        {
+          workspaceRoot,
+          workspacePath,
+          checks,
+          suggestion: 'Install or repair neural-amp-modeler in this same environment.',
+          errors: [errorDetail]
+        }
+      )
+    }
+
+    checks.push(
+      createTrainingLaunchCheck(
+        'pass',
+        'nam_full_pty_ok',
+        'nam-full PTY launch',
+        'NAM-BOT can launch the NAM trainer command through the training terminal path.',
+        { command: namFullCommand }
+      )
+    )
+
+    const warningCheck = checks.find((check) => check.status === 'warn')
+    if (warningCheck) {
+      const issue: TrainingLaunchDiagnosticsIssue =
+        warningCheck.code === 'mac_app_on_dmg' || warningCheck.code === 'mac_app_translocated' || warningCheck.code === 'bare_conda_path'
+          ? warningCheck.code
+          : 'bare_conda_path'
+
+      return createTrainingLaunchDiagnosticsSummary(
+        'advisory',
+        issue,
+        'Training launch works with advisory notes',
+        'NAM-BOT can launch the training path, but one setup detail may be fragile on some machines.',
+        {
+          workspaceRoot,
+          workspacePath,
+          checks,
+          suggestion: warningCheck.suggestion
+        }
+      )
+    }
+
+    return createTrainingLaunchDiagnosticsSummary(
+      'ready',
+      'ready',
+      'Training launch is ready',
+      'NAM-BOT can create a training workspace and launch the NAM trainer through the same terminal path used by real jobs.',
+      {
+        workspaceRoot,
+        workspacePath,
+        checks
+      }
+    )
+  } finally {
+    if (workspacePath) {
+      rmSync(workspacePath, { recursive: true, force: true })
+    }
+  }
 }
 
 export async function runNamHelloWorld(
