@@ -33,7 +33,7 @@ NAM-BOT tries to make local training smoother by giving you:
 - A desktop UI for creating, queueing, and monitoring NAM training jobs
 - Reusable presets you can export, import, and share with creator metadata
 - Guided setup help for people who are newer to the NAM and Python side
-- Diagnostics that explain backend and accelerator problems in plain language
+- Diagnostics that explain backend, accelerator, and training launch problems in plain language
 - Live training logs without needing to camp in a terminal window
 
 ## What You Can Do
@@ -43,7 +43,7 @@ NAM-BOT tries to make local training smoother by giving you:
 - Export and import presets for sharing, including creator name and URL metadata
 - Point the app at either a Conda environment or a direct Python executable
 - Validate backend setup before launching jobs
-- Inspect CUDA, MPS, Lightning, and host GPU visibility from Diagnostics
+- Inspect backend readiness, Training Launch readiness, CUDA, ROCm, MPS, Lightning, and host GPU visibility from Diagnostics
 - Review live terminal output while a job is running
 
 ## Platform And Requirements
@@ -85,7 +85,7 @@ If you already train NAM models outside NAM-BOT, you usually do not need to rebu
 1. Open `Settings`.
 2. If NAM-BOT already found Conda on `PATH` and your environment is named `nam`, you may not need to change anything at all.
 3. Otherwise, point NAM-BOT at the same Conda environment, environment path, or Python executable you already use.
-4. Open `Diagnostics` and confirm backend validation and accelerator checks pass.
+4. Open `Diagnostics` and confirm backend, accelerator, and Training Launch checks pass.
 5. Start training.
 
 ### If You Need To Install NAM Locally
@@ -208,10 +208,11 @@ It checks a few predetermined paths first, including:
 
 - Whether NAM-BOT can actually reach Conda
 - Whether the selected environment is reachable
-- Whether Python, NAM, torch, CUDA / MPS, and Lightning look healthy inside that environment
-- Whether the host machine itself exposes an NVIDIA GPU when CUDA-oriented checks apply
+- Whether Python, NAM, torch, CUDA / ROCm / MPS, and Lightning look healthy inside that environment
+- Whether the host machine itself exposes expected GPU hardware when accelerator checks apply
+- Whether the selected environment can launch through the same PTY path used by real training jobs
 
-When it spots a likely GPU or environment problem, it gives you ready-to-paste commands for the most common fix paths. That covers a lot of the usual Windows, Conda, and torch mismatch issues without making you search around manually.
+Diagnostics now summarizes the environment with compact tiles, prioritizes the most important fix in the Action Center, and keeps the detailed backend, accelerator, Training Launch, and NAM version checks in one matrix. When it spots a likely GPU, environment, or launch-path problem, it gives you ready-to-paste commands for the most common fix paths. That covers a lot of the usual Windows, Conda, torch mismatch, and PTY launch issues without making you search around manually.
 
 If the built-in guidance is not enough, the Diagnostics panel can also generate a ready-to-paste troubleshooting prompt and raw diagnostics export with system and environment details included. You can drop that into an LLM like Claude or ChatGPT and get much more targeted help without having to manually explain your setup from scratch.
 

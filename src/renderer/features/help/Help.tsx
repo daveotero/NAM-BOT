@@ -288,18 +288,19 @@ export default function Help() {
             2. Save Settings
           </h4>
           <p style={{ color: 'var(--text-steel)', marginBottom: '16px' }}>
-            Click <strong>Save Settings</strong>. NAM-BOT will automatically re-run backend validation and GPU diagnostics against the environment you just selected.
+            Click <strong>Save Settings</strong>. NAM-BOT will automatically re-run backend, accelerator, Training Launch, and NAM version checks against the environment you just selected.
           </p>
 
           <h4 style={{ fontFamily: 'var(--font-arcade)', color: 'var(--neon-cyan)', marginTop: '24px', marginBottom: '8px' }}>
             3. Check Diagnostics
           </h4>
           <p style={{ color: 'var(--text-steel)', marginBottom: '8px' }}>
-            Open <strong>Diagnostics</strong> and confirm:
+            Open <strong>Diagnostics</strong> and confirm the summary tiles and check matrix show:
           </p>
           <ol style={{ color: 'var(--text-steel)', paddingLeft: '20px', marginBottom: '16px' }}>
-            <li>The backend status says <strong>Validated</strong></li>
-            <li>The accelerator section shows the GPU you expect, if you plan to train with GPU acceleration</li>
+            <li><strong>Backend</strong> is ready</li>
+            <li><strong>Training Launch</strong> is ready</li>
+            <li><strong>Accelerator</strong> shows the GPU you expect, if you plan to train with GPU acceleration</li>
           </ol>
 
           <h4 style={{ fontFamily: 'var(--font-arcade)', color: 'var(--neon-cyan)', marginTop: '24px', marginBottom: '8px' }}>
@@ -409,7 +410,7 @@ export default function Help() {
             5. Validate
           </h4>
           <p style={{ color: 'var(--text-steel)' }}>
-            NAM-BOT validates the backend automatically on startup. You can always go to <strong>Diagnostics</strong> and click <strong>Re-check</strong> to inspect both backend readiness and GPU visibility.
+            NAM-BOT validates the selected setup automatically on startup. You can always go to <strong>Diagnostics</strong> and click <strong>Re-check All</strong> to inspect backend readiness, Training Launch readiness, GPU visibility, and NAM version detection together.
           </p>
           <p style={{ color: 'var(--text-steel)', fontSize: '13px', marginTop: '8px' }}>
             On Windows, GPU diagnostics check for both NVIDIA CUDA and AMD ROCm GPUs. On Apple Silicon, the same screen also reports whether PyTorch can see <strong>MPS</strong>.

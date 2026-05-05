@@ -231,7 +231,7 @@ When the target uses Conda, the guidance can also include an activation step bef
 
 ## Troubleshooting Export
 
-If backend validation fails or accelerator status is anything other than fully ready, the screen exposes a troubleshooting export section.
+If backend validation, Training Launch readiness, or accelerator status is anything other than fully ready, the screen exposes a troubleshooting export section.
 
 That section supports two exports:
 
@@ -279,7 +279,7 @@ Start with the backend panel first.
 
 - fix Conda path or environment targeting problems before worrying about GPU state
 - use the per-check suggestion text as the first next step
-- once backend validation passes, run `Re-check` and then revisit accelerator status
+- once backend validation passes, run `Re-check All` and then revisit Training Launch and accelerator status
 
 ### If Backend Is Ready But GPU Is Not
 
