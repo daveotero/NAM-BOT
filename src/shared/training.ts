@@ -44,11 +44,22 @@ export interface JobDeviceSummary {
   startupMessage?: string | null
 }
 
+export interface JobPackedSubmodelCheckpointSummary {
+  submodelIndex: number
+  submodelName?: string | null
+  bestValidationMetric?: number | null
+  epoch?: number | null
+  step?: number | null
+  checkpointPath?: string | null
+}
+
 export interface JobCheckpointSummary {
   checkpointCount: number
   latestCheckpointEpoch?: number | null
   bestValidationEsr?: number | null
   bestValidationMse?: number | null
+  bestValidationEsrKind?: 'single' | 'aggregate'
+  packedSubmodels?: JobPackedSubmodelCheckpointSummary[]
   bestCheckpointPath?: string | null
   modelFilePath?: string | null
   comparisonPlotPath?: string | null
@@ -335,6 +346,43 @@ function cloneRecord(value: Record<string, unknown>): Record<string, unknown> {
   return cloneJson(value)
 }
 
+function normalizeWaveNetLayerConfigForCurrentNam(value: Record<string, unknown>): Record<string, unknown> {
+  const layerConfig = cloneRecord(value)
+  if (!isRecord(layerConfig.head) && typeof layerConfig.head_size === 'number') {
+    layerConfig.head = {
+      out_channels: layerConfig.head_size,
+      kernel_size: 1,
+      bias: typeof layerConfig.head_bias === 'boolean' ? layerConfig.head_bias : false
+    }
+    delete layerConfig.head_size
+    delete layerConfig.head_bias
+  }
+  return layerConfig
+}
+
+function normalizeWaveNetConfigForCurrentNam(value: Record<string, unknown>): Record<string, unknown> {
+  const config = cloneRecord(value)
+  if (Array.isArray(config.layers_configs)) {
+    config.layers_configs = config.layers_configs.map((entry) => isRecord(entry)
+      ? normalizeWaveNetLayerConfigForCurrentNam(entry)
+      : entry)
+  }
+  return config
+}
+
+function normalizeCanonicalModelOverride(value: Record<string, unknown>): Record<string, unknown> {
+  const model = cloneRecord(value)
+  if (!isRecord(model.net) || model.net.name !== 'WaveNet' || !isRecord(model.net.config)) {
+    return model
+  }
+
+  model.net = {
+    ...model.net,
+    config: normalizeWaveNetConfigForCurrentNam(model.net.config)
+  }
+  return model
+}
+
 function isLegacyWaveNetConfig(value: Record<string, unknown>): boolean {
   return Array.isArray(value.layers_configs)
 }
@@ -356,7 +404,7 @@ function normalizeExpertModelShape(value: unknown): Record<string, unknown> | un
   }
 
   if (isCanonicalModelOverride(value)) {
-    return cloneRecord(value)
+    return normalizeCanonicalModelOverride(value)
   }
 
   const rawConfig = cloneRecord(value)
@@ -365,7 +413,7 @@ function normalizeExpertModelShape(value: unknown): Record<string, unknown> | un
     return {
       net: {
         name: 'WaveNet',
-        config: rawConfig
+        config: normalizeWaveNetConfigForCurrentNam(rawConfig)
       }
     }
   }
@@ -543,7 +591,7 @@ export function buildWaveNetConfig(size: ArchitectureSize): Record<string, unkno
     return cloneJson(configs.standard)
   }
 
-  return cloneJson(configs[size])
+  return normalizeWaveNetConfigForCurrentNam(configs[size])
 }
 
 export function buildLstmConfig(size: ArchitectureSize): Record<string, unknown> {

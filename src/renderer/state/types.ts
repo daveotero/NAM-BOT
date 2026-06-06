@@ -29,6 +29,7 @@ export type {
   JobCheckpointSummary,
   JobDeviceSummary,
   JobLogSummary,
+  JobPackedSubmodelCheckpointSummary,
   JobRuntimeState,
   JobSpec,
   JobStatus,

@@ -1,4 +1,5 @@
 import {
+  JobPackedSubmodelCheckpointSummary,
   JobRuntimeState,
   JobStatus,
   JobStopMode
@@ -46,6 +47,23 @@ export function isFinishedTraining(runtime: JobRuntimeState): boolean {
 export function formatEsr(value: number | null | undefined): string {
   if (value == null || Number.isNaN(value)) return 'Not yet available'
   return value < 0.001 ? value.toExponential(2) : value.toFixed(4)
+}
+
+export function getBestEsrLabel(runtime: JobRuntimeState): string {
+  return runtime.checkpointSummary?.bestValidationEsrKind === 'aggregate'
+    ? 'Best aggregate ESR'
+    : 'Best ESR'
+}
+
+export function formatPackedSubmodelMetricLabel(submodel: JobPackedSubmodelCheckpointSummary): string {
+  const submodelName = submodel.submodelName?.trim()
+  if (submodelName === 'channels_3') {
+    return 'A2 Lite ESR'
+  }
+  if (submodelName === 'channels_8') {
+    return 'A2 Full ESR'
+  }
+  return submodelName ? `${submodelName} ESR` : `Submodel ${submodel.submodelIndex + 1} ESR`
 }
 
 export function cleanSingleLine(value: string | null | undefined): string {
@@ -327,7 +345,7 @@ export function getCollapsedSummaryItems(
       return [
         { label: 'Preset', value: presetName },
         { label: 'Total Runtime', value: totalRuntime || 'Not yet available' },
-        { label: 'Final ESR', value: formatEsr(bestEsr) }
+        { label: getBestEsrLabel(runtime), value: formatEsr(bestEsr) }
       ]
     case 'failed': {
       const items: CollapsedSummaryItem[] = []
@@ -336,7 +354,7 @@ export function getCollapsedSummaryItems(
       }
       items.push({ label: 'Failure', value: getFailureReason(runtime), tone: 'error' })
       if (bestEsr != null) {
-        items.push({ label: 'Best ESR', value: formatEsr(bestEsr) })
+        items.push({ label: getBestEsrLabel(runtime), value: formatEsr(bestEsr) })
       }
       return items
     }
@@ -347,7 +365,7 @@ export function getCollapsedSummaryItems(
       }
       items.push({ label: 'Stopped', value: getStopModeLabel(runtime) })
       if (bestEsr != null) {
-        items.push({ label: 'Best ESR', value: formatEsr(bestEsr) })
+        items.push({ label: getBestEsrLabel(runtime), value: formatEsr(bestEsr) })
       }
       return items
     }
@@ -393,7 +411,7 @@ export function getQueueSecondaryStat(runtime: JobRuntimeState, queue: JobRuntim
 export function getTrainingSecondaryStat(runtime: JobRuntimeState): { label: string, value: string } {
   if (runtime.checkpointSummary?.bestValidationEsr != null) {
     return {
-      label: 'Best ESR',
+      label: getBestEsrLabel(runtime),
       value: formatEsr(runtime.checkpointSummary.bestValidationEsr)
     }
   }
@@ -480,9 +498,13 @@ export function getExpandedDetails(runtime: JobRuntimeState): QueueDetailItem[] 
       value: String(runtime.checkpointSummary?.checkpointCount ?? 0)
     },
     {
-      label: 'Best ESR',
+      label: getBestEsrLabel(runtime),
       value: formatEsr(runtime.checkpointSummary?.bestValidationEsr)
     },
+    ...(runtime.checkpointSummary?.packedSubmodels ?? []).map((submodel) => ({
+      label: formatPackedSubmodelMetricLabel(submodel),
+      value: formatEsr(submodel.bestValidationMetric)
+    })),
     {
       label: 'Workspace log',
       value: runtime.terminalLogPath || 'Not yet available',

@@ -14,12 +14,13 @@ import {
 } from 'fs'
 import log from 'electron-log/main'
 import { v4 as uuidv4 } from 'uuid'
-import { compareVersions, detectNamVersion, inspectTorchRuntime, runNamFull, TorchRuntimeSummary, TrainingProcessController } from '../backend/adapter'
+import { compareVersions, inspectTorchRuntime, runNamFull, TorchRuntimeSummary, TrainingProcessController } from '../backend/adapter'
 import { buildJobConfigs } from '../config/configBuilder'
 import { getTrainingPresetById } from '../persistence/presetStore'
 import {
   JobCheckpointSummary,
   JobDeviceSummary,
+  JobPackedSubmodelCheckpointSummary,
   JobRuntimeState,
   JobSpec,
   JobStatus,
@@ -61,6 +62,10 @@ const LIGHTNING_BEST_CHECKPOINT_PATTERN = new RegExp(
 const ANSI_PATTERN = /\u001b\[[0-9;?]*[ -/]*[@-~]/g
 const OSC_PATTERN = /\u001b\][^\u0007]*(?:\u0007|\u001b\\)/g
 const CONTROL_PATTERN = /[\u0000-\u0008\u000b\u000c\u000e-\u001a\u007f]/g
+interface KnownNamVersion {
+  settingsKey: string
+  version: string | null
+}
 
 interface TranscriptAccumulator {
   currentLine: string
@@ -72,6 +77,16 @@ interface ParsedEpochProgress {
   totalEpochs: number | null
   currentBatch: number | null
   totalBatches: number | null
+}
+
+function buildBackendSettingsKey(settings: AppSettings): string {
+  return JSON.stringify({
+    condaExecutablePath: settings.condaExecutablePath,
+    backendMode: settings.backendMode,
+    environmentName: settings.environmentName,
+    environmentPrefixPath: settings.environmentPrefixPath,
+    pythonExecutablePath: settings.pythonExecutablePath
+  })
 }
 
 function cloneJobSpec(jobSpec: JobSpec): JobSpec {
@@ -372,6 +387,45 @@ function parseCheckpointFile(
   return null
 }
 
+function readPackedBestSubmodels(outputRunDirectory: string): JobPackedSubmodelCheckpointSummary[] {
+  const metadataPath = join(outputRunDirectory, 'packed_best.json')
+  if (!existsSync(metadataPath)) {
+    return []
+  }
+
+  try {
+    const parsed = JSON.parse(readFileSync(metadataPath, 'utf-8')) as unknown
+    if (!isRecord(parsed) || !Array.isArray(parsed.submodels)) {
+      return []
+    }
+
+    return parsed.submodels.flatMap((entry): JobPackedSubmodelCheckpointSummary[] => {
+      if (!isRecord(entry)) {
+        return []
+      }
+
+      const submodelIndex = typeof entry.submodel_index === 'number' && Number.isInteger(entry.submodel_index)
+        ? entry.submodel_index
+        : null
+      if (submodelIndex == null) {
+        return []
+      }
+
+      return [{
+        submodelIndex,
+        submodelName: typeof entry.submodel_name === 'string' ? entry.submodel_name : null,
+        bestValidationMetric: typeof entry.best_metric === 'number' && Number.isFinite(entry.best_metric) ? entry.best_metric : null,
+        epoch: typeof entry.epoch === 'number' && Number.isFinite(entry.epoch) ? entry.epoch : null,
+        step: typeof entry.step === 'number' && Number.isFinite(entry.step) ? entry.step : null,
+        checkpointPath: typeof entry.checkpoint_path === 'string' ? entry.checkpoint_path : null
+      }]
+    })
+  } catch (error) {
+    log.warn('Failed to read packed A2 checkpoint metadata:', metadataPath, error)
+    return []
+  }
+}
+
 function walkTrainingArtifacts(rootDir: string, depth: number): string[] {
   if (!existsSync(rootDir) || depth < 0) {
     return []
@@ -396,7 +450,8 @@ function getFileModifiedAt(filePath: string): number {
 
 function buildCheckpointSummary(
   outputRunDirectory: string,
-  startedAt: string | undefined
+  startedAt: string | undefined,
+  usesPackedA2: boolean
 ): JobCheckpointSummary | null {
   if (!existsSync(outputRunDirectory)) {
     return null
@@ -419,6 +474,7 @@ function buildCheckpointSummary(
   let bestCheckpointPath: string | null = null
   let modelFilePath: string | null = null
   let comparisonPlotPath: string | null = null
+  const packedSubmodels = readPackedBestSubmodels(outputRunDirectory)
 
   for (const filePath of files) {
     const normalized = filePath.toLowerCase()
@@ -449,7 +505,7 @@ function buildCheckpointSummary(
     }
   }
 
-  if (checkpointCount === 0 && !modelFilePath && !comparisonPlotPath) {
+  if (checkpointCount === 0 && packedSubmodels.length === 0 && !modelFilePath && !comparisonPlotPath) {
     return null
   }
 
@@ -458,6 +514,8 @@ function buildCheckpointSummary(
     latestCheckpointEpoch,
     bestValidationEsr,
     bestValidationMse,
+    bestValidationEsrKind: usesPackedA2 || packedSubmodels.length > 0 ? 'aggregate' : 'single',
+    packedSubmodels: packedSubmodels.length > 0 ? packedSubmodels : undefined,
     bestCheckpointPath,
     modelFilePath,
     comparisonPlotPath
@@ -488,6 +546,36 @@ function normalizeJobStatus(value: unknown): JobStatus {
     return value as JobStatus
   }
   return 'queued'
+}
+
+function normalizePackedSubmodels(value: unknown): JobPackedSubmodelCheckpointSummary[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined
+  }
+
+  const submodels = value.flatMap((entry): JobPackedSubmodelCheckpointSummary[] => {
+    if (!isRecord(entry)) {
+      return []
+    }
+
+    const submodelIndex = typeof entry.submodelIndex === 'number' && Number.isInteger(entry.submodelIndex)
+      ? entry.submodelIndex
+      : null
+    if (submodelIndex == null) {
+      return []
+    }
+
+    return [{
+      submodelIndex,
+      submodelName: typeof entry.submodelName === 'string' ? entry.submodelName : null,
+      bestValidationMetric: typeof entry.bestValidationMetric === 'number' && Number.isFinite(entry.bestValidationMetric) ? entry.bestValidationMetric : null,
+      epoch: typeof entry.epoch === 'number' && Number.isFinite(entry.epoch) ? entry.epoch : null,
+      step: typeof entry.step === 'number' && Number.isFinite(entry.step) ? entry.step : null,
+      checkpointPath: typeof entry.checkpointPath === 'string' ? entry.checkpointPath : null
+    }]
+  })
+
+  return submodels.length > 0 ? submodels : undefined
 }
 
 function normalizeProgress(value: unknown): JobTerminalProgress | undefined {
@@ -622,6 +710,11 @@ function normalizeRuntimeState(value: unknown): JobRuntimeState | null {
             typeof (candidate.checkpointSummary as Record<string, unknown>).bestValidationMse === 'number'
               ? Number((candidate.checkpointSummary as Record<string, unknown>).bestValidationMse)
               : null,
+          bestValidationEsrKind:
+            (candidate.checkpointSummary as Record<string, unknown>).bestValidationEsrKind === 'aggregate'
+              ? 'aggregate'
+              : 'single',
+          packedSubmodels: normalizePackedSubmodels((candidate.checkpointSummary as Record<string, unknown>).packedSubmodels),
           bestCheckpointPath:
             typeof (candidate.checkpointSummary as Record<string, unknown>).bestCheckpointPath === 'string'
               ? String((candidate.checkpointSummary as Record<string, unknown>).bestCheckpointPath)
@@ -656,6 +749,7 @@ export class QueueManager extends EventEmitter {
   private isRunning: boolean = false
   private activeController: TrainingProcessController | null = null
   private outputPollTimer: NodeJS.Timeout | null = null
+  private knownNamVersion: KnownNamVersion | null = null
 
   private appendUserMessage(runtime: JobRuntimeState, message: string): void {
     if (runtime.userMessages[runtime.userMessages.length - 1] === message) {
@@ -906,7 +1000,8 @@ export class QueueManager extends EventEmitter {
 
     const artifactDirectory = runtime.resolvedRunDirectory ?? runtime.outputRootDir
     const previousSummary = runtime.checkpointSummary
-    const nextSummary = buildCheckpointSummary(artifactDirectory, runtime.startedAt) ?? undefined
+    const preset = getTrainingPresetById(runtime.frozenJob.presetId)
+    const nextSummary = buildCheckpointSummary(artifactDirectory, runtime.startedAt, isA2TrainingPreset(preset)) ?? undefined
 
     if (!checkpointSummariesEqual(previousSummary, nextSummary)) {
       runtime.checkpointSummary = nextSummary
@@ -922,9 +1017,12 @@ export class QueueManager extends EventEmitter {
       if (nextCheckpointCount > previousCheckpointCount) {
         const bestEsr = nextSummary?.bestValidationEsr
         if (bestEsr != null) {
+          const metricLabel = nextSummary?.bestValidationEsrKind === 'aggregate'
+            ? 'Best aggregate validation ESR'
+            : 'Best validation ESR'
           this.appendUserMessage(
             runtime,
-            `Checkpoint ${nextCheckpointCount} saved. Best validation ESR so far: ${bestEsr.toFixed(4)}.`
+            `Checkpoint ${nextCheckpointCount} saved. ${metricLabel} so far: ${bestEsr.toFixed(4)}.`
           )
         } else {
           this.appendUserMessage(runtime, `Checkpoint ${nextCheckpointCount} saved.`)
@@ -1121,7 +1219,19 @@ export class QueueManager extends EventEmitter {
   }
 
   setSettings(settings: AppSettings): void {
+    const previousKey = this.settings ? buildBackendSettingsKey(this.settings) : null
+    const nextKey = buildBackendSettingsKey(settings)
     this.settings = settings
+    if (previousKey !== nextKey) {
+      this.knownNamVersion = null
+    }
+  }
+
+  setKnownNamVersion(settings: AppSettings, version: string | null): void {
+    this.knownNamVersion = {
+      settingsKey: buildBackendSettingsKey(settings),
+      version
+    }
   }
 
   private async assertTrainingRequirements(jobSpec: JobSpec): Promise<void> {
@@ -1134,10 +1244,13 @@ export class QueueManager extends EventEmitter {
       return
     }
 
-    const installedVersion = await detectNamVersion(this.settings)
+    const settingsKey = buildBackendSettingsKey(this.settings)
+    const installedVersion = this.knownNamVersion?.settingsKey === settingsKey
+      ? this.knownNamVersion.version
+      : null
     if (!installedVersion) {
       throw new Error(
-        `A2 training requires neural-amp-modeler ${MIN_A2_NAM_VERSION} or newer, but NAM-BOT could not detect the installed NAM version. Run pip install --upgrade "neural-amp-modeler>=${MIN_A2_NAM_VERSION}" in the configured environment, then re-check Diagnostics.`
+        `A2 training requires neural-amp-modeler ${MIN_A2_NAM_VERSION} or newer, but NAM-BOT has not confirmed the installed NAM version yet. Open Diagnostics or click Re-check All, then queue the job again.`
       )
     }
 

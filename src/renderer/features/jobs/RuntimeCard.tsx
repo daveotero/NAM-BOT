@@ -16,6 +16,8 @@ import {
   isActiveRuntime,
   getOutputPath,
   formatEsr,
+  formatPackedSubmodelMetricLabel,
+  getBestEsrLabel,
   QueueDisplayState
 } from './job-helpers'
 
@@ -243,9 +245,15 @@ export default function RuntimeCard({
             {(displayState === 'Running' || displayState === 'Successful') && (
               <>
                 <div className="queue-detail-stat">
-                  <span className="stat-label">Best ESR</span>
+                  <span className="stat-label">{getBestEsrLabel(runtime)}</span>
                   <span className="stat-value">{formatEsr(runtime.checkpointSummary?.bestValidationEsr)}</span>
                 </div>
+                {runtime.checkpointSummary?.packedSubmodels?.map((submodel) => (
+                  <div className="queue-detail-stat" key={`${runtime.jobId}-packed-${submodel.submodelIndex}`}>
+                    <span className="stat-label">{formatPackedSubmodelMetricLabel(submodel)}</span>
+                    <span className="stat-value">{formatEsr(submodel.bestValidationMetric)}</span>
+                  </div>
+                ))}
                 <div className="queue-detail-stat">
                   <span className="stat-label">Checkpoints</span>
                   <span className="stat-value">{runtime.checkpointSummary?.checkpointCount ?? 0}</span>

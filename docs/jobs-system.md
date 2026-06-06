@@ -175,7 +175,8 @@ The queue UI shows the queued list in reverse visual order compared to the inter
 
 - A2 jobs are preflighted before enqueue. If the selected NAM environment is missing or older than `neural-amp-modeler` `0.13.0`, enqueue is blocked with an upgrade command.
 - Batch enqueue preflights all selected drafts before adding any of them to the queue so partial A2 batch enqueue does not occur.
-- The renderer shows an immediate queueing state while this preflight runs so slow validation does not look like a missed click.
+- The A2 gate uses the NAM version already collected by Diagnostics so queueing drafts does not spawn new Python probes while another job is training.
+- The renderer shows an immediate queueing state while this preflight runs so validation does not look like a missed click.
 
 ### Training View
 
@@ -200,8 +201,10 @@ Completed, failed, and stopped jobs appear in the finished section.
   - queued and validating cards show preset and planned epochs
   - preparing cards show preset, detected device summary, and planned epochs
   - running and stopping cards show progress/ESR plus elapsed and remaining or stop mode details
-  - successful cards show preset, total runtime, and final ESR
+  - successful cards show preset, total runtime, and best ESR
   - failed and canceled cards prioritize total runtime and failure or stop reason, with ESR when available
+
+For A2 Packed WaveNet jobs, NAM's main checkpoint filename reports aggregate ESR across the packed submodels. NAM-BOT labels that value as `Best aggregate ESR` and shows the per-submodel packed `val_loss` values when NAM writes `packed_best.json`.
 
 ## Job Schema
 
@@ -345,8 +348,8 @@ This prevents a user from accidentally changing the meaning of an already queued
 NAM-BOT now defaults to local A2 training through the `a2-packed-wavenet` preset. A2 requires `neural-amp-modeler>=0.13.0` because earlier local `nam-full` installs do not include the required PackedWaveNet training path.
 
 - enqueue checks the selected preset's architecture tag before freezing the job
-- A2 jobs call NAM version detection and compare the installed version to `0.13.0`
-- the same A2 gate runs again before training starts, protecting persisted queue items created before an environment downgrade
+- A2 jobs compare the Diagnostics-detected NAM version to `0.13.0`
+- the same A2 gate runs again before training starts, using the known Diagnostics version rather than launching another version probe
 - A1 and custom presets are not blocked by this A2-specific minimum version gate
 
 ### Unqueue And Retry

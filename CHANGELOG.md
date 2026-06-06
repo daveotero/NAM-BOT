@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0-rc.2] - 2026-06-05
+
+### Changed
+
+- A2 queue validation now uses the NAM version already collected by Diagnostics instead of launching a fresh Python/NAM version probe each time a job is queued.
+- A2 Packed WaveNet job cards now label checkpoint ESR as aggregate and show the per-submodel A2 Lite and A2 Full ESR values when NAM writes packed checkpoint metadata.
+
+### Fixed
+
+- A1 WaveNet presets and imported legacy WaveNet JSON snippets now emit NAM `0.13`'s required layer-array `head` object schema, fixing immediate A1 startup crashes under newer NAM installs.
+- Queueing multiple A2 drafts no longer adds repeated NAM version probes while another training job is running, reducing avoidable process and memory pressure.
+
 ## [0.6.0-rc.1] - 2026-06-04
 
 ### Added

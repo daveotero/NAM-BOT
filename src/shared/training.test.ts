@@ -130,17 +130,21 @@ describe('legacy custom preset compatibility', () => {
     const tempDir = createTempDir()
     const paths = buildJobConfigs(buildTestJobSpec(), tempDir, preset)
     const modelConfig = JSON.parse(readFileSync(paths.modelConfig, 'utf-8')) as {
-      net?: { config?: { head_scale?: number; layers_configs?: Array<{ channels?: number; kernel_size?: number }> } }
+      net?: { config?: { head_scale?: number; layers_configs?: Array<Record<string, unknown>> } }
       layers_configs?: unknown
     }
 
     expect(modelConfig.net?.config?.head_scale).toBe(0.99)
-    expect(modelConfig.net?.config?.layers_configs).toEqual(
-      legacyWaveNetPresetInput.expert.model.layers_configs
-    )
     expect(modelConfig.layers_configs).toBeUndefined()
     expect(modelConfig.net?.config?.layers_configs?.[0]?.channels).toBe(8)
     expect(modelConfig.net?.config?.layers_configs?.[0]?.kernel_size).toBe(5)
+    expect(modelConfig.net?.config?.layers_configs?.[0]?.head).toEqual({
+      out_channels: 8,
+      kernel_size: 1,
+      bias: false
+    })
+    expect(modelConfig.net?.config?.layers_configs?.[0]?.head_size).toBeUndefined()
+    expect(modelConfig.net?.config?.layers_configs?.[0]?.head_bias).toBeUndefined()
   })
 
   it('imports WaveNet snippets as A1 without A2-only defaults', () => {

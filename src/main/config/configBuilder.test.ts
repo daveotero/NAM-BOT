@@ -147,13 +147,20 @@ describe('buildJobConfigs', () => {
     const paths = buildJobConfigs(buildJobSpec(), tempDir, preset)
     const dataConfig = JSON.parse(readFileSync(paths.dataConfig, 'utf-8')) as { joint?: unknown }
     const modelConfig = JSON.parse(readFileSync(paths.modelConfig, 'utf-8')) as {
-      net?: { name?: string; config?: { submodels?: unknown[] } }
+      net?: { name?: string; config?: { layers_configs?: Array<Record<string, unknown>>; submodels?: unknown[] } }
       loss?: { pre_emph_mrstft_weight?: number; mrstft_weight?: number }
       optimizer?: { weight_decay?: number }
     }
 
     expect(modelConfig.net?.name).toBe('WaveNet')
     expect(modelConfig.net?.config?.submodels).toBeUndefined()
+    expect(modelConfig.net?.config?.layers_configs?.[0].head).toEqual({
+      out_channels: 8,
+      kernel_size: 1,
+      bias: false
+    })
+    expect(modelConfig.net?.config?.layers_configs?.[0].head_size).toBeUndefined()
+    expect(modelConfig.net?.config?.layers_configs?.[0].head_bias).toBeUndefined()
     expect(modelConfig.loss?.pre_emph_mrstft_weight).toBe(0.0002)
     expect(modelConfig.loss?.mrstft_weight).toBeUndefined()
     expect(modelConfig.optimizer?.weight_decay).toBeUndefined()

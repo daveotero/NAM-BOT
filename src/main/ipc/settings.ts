@@ -98,9 +98,14 @@ export function setupIpcHandlers(): void {
     try {
       const settings: AppSettings = cachedSettings || loadSettings()
       cachedSettings = settings
-      return await getNamVersionInfo(settings)
+      const result = await getNamVersionInfo(settings)
+      getQueueManager().setKnownNamVersion(settings, result.installedVersion)
+      return result
     } catch (error) {
       log.error('Failed to get NAM version info:', error)
+      const settings: AppSettings = cachedSettings || loadSettings()
+      cachedSettings = settings
+      getQueueManager().setKnownNamVersion(settings, null)
       return {
         installedVersion: null,
         latestVersion: null,
