@@ -30,6 +30,7 @@ The presets page defaults to a library view rather than showing the editor at al
 - Each preset card shows an architecture tag: `A2`, `A1`, or `CUSTOM`.
 - Preset lists and job dropdowns sort A2 presets before A1 presets, with custom architecture recipes after those groups.
 - Clicking the card background toggles the same `Show More` / `Show Less` state as the explicit button.
+- Expanded Packed WaveNet preset details show every packed submodel tier declared by the preset, including imported custom packs.
 - Built-in presets can be customized into user presets.
 - User presets can be edited, duplicated, exported, and deleted.
 - Any preset can be exported.
@@ -334,6 +335,10 @@ Current built-in defaults are aligned with official NAM A2 local training:
 - MRSTFT weight: `0.0005`
 - weight decay: `0.000000317`
 - output normalization: `-18 dB RMS`
+
+The default selected preset remains `A2 Packed WaveNet` (`a2-packed-wavenet`). It trains the official two-tier A2 packed model with `channels_3` Lite and `channels_8` Full submodels.
+
+`A2 Packed WaveNet Heavy 12` (`a2-packed-wavenet-heavy-12`) is also bundled as a built-in quality preset. It keeps the official A2 Lite and Full submodels, adds a third `channels_12` Heavy submodel as the highest-quality tier, and defaults to `200` epochs for the larger packed training run.
 
 The previous WaveNet presets remain available as `a1` presets. There is also a hidden LSTM compatibility preset used to preserve older drafts.
 

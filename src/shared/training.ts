@@ -206,9 +206,12 @@ export const NAM_TONE_TYPE_OPTIONS: Array<{ value: NamToneType; label: string }>
 ]
 
 export const DEFAULT_PRESET_ID = 'a2-packed-wavenet'
+export const A2_HEAVY_12_PRESET_ID = 'a2-packed-wavenet-heavy-12'
 export const A1_STANDARD_PRESET_ID = 'wavenet-standard'
 export const LEGACY_LSTM_PRESET_ID = 'compat-lstm-standard'
 export const MIN_A2_NAM_VERSION = '0.13.0'
+const A2_DEFAULT_PACKED_CHANNELS = [3, 8] as const
+const A2_HEAVY_12_PACKED_CHANNELS = [3, 8, 12] as const
 
 export const DEFAULT_TRAINING_PRESET_VALUES: TrainingPresetValues = {
   architectureVersion: 'a2',
@@ -697,27 +700,32 @@ function buildA2SubmodelConfig(channels: number): Record<string, unknown> {
   }
 }
 
-export function buildA2PackedModelConfig(values: TrainingPresetValues = DEFAULT_TRAINING_PRESET_VALUES): Record<string, unknown> {
+function buildA2PackedSubmodels(channels: readonly number[]): Array<{ name: string; config: Record<string, unknown> }> {
+  return channels.map((channel) => ({
+    name: `channels_${channel}`,
+    config: buildA2SubmodelConfig(channel)
+  }))
+}
+
+function buildA2PackedNetConfig(channels: readonly number[] = A2_DEFAULT_PACKED_CHANNELS): Record<string, unknown> {
+  return {
+    name: 'PackedWaveNet',
+    config: {
+      submodels: buildA2PackedSubmodels(channels),
+      export: {
+        container_max_values: 'uniform'
+      }
+    }
+  }
+}
+
+export function buildA2PackedModelConfig(
+  values: TrainingPresetValues = DEFAULT_TRAINING_PRESET_VALUES,
+  channels: readonly number[] = A2_DEFAULT_PACKED_CHANNELS
+): Record<string, unknown> {
   const schedulerGamma = Math.max(0, 1 - values.learningRateDecay)
   return {
-    net: {
-      name: 'PackedWaveNet',
-      config: {
-        submodels: [
-          {
-            name: 'channels_3',
-            config: buildA2SubmodelConfig(3)
-          },
-          {
-            name: 'channels_8',
-            config: buildA2SubmodelConfig(8)
-          }
-        ],
-        export: {
-          container_max_values: 'uniform'
-        }
-      }
-    },
+    net: buildA2PackedNetConfig(channels),
     loss: {
       val_loss: 'esr',
       ...(values.mrstftWeight > 0 ? { mrstft_weight: values.mrstftWeight } : {})
@@ -1106,6 +1114,27 @@ export function buildBuiltInPresets(): TrainingPresetFile[] {
         architectureVersion: 'a2',
         modelFamily: 'PackedWaveNet',
         architectureSize: 'packed'
+      }
+    }),
+    createTrainingPreset({
+      id: A2_HEAVY_12_PRESET_ID,
+      name: 'A2 Packed WaveNet Heavy 12',
+      description: 'Experimental A2 packed architecture with official A2-Lite and A2-Full submodels plus a 12-channel heavy tier for higher-quality captures at increased CPU cost.',
+      category: 'quality',
+      builtIn: true,
+      readOnly: true,
+      visible: true,
+      values: {
+        ...DEFAULT_TRAINING_PRESET_VALUES,
+        architectureVersion: 'a2',
+        modelFamily: 'PackedWaveNet',
+        architectureSize: 'packed',
+        epochs: 200
+      },
+      expert: {
+        model: {
+          net: buildA2PackedNetConfig(A2_HEAVY_12_PACKED_CHANNELS)
+        }
       }
     }),
     createTrainingPreset({

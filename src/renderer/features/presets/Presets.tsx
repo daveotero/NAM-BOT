@@ -216,6 +216,65 @@ function getExpertOverrideSummary(preset: TrainingPresetFile): string {
   return labels.length > 0 ? labels.join(', ') : 'None'
 }
 
+function getPackedSubmodelChannelCount(submodelName: string | null, config: Record<string, unknown> | null): number | null {
+  const namedChannelMatch = /^channels_(\d+)$/i.exec(submodelName ?? '')
+  if (namedChannelMatch) {
+    const channelCount = Number(namedChannelMatch[1])
+    return Number.isFinite(channelCount) ? channelCount : null
+  }
+
+  const firstLayer = Array.isArray(config?.layers_configs) && isRecord(config.layers_configs[0])
+    ? config.layers_configs[0]
+    : null
+  const channelCount = firstLayer?.channels
+  return typeof channelCount === 'number' && Number.isFinite(channelCount) ? channelCount : null
+}
+
+function formatPackedSubmodelLabel(submodelName: string | null, channelCount: number | null): string {
+  if (submodelName === 'channels_3') {
+    return 'A2 Lite (3 ch)'
+  }
+  if (submodelName === 'channels_8') {
+    return 'A2 Full (8 ch)'
+  }
+  if (submodelName === 'channels_12') {
+    return 'A2 Heavy (12 ch)'
+  }
+  if (channelCount != null) {
+    return submodelName ? `${submodelName} (${channelCount} ch)` : `${channelCount} ch`
+  }
+  return submodelName ?? 'Unnamed submodel'
+}
+
+function getPackedSubmodelSummary(preset: TrainingPresetFile): string | null {
+  if (preset.values.modelFamily !== 'PackedWaveNet') {
+    return null
+  }
+
+  const expertNetConfig = isRecord(preset.expert.model)
+    && isRecord(preset.expert.model.net)
+    && isRecord(preset.expert.model.net.config)
+      ? preset.expert.model.net.config
+      : null
+  const rawSubmodels = Array.isArray(expertNetConfig?.submodels)
+    ? expertNetConfig.submodels
+    : [
+        { name: 'channels_3', config: null },
+        { name: 'channels_8', config: null }
+      ]
+  const labels = rawSubmodels.flatMap((entry): string[] => {
+    if (!isRecord(entry)) {
+      return []
+    }
+    const submodelName = typeof entry.name === 'string' ? entry.name : null
+    const config = isRecord(entry.config) ? entry.config : null
+    const channelCount = getPackedSubmodelChannelCount(submodelName, config)
+    return [formatPackedSubmodelLabel(submodelName, channelCount)]
+  })
+
+  return labels.length > 0 ? `${labels.length} tiers: ${labels.join(', ')}` : null
+}
+
 function getNestedValue(
   root: Record<string, unknown> | null,
   path: string[]
@@ -680,6 +739,7 @@ function PresetCard({
   const architectureTag = formatPresetArchitectureTag(preset)
   const summary = `${preset.values.modelFamily} / ${preset.values.architectureSize} / ${preset.values.batchSize} batch`
   const ownershipBadge = getPresetOwnershipBadge(preset)
+  const packedSubmodelSummary = getPackedSubmodelSummary(preset)
 
   return (
     <div
@@ -794,6 +854,12 @@ function PresetCard({
                 <span className="path-label">Fit MRSTFT:</span>
                 <span className="path-value">{preset.values.fitMrstft ? 'Enabled' : 'Disabled'}</span>
               </div>
+              {packedSubmodelSummary && (
+                <div className="detail-path-row">
+                  <span className="path-label">Packed Submodels:</span>
+                  <span className="path-value">{packedSubmodelSummary}</span>
+                </div>
+              )}
               <div className="detail-path-row">
                 <span className="path-label">Overrides:</span>
                 <span className="path-value">{getExpertOverrideSummary(preset)}</span>

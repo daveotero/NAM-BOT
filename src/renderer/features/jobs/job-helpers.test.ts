@@ -138,6 +138,35 @@ describe('checkpoint metric labels', () => {
     expect(getPrimaryPackedSubmodel(runtime)?.submodelName).toBe('channels_8')
   })
 
+  it('uses the heavy packed submodel as the primary ESR when available', () => {
+    const runtime = buildRuntime({
+      checkpointSummary: {
+        checkpointCount: 4,
+        bestValidationEsr: 0.0088,
+        packedSubmodels: [
+          {
+            submodelIndex: 0,
+            submodelName: 'channels_3',
+            bestValidationEsr: 0.02
+          },
+          {
+            submodelIndex: 1,
+            submodelName: 'channels_8',
+            bestValidationEsr: 0.0123
+          },
+          {
+            submodelIndex: 2,
+            submodelName: 'channels_12',
+            bestValidationEsr: 0.0088
+          }
+        ]
+      }
+    })
+
+    expect(getBestEsrLabel(runtime)).toBe('A2 Heavy ESR')
+    expect(getPrimaryPackedSubmodel(runtime)?.submodelName).toBe('channels_12')
+  })
+
   it('uses friendly labels for official packed A2 submodels', () => {
     expect(formatPackedSubmodelMetricLabel({
       submodelIndex: 0,
@@ -156,5 +185,14 @@ describe('checkpoint metric labels', () => {
       step: 100,
       checkpointPath: 'packed_best_submodel_1.ckpt'
     })).toBe('A2 Full ESR')
+
+    expect(formatPackedSubmodelMetricLabel({
+      submodelIndex: 2,
+      submodelName: 'channels_12',
+      bestValidationEsr: 0.007,
+      epoch: 12,
+      step: 100,
+      checkpointPath: 'packed_best_submodel_2.ckpt'
+    })).toBe('A2 Heavy ESR')
   })
 })

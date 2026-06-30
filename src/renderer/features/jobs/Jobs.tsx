@@ -1450,6 +1450,8 @@ function JobEditor({
                     if (!nextPreset) {
                       return
                     }
+                    const currentEpochs = editedJob.trainingOverrides.epochs
+                    const shouldUseNextPresetEpochs = currentEpochs == null || currentEpochs === selectedPreset?.values.epochs
                     onSessionChange({
                       ...session,
                       job: {
@@ -1457,7 +1459,7 @@ function JobEditor({
                         presetId: nextPreset.id,
                         trainingOverrides: {
                           ...editedJob.trainingOverrides,
-                          epochs: editedJob.trainingOverrides.epochs ?? nextPreset.values.epochs
+                          epochs: shouldUseNextPresetEpochs ? nextPreset.values.epochs : currentEpochs
                         }
                       }
                     })
