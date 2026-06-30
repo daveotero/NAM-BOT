@@ -29,6 +29,7 @@ import ConfirmDialog from '../../components/ConfirmDialog'
 import {
   DEFAULT_PRESET_ID,
   JobSpec,
+  JobPackedSubmodelSelection,
   JobRuntimeState,
   JobStatus,
   JobStopMode,
@@ -37,9 +38,13 @@ import {
   NamEmbeddedMetadata,
   NamGearType,
   NamToneType,
+  PackedPresetSubmodel,
   TrainingPresetFile,
   defaultJobSpec,
-  formatPresetArchitectureTag
+  formatPackedSubmodelDisplayName,
+  formatPresetArchitectureTag,
+  getPackedSubmodelSelectionKey,
+  getPackedSubmodelsForPreset
 } from '../../state/types'
 import {
   isActiveRuntime,
@@ -75,6 +80,21 @@ import {
 
 const BATCH_AUDIO_FILE_EXTENSIONS = ['.wav', '.mp3', '.flac']
 const SKIP_DRAFT_DELETE_CONFIRM_STORAGE_KEY = 'nam-bot:skip-draft-delete-confirm'
+
+function toPackedSubmodelSelection(submodel: PackedPresetSubmodel): JobPackedSubmodelSelection {
+  return {
+    submodelIndex: submodel.submodelIndex,
+    submodelName: submodel.submodelName ?? null
+  }
+}
+
+function withPackedSubmodelSelection(
+  trainingOverrides: JobSpec['trainingOverrides'],
+  packedSubmodels: JobPackedSubmodelSelection[] | undefined
+): JobSpec['trainingOverrides'] {
+  const { packedSubmodels: _packedSubmodels, ...remainingOverrides } = trainingOverrides
+  return packedSubmodels ? { ...remainingOverrides, packedSubmodels } : remainingOverrides
+}
 
 function isBatchAudioFile(file: File): boolean {
   const lowerName = file.name.toLowerCase()
@@ -1023,6 +1043,19 @@ function JobEditor({
     ?? visiblePresets[0]
   const epochsLocked = selectedPreset?.lockedJobFields.includes('epochs') ?? false
   const latencyLocked = selectedPreset?.lockedJobFields.includes('latencySamples') ?? false
+  const packedSubmodelOptions = useMemo(
+    () => selectedPreset ? getPackedSubmodelsForPreset(selectedPreset) : [],
+    [selectedPreset]
+  )
+  const showPackedSubmodelSelector = packedSubmodelOptions.length >= 3
+  const effectivePackedSubmodels = showPackedSubmodelSelector
+    ? (editedJob.trainingOverrides.packedSubmodels ?? packedSubmodelOptions.map(toPackedSubmodelSelection))
+    : []
+  const selectedPackedSubmodelKeys = new Set(effectivePackedSubmodels.map(getPackedSubmodelSelectionKey))
+  const selectedPackedSubmodelOptionCount = packedSubmodelOptions.filter((submodel) => (
+    selectedPackedSubmodelKeys.has(getPackedSubmodelSelectionKey(toPackedSubmodelSelection(submodel)))
+  )).length
+  const isPackedSubmodelSelectionValid = !showPackedSubmodelSelector || selectedPackedSubmodelOptionCount > 0
 
   // Auto-sync output root dir when following the output-audio directory mode.
   useEffect(() => {
@@ -1111,7 +1144,7 @@ function JobEditor({
   const isInputValid = editedJob.inputAudioPath.trim().length > 0
   const isOutputValid = editedJob.outputAudioPath.trim().length > 0
   const isRootDirValid = editedJob.outputRootDir.trim().length > 0
-  const isValid = isNameValid && isInputValid && isOutputValid && isRootDirValid
+  const isValid = isNameValid && isInputValid && isOutputValid && isRootDirValid && isPackedSubmodelSelectionValid
   const isDirty = session.initialSnapshot !== serializeJobEditorSession(session)
   const canSave = isDirty && isValid
 
@@ -1150,6 +1183,34 @@ function JobEditor({
       job: {
         ...editedJob,
         metadata: { ...editedJob.metadata, ...patch }
+      }
+    })
+  }
+
+  const updatePackedSubmodelSelection = (submodel: PackedPresetSubmodel, checked: boolean): void => {
+    const submodelSelection = toPackedSubmodelSelection(submodel)
+    const submodelKey = getPackedSubmodelSelectionKey(submodelSelection)
+    const currentSelections = effectivePackedSubmodels
+    const currentKeys = new Set(currentSelections.map(getPackedSubmodelSelectionKey))
+
+    if (checked) {
+      currentKeys.add(submodelKey)
+    } else if (selectedPackedSubmodelOptionCount > 1) {
+      currentKeys.delete(submodelKey)
+    } else {
+      return
+    }
+
+    const nextSelections = packedSubmodelOptions
+      .map(toPackedSubmodelSelection)
+      .filter((selection) => currentKeys.has(getPackedSubmodelSelectionKey(selection)))
+    const packedOverride = nextSelections.length === packedSubmodelOptions.length ? undefined : nextSelections
+
+    onSessionChange({
+      ...session,
+      job: {
+        ...editedJob,
+        trainingOverrides: withPackedSubmodelSelection(editedJob.trainingOverrides, packedOverride)
       }
     })
   }
@@ -1452,15 +1513,16 @@ function JobEditor({
                     }
                     const currentEpochs = editedJob.trainingOverrides.epochs
                     const shouldUseNextPresetEpochs = currentEpochs == null || currentEpochs === selectedPreset?.values.epochs
+                    const nextTrainingOverrides = withPackedSubmodelSelection({
+                      ...editedJob.trainingOverrides,
+                      epochs: shouldUseNextPresetEpochs ? nextPreset.values.epochs : currentEpochs
+                    }, undefined)
                     onSessionChange({
                       ...session,
                       job: {
                         ...editedJob,
                         presetId: nextPreset.id,
-                        trainingOverrides: {
-                          ...editedJob.trainingOverrides,
-                          epochs: shouldUseNextPresetEpochs ? nextPreset.values.epochs : currentEpochs
-                        }
+                        trainingOverrides: nextTrainingOverrides
                       }
                     })
                   }}
@@ -1477,6 +1539,40 @@ function JobEditor({
                   </p>
                 )}
               </div>
+
+              {showPackedSubmodelSelector && (
+                <div className="form-group" style={{ gridColumn: '1 / -1', padding: '12px', border: '1px solid var(--border-dim)', borderRadius: '8px', background: 'rgba(5, 17, 24, 0.45)' }}>
+                  <label className="form-label">Advanced Packed Submodels</label>
+                  <p style={{ color: 'var(--text-steel)', fontSize: '12px', marginTop: 0 }}>
+                    Choose which packed tiers NAM-BOT writes into this run's `model.json`. All tiers are selected by default; deselect larger tiers to shorten experimental packed runs.
+                  </p>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+                    {packedSubmodelOptions.map((submodel) => {
+                      const selection = toPackedSubmodelSelection(submodel)
+                      const selectionKey = getPackedSubmodelSelectionKey(selection)
+                      const isSelected = selectedPackedSubmodelKeys.has(selectionKey)
+                      const isLastSelected = isSelected && selectedPackedSubmodelOptionCount === 1
+
+                      return (
+                        <label key={selectionKey} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', color: 'var(--text-steel)', fontSize: '13px' }}>
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            disabled={isLastSelected}
+                            onChange={(event) => updatePackedSubmodelSelection(submodel, event.target.checked)}
+                          />
+                          <span>{formatPackedSubmodelDisplayName(submodel)}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                  {!isPackedSubmodelSelectionValid && (
+                    <p style={{ color: 'var(--neon-magenta)', fontSize: '12px', marginBottom: 0 }}>
+                      Select at least one packed submodel.
+                    </p>
+                  )}
+                </div>
+              )}
 
               <div className="form-group">
                 <label className="form-label" htmlFor="epochs">Epochs</label>

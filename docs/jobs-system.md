@@ -226,6 +226,8 @@ Completed, failed, and stopped jobs appear in the finished section.
 
 For A2 Packed WaveNet jobs, NAM-BOT uses the highest-quality packed submodel as the primary ESR. With the default built-in A2 preset, that means A2 Full ESR is used for the headline runtime card, exported filename ESR suffix, and official `metadata.training.validation_esr` value. With the bundled A2 Heavy 12 preset, the `channels_12` Heavy submodel becomes the primary ESR because it is the highest-quality packed tier. Expanded details show all available packed submodel ESRs when NAM writes `packed_best.json`. NAM's aggregate packed ESR is not surfaced because it is a sum across submodels rather than the value most users compare against A1.
 
+While a job is preparing, running, or stopping, NAM-BOT starts Electron's system sleep blocker with `prevent-app-suspension`. This keeps supported Windows and macOS systems awake for the training process while still allowing the display to sleep. The blocker is released as soon as no active training job remains or the app exits.
+
 ## Job Schema
 
 Jobs use the `JobSpec` schema.
@@ -259,6 +261,10 @@ interface JobSpec {
   trainingOverrides: {
     epochs?: number
     latencySamples?: number
+    packedSubmodels?: Array<{
+      submodelIndex: number
+      submodelName?: string | null
+    }>
   }
   uiNotes?: string
 }
@@ -270,6 +276,7 @@ interface JobSpec {
 - `inputAudioIsDefault` records whether the bundled default training signal is being used.
 - `outputRootDirIsDefault` tracks whether the root is following an automatic mode versus a custom folder choice.
 - `trainingOverrides` are intentionally narrow. Jobs override only the fields that need run-specific flexibility.
+- `trainingOverrides.packedSubmodels` is optional. When omitted, A2 Packed WaveNet jobs train every submodel declared by the selected preset. When present, NAM-BOT filters `model.net.config.submodels` by submodel index and name before writing `model.json`.
 - `metadata` is for NAM artifact tagging, not for configuring the core training recipe.
 - After a successful export, NAM-BOT also writes back metadata it can derive reliably. It updates `metadata.date`, writes the final validation ESR to `metadata.training.validation_esr`, and writes NAM-BOT-specific traceability under `metadata.nam_bot`.
 - For packed A2 exports, `metadata.training.validation_esr` uses the highest-quality packed submodel ESR when packed submodel metrics are available. With the default built-in A2 preset this is A2 Full; with the bundled A2 Heavy 12 preset this is A2 Heavy. Per-submodel ESRs are written under `metadata.nam_bot.packed_submodels` because NAM's official training metadata schema currently exposes only one `validation_esr` field.
@@ -342,6 +349,8 @@ The friendly job editor fields map to concrete training behavior.
 If a selected preset locks epochs or latency through expert config, the job editor shows those fields as read-only.
 
 When changing presets, the job editor adopts the next preset's epoch default only if the current epoch value still matches the previous preset default. Manually customized epoch values are preserved across preset changes.
+
+For Packed WaveNet presets with three or more submodels, the job editor shows an advanced packed-submodel checklist. Every tier is selected by default. Deselecting tiers stores a job-level `packedSubmodels` override, which lets experimental presets such as Heavy or Ultra packs train only a subset of their declared submodels without creating another preset.
 
 ## Queue Lifecycle
 

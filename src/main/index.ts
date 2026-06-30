@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeImage, Notification, shell, type NativeImage } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, Notification, powerSaveBlocker, shell, type NativeImage } from 'electron'
 import { join } from 'path'
 import log from 'electron-log/main'
 import { existsSync, mkdirSync } from 'fs'
@@ -42,6 +42,7 @@ log.info(`Is dev: ${isDev}`)
 process.on('uncaughtException', (error) => {
   log.error('Uncaught Exception:', error)
   getQueueManager().shutdownSync('unexpected error')
+  stopTrainingPowerSaveBlocker()
   dialog.showErrorBox('Unexpected Error', `An unexpected error occurred:\n${error.message}`)
   app.exit(1)
 })
@@ -63,6 +64,7 @@ interface RendererErrorPayload {
 
 let mainWindow: BrowserWindow | null = null
 let allowUnsafeClose = false
+let trainingPowerSaveBlockerId: number | null = null
 const reportedFinishedStatuses: Map<string, JobStatus> = new Map()
 
 app.setAppUserModelId(APP_ID)
@@ -123,6 +125,31 @@ function resolveWindowIcon(): NativeImage | undefined {
 
 function hasActiveTrainingJobs(): boolean {
   return getQueueManager().getQueue().some((runtime) => ACTIVE_JOB_STATUSES.includes(runtime.status))
+}
+
+function updateTrainingPowerSaveBlocker(): void {
+  if (hasActiveTrainingJobs()) {
+    if (trainingPowerSaveBlockerId == null || !powerSaveBlocker.isStarted(trainingPowerSaveBlockerId)) {
+      trainingPowerSaveBlockerId = powerSaveBlocker.start('prevent-app-suspension')
+      log.info(`Started training power save blocker: ${trainingPowerSaveBlockerId}`)
+    }
+    return
+  }
+
+  stopTrainingPowerSaveBlocker()
+}
+
+function stopTrainingPowerSaveBlocker(): void {
+  if (trainingPowerSaveBlockerId == null) {
+    return
+  }
+
+  if (powerSaveBlocker.isStarted(trainingPowerSaveBlockerId)) {
+    powerSaveBlocker.stop(trainingPowerSaveBlockerId)
+    log.info(`Stopped training power save blocker: ${trainingPowerSaveBlockerId}`)
+  }
+
+  trainingPowerSaveBlockerId = null
 }
 
 async function showAboutDialog(): Promise<void> {
@@ -278,10 +305,12 @@ function setupShellIntegrations(): void {
   const queueManager = getQueueManager()
 
   queueManager.on('queueUpdated', () => {
+    updateTrainingPowerSaveBlocker()
     updateWindowProgress()
   })
 
   queueManager.on('jobUpdated', (runtime: JobRuntimeState) => {
+    updateTrainingPowerSaveBlocker()
     updateWindowProgress()
     maybeShowJobNotification(runtime)
   })
@@ -447,5 +476,6 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   getQueueManager().shutdownSync('app shutdown')
+  stopTrainingPowerSaveBlocker()
   log.info('=== NAM-BOT SHUTTING DOWN ===')
 })

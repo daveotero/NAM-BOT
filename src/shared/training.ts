@@ -77,6 +77,16 @@ export interface NamEmbeddedMetadata {
 export interface JobTrainingOverrides {
   epochs?: number
   latencySamples?: number
+  packedSubmodels?: JobPackedSubmodelSelection[]
+}
+
+export interface JobPackedSubmodelSelection {
+  submodelIndex: number
+  submodelName?: string | null
+}
+
+export interface PackedPresetSubmodel extends JobPackedSubmodelSelection {
+  channelCount?: number | null
 }
 
 export interface JobSpec {
@@ -743,6 +753,69 @@ export function buildA2PackedModelConfig(
   }
 }
 
+function getPackedSubmodelChannelCount(submodelName: string | null, config: Record<string, unknown> | null): number | null {
+  const namedChannelMatch = /^channels_(\d+)$/i.exec(submodelName ?? '')
+  if (namedChannelMatch) {
+    const channelCount = Number(namedChannelMatch[1])
+    return Number.isFinite(channelCount) ? channelCount : null
+  }
+
+  const firstLayer = Array.isArray(config?.layers_configs) && isRecord(config.layers_configs[0])
+    ? config.layers_configs[0]
+    : null
+  const channelCount = firstLayer?.channels
+  return typeof channelCount === 'number' && Number.isFinite(channelCount) ? channelCount : null
+}
+
+export function getPackedSubmodelSelectionKey(selection: JobPackedSubmodelSelection): string {
+  return `${selection.submodelIndex}:${selection.submodelName ?? ''}`
+}
+
+export function formatPackedSubmodelDisplayName(submodel: PackedPresetSubmodel): string {
+  if (submodel.submodelName === 'channels_3') {
+    return 'A2 Lite (3 ch)'
+  }
+  if (submodel.submodelName === 'channels_8') {
+    return 'A2 Full (8 ch)'
+  }
+  if (submodel.submodelName === 'channels_12') {
+    return 'A2 Heavy (12 ch)'
+  }
+  if (submodel.channelCount != null) {
+    return submodel.submodelName ? `${submodel.submodelName} (${submodel.channelCount} ch)` : `${submodel.channelCount} ch`
+  }
+  return submodel.submodelName ?? `Submodel ${submodel.submodelIndex + 1}`
+}
+
+export function getPackedSubmodelsForPreset(preset: TrainingPresetFile): PackedPresetSubmodel[] {
+  if (preset.values.modelFamily !== 'PackedWaveNet') {
+    return []
+  }
+
+  const expertNetConfig = isRecord(preset.expert.model)
+    && isRecord(preset.expert.model.net)
+    && isRecord(preset.expert.model.net.config)
+      ? preset.expert.model.net.config
+      : null
+  const rawSubmodels = Array.isArray(expertNetConfig?.submodels)
+    ? expertNetConfig.submodels
+    : buildA2PackedSubmodels(A2_DEFAULT_PACKED_CHANNELS)
+
+  return rawSubmodels.flatMap((entry, submodelIndex): PackedPresetSubmodel[] => {
+    if (!isRecord(entry)) {
+      return []
+    }
+
+    const submodelName = typeof entry.name === 'string' ? entry.name : null
+    const config = isRecord(entry.config) ? entry.config : null
+    return [{
+      submodelIndex,
+      submodelName,
+      channelCount: getPackedSubmodelChannelCount(submodelName, config)
+    }]
+  })
+}
+
 function computeLockedJobFields(expert: TrainingPresetExpertBlocks): Array<'epochs' | 'latencySamples'> {
   const lockedFields: Array<'epochs' | 'latencySamples'> = []
   const learningTrainer = isRecord(expert.learning) && isRecord(expert.learning.trainer) ? expert.learning.trainer : null
@@ -912,6 +985,29 @@ export function normalizeNamMetadata(value: unknown): NamEmbeddedMetadata {
   }
 }
 
+function normalizePackedSubmodelSelections(value: unknown): JobPackedSubmodelSelection[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined
+  }
+
+  const selections = value.flatMap((entry): JobPackedSubmodelSelection[] => {
+    if (!isRecord(entry)) {
+      return []
+    }
+    const submodelIndex = entry.submodelIndex
+    if (typeof submodelIndex !== 'number' || !Number.isInteger(submodelIndex) || submodelIndex < 0) {
+      return []
+    }
+
+    return [{
+      submodelIndex,
+      submodelName: typeof entry.submodelName === 'string' ? entry.submodelName : null
+    }]
+  })
+
+  return selections.length > 0 ? selections : undefined
+}
+
 export function normalizeJobSpec(value: unknown): JobSpec {
   const base: JobSpec = {
     ...cloneJson(defaultJobSpec),
@@ -961,7 +1057,8 @@ export function normalizeJobSpec(value: unknown): JobSpec {
           trainingOverrides.latencySamples,
           defaultJobSpec.trainingOverrides.latencySamples ?? 0
         )
-      )
+      ),
+      packedSubmodels: normalizePackedSubmodelSelections(trainingOverrides.packedSubmodels)
     },
     uiNotes: asString(value.uiNotes, '')
   }

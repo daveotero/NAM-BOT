@@ -219,6 +219,33 @@ describe('buildJobConfigs', () => {
     expect(learningConfig.trainer?.max_epochs).toBe(200)
   })
 
+  it('filters A2 packed model configs to selected job submodels', () => {
+    const tempDir = createTempDir()
+    const preset = getBuiltInPreset(A2_HEAVY_12_PRESET_ID)
+    const paths = buildJobConfigs(buildJobSpec({
+      trainingOverrides: {
+        packedSubmodels: [
+          {
+            submodelIndex: 0,
+            submodelName: 'channels_3'
+          },
+          {
+            submodelIndex: 2,
+            submodelName: 'channels_12'
+          }
+        ]
+      }
+    }), tempDir, preset)
+    const modelConfig = JSON.parse(readFileSync(paths.modelConfig, 'utf-8')) as {
+      net?: { config?: { submodels?: Array<{ name?: string }> } }
+    }
+
+    expect(modelConfig.net?.config?.submodels?.map((submodel) => submodel.name)).toEqual([
+      'channels_3',
+      'channels_12'
+    ])
+  })
+
   it('keeps A1 WaveNet configs on A1 presets', () => {
     const tempDir = createTempDir()
     const preset = getBuiltInPreset(A1_STANDARD_PRESET_ID)

@@ -340,6 +340,8 @@ The default selected preset remains `A2 Packed WaveNet` (`a2-packed-wavenet`). I
 
 `A2 Packed WaveNet Heavy 12` (`a2-packed-wavenet-heavy-12`) is also bundled as a built-in quality preset. It keeps the official A2 Lite and Full submodels, adds a third `channels_12` Heavy submodel as the highest-quality tier, and defaults to `200` epochs for the larger packed training run.
 
+Packed submodel identity comes from each `model.net.config.submodels[]` entry's `name` plus its array index. NAM-BOT displays those names in Presets and uses them for per-job packed-submodel selection when a pack has three or more tiers.
+
 The previous WaveNet presets remain available as `a1` presets. There is also a hidden LSTM compatibility preset used to preserve older drafts.
 
 ## Future Extensions
