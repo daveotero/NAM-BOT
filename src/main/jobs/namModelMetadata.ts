@@ -1,5 +1,14 @@
+export interface ConfirmedPackedSubmodelTrainingMetadata {
+  submodelIndex: number
+  submodelName?: string | null
+  validationEsr?: number | null
+  epoch?: number | null
+  step?: number | null
+}
+
 export interface ConfirmedNamTrainingMetadata {
   validationEsr?: number
+  packedSubmodels?: ConfirmedPackedSubmodelTrainingMetadata[]
   manualLatency?: number | null
   trainedEpochs?: number
   presetName?: string
@@ -111,6 +120,16 @@ function buildNamBotMetadata(
     nextNamBotMetadata.manual_latency_samples = confirmedTrainingMetadata.manualLatency ?? null
   }
 
+  if (confirmedTrainingMetadata.packedSubmodels && confirmedTrainingMetadata.packedSubmodels.length > 0) {
+    nextNamBotMetadata.packed_submodels = confirmedTrainingMetadata.packedSubmodels.map((submodel) => ({
+      submodel_index: submodel.submodelIndex,
+      submodel_name: submodel.submodelName ?? null,
+      validation_esr: submodel.validationEsr ?? null,
+      epoch: submodel.epoch ?? null,
+      step: submodel.step ?? null
+    }))
+  }
+
   return Object.keys(nextNamBotMetadata).length > 0 ? nextNamBotMetadata : null
 }
 
@@ -120,6 +139,7 @@ export function hasNamModelMetadataUpdates(
 ): boolean {
   return Object.keys(metadataPatch).length > 0
     || confirmedTrainingMetadata.validationEsr != null
+    || (confirmedTrainingMetadata.packedSubmodels != null && confirmedTrainingMetadata.packedSubmodels.length > 0)
     || hasManualLatency(confirmedTrainingMetadata)
     || isPositiveInteger(confirmedTrainingMetadata.trainedEpochs)
     || isNonEmptyString(confirmedTrainingMetadata.presetName)

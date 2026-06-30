@@ -53,23 +53,30 @@ function mergeModelConfig(base: Record<string, unknown>, override: Record<string
 }
 
 function buildBaseDataConfig(job: JobSpec, preset: TrainingPresetFile): Record<string, unknown> {
+  const validationHoldoutSeconds = job.inputAudioIsDefault ? 9.0 : 10.0
+  const commonConfig: Record<string, unknown> = {
+    x_path: job.inputAudioPath,
+    y_path: job.outputAudioPath,
+    delay: job.trainingOverrides.latencySamples ?? 0,
+    allow_unequal_lengths: true
+  }
+
+  if (!job.inputAudioIsDefault) {
+    commonConfig.require_input_pre_silence = null
+  }
+
   const dataConfig: Record<string, unknown> = {
     train: {
       start_seconds: null,
-      stop_seconds: -9.0,
+      stop_seconds: -validationHoldoutSeconds,
       ny: preset.values.ny
     },
     validation: {
-      start_seconds: -9.0,
+      start_seconds: -validationHoldoutSeconds,
       stop_seconds: null,
       ny: null
     },
-    common: {
-      x_path: job.inputAudioPath,
-      y_path: job.outputAudioPath,
-      delay: job.trainingOverrides.latencySamples ?? 0,
-      allow_unequal_lengths: true
-    }
+    common: commonConfig
   }
 
   if (isA2TrainingPreset(preset) && preset.values.outputNormalizeRmsDb != null) {

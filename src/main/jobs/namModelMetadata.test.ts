@@ -145,6 +145,55 @@ describe('NAM model metadata updates', () => {
     })
   })
 
+  it('stores packed submodel ESRs under NAM-BOT metadata', () => {
+    const metadata = buildUpdatedNamModelMetadata({
+      currentMetadata: {},
+      metadataPatch: {},
+      confirmedTrainingMetadata: {
+        validationEsr: 0.012,
+        packedSubmodels: [
+          {
+            submodelIndex: 0,
+            submodelName: 'channels_3',
+            validationEsr: 0.02,
+            epoch: 40,
+            step: 500
+          },
+          {
+            submodelIndex: 1,
+            submodelName: 'channels_8',
+            validationEsr: 0.012,
+            epoch: 42,
+            step: 520
+          }
+        ]
+      },
+      exportDate
+    })
+
+    expect(metadata.training).toEqual({
+      validation_esr: 0.012
+    })
+    expect(metadata.nam_bot).toEqual({
+      packed_submodels: [
+        {
+          submodel_index: 0,
+          submodel_name: 'channels_3',
+          validation_esr: 0.02,
+          epoch: 40,
+          step: 500
+        },
+        {
+          submodel_index: 1,
+          submodel_name: 'channels_8',
+          validation_esr: 0.012,
+          epoch: 42,
+          step: 520
+        }
+      ]
+    })
+  })
+
   it('treats zero manual latency as metadata worth preserving', () => {
     expect(hasNamModelMetadataUpdates({}, { manualLatency: 0 })).toBe(true)
   })

@@ -130,8 +130,28 @@ Input audio can be driven in two ways:
 - `Default`
   - uses the bundled NAM `v3_0_0.wav` training signal
   - can optionally be exported to disk with `Save Default to Disk`
+  - generates the strict official-style V3 split where training stops 9 seconds before the end and validation uses the final 9 seconds
 - `Custom`
   - lets the user browse to a specific input audio file
+  - treats the pair as user-managed training data rather than official V3-shaped data
+  - generates a generic split where training stops 10 seconds before the end and validation uses the final 10 seconds
+  - sets `data.common.require_input_pre_silence` to `null` so NAM does not reject continuous custom DIs that lack a silent boundary before validation
+
+Custom input validation ESR is a local holdout metric for that specific pair and should not be treated as directly comparable to official V3 ESR unless the custom validation material is equivalent. Users can refine the generated split with a preset `Data JSON` expert override when a custom training signal has a known layout.
+
+For an older V2-style custom input, a useful override is:
+
+```json
+{
+  "train": {
+    "stop_seconds": -20.0
+  },
+  "validation": {
+    "start_seconds": -20.0,
+    "stop_seconds": -11.0
+  }
+}
+```
 
 ### Output Root Modes
 
@@ -184,7 +204,7 @@ Active jobs appear in the training section.
 
 - active jobs surface stop and force-stop controls
 - terminal logs can be expanded and refreshed while a job is active
-- while a run is active, elapsed time is measured from the start of the training run and remaining time is estimated against the full planned epoch count rather than the current epoch only
+- while a run is active, elapsed time is measured from the start of the training run; remaining-time estimates are intentionally not shown because they proved unreliable across NAM training runs
 
 ### Finished View
 
@@ -200,11 +220,11 @@ Completed, failed, and stopped jobs appear in the finished section.
 - across queue, training, and finished sections, collapsed runtime cards show status-specific quick stats:
   - queued and validating cards show preset and planned epochs
   - preparing cards show preset, detected device summary, and planned epochs
-  - running and stopping cards show progress/ESR plus elapsed and remaining or stop mode details
+  - running and stopping cards show progress/ESR plus elapsed time or stop mode details
   - successful cards show preset, total runtime, and best ESR
   - failed and canceled cards prioritize total runtime and failure or stop reason, with ESR when available
 
-For A2 Packed WaveNet jobs, NAM's main checkpoint filename reports aggregate ESR across the packed submodels. NAM-BOT labels that value as `Best aggregate ESR` and shows the per-submodel packed `val_loss` values when NAM writes `packed_best.json`.
+For A2 Packed WaveNet jobs, NAM-BOT uses the highest-quality packed submodel as the primary ESR. With the built-in A2 preset, that means A2 Full ESR is used for the headline runtime card, exported filename ESR suffix, and official `metadata.training.validation_esr` value. Expanded details show all available packed submodel ESRs, including A2 Full and A2 Lite, when NAM writes `packed_best.json`. NAM's aggregate packed ESR is not surfaced because it is a sum across submodels rather than the value most users compare against A1.
 
 ## Job Schema
 
@@ -252,6 +272,7 @@ interface JobSpec {
 - `trainingOverrides` are intentionally narrow. Jobs override only the fields that need run-specific flexibility.
 - `metadata` is for NAM artifact tagging, not for configuring the core training recipe.
 - After a successful export, NAM-BOT also writes back metadata it can derive reliably. It updates `metadata.date`, writes the final validation ESR to `metadata.training.validation_esr`, and writes NAM-BOT-specific traceability under `metadata.nam_bot`.
+- For packed A2 exports, `metadata.training.validation_esr` uses the A2 Full ESR when packed submodel metrics are available. Per-submodel ESRs are written under `metadata.nam_bot.packed_submodels` because NAM's official training metadata schema currently exposes only one `validation_esr` field.
 - `metadata.nam_bot` is intentionally outside the official NAM `metadata.training` object so custom fields do not interfere with plugin parsers that expect the NAM Trainer schema. Current NAM-BOT fields are `trained_epochs`, `preset_name`, and `manual_latency_samples`.
 - Older models that still contain NAM-BOT traceability under `metadata.training.nam_bot` are treated as legacy-compatible input if NAM-BOT rewrites metadata again; those values are migrated into `metadata.nam_bot` rather than preserved inside `metadata.training`.
 - `appendPresetToModelFileName` controls whether the exported `.nam` file includes the selected preset name after the job name.

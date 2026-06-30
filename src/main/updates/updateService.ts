@@ -1,6 +1,7 @@
 import { app, BrowserWindow } from 'electron'
 import log from 'electron-log/main'
 import { createDefaultUpdateStatus, type UpdateStatus } from '../../shared/update'
+import { compareAppVersions } from '../../shared/version'
 import { loadUpdateStatus, saveUpdateStatus } from '../persistence/updateStore'
 
 interface GitHubReleasePayload {
@@ -28,13 +29,13 @@ function getCachedStatus(): UpdateStatus {
   }
 
   const currentVersion = app.getVersion()
-  if (cachedStatus.currentVersion !== currentVersion) {
-    const latestVersion = cachedStatus.latestVersion
-    const isStillOutdated =
-      typeof latestVersion === 'string'
-      && latestVersion.length > 0
-      && compareVersions(latestVersion, currentVersion) > 0
+  const latestVersion = cachedStatus.latestVersion
+  const isStillOutdated =
+    typeof latestVersion === 'string'
+    && latestVersion.length > 0
+    && compareAppVersions(latestVersion, currentVersion) > 0
 
+  if (cachedStatus.currentVersion !== currentVersion || (cachedStatus.state === 'update-available' && !isStillOutdated)) {
     cachedStatus = {
       ...cachedStatus,
       currentVersion,
@@ -50,34 +51,6 @@ function getCachedStatus(): UpdateStatus {
 
 function normalizeVersion(version: string): string {
   return version.trim().replace(/^v/i, '')
-}
-
-function parseVersion(version: string): number[] {
-  return normalizeVersion(version)
-    .split('.')
-    .map((part) => Number.parseInt(part, 10))
-    .map((part) => (Number.isFinite(part) ? part : 0))
-}
-
-function compareVersions(left: string, right: string): number {
-  const leftParts = parseVersion(left)
-  const rightParts = parseVersion(right)
-  const maxLength = Math.max(leftParts.length, rightParts.length)
-
-  for (let index = 0; index < maxLength; index += 1) {
-    const leftValue = leftParts[index] ?? 0
-    const rightValue = rightParts[index] ?? 0
-
-    if (leftValue > rightValue) {
-      return 1
-    }
-
-    if (leftValue < rightValue) {
-      return -1
-    }
-  }
-
-  return 0
 }
 
 function shouldUseCachedStatus(status: UpdateStatus): boolean {
@@ -101,7 +74,7 @@ function getSpoofedUpdateStatus(): UpdateStatus | null {
 
   const currentVersion = app.getVersion()
   const normalizedSpoofedVersion = normalizeVersion(spoofedVersion)
-  if (compareVersions(normalizedSpoofedVersion, currentVersion) <= 0) {
+  if (compareAppVersions(normalizedSpoofedVersion, currentVersion) <= 0) {
     return null
   }
 
@@ -137,7 +110,7 @@ function buildSuccessStatus(previousStatus: UpdateStatus, payload: GitHubRelease
   const releaseUrl = payload.html_url ?? null
   const isUpdateAvailable =
     latestVersion.length > 0
-    && compareVersions(latestVersion, previousStatus.currentVersion) > 0
+    && compareAppVersions(latestVersion, previousStatus.currentVersion) > 0
 
   return {
     currentVersion: previousStatus.currentVersion,

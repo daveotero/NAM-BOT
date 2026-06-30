@@ -29,7 +29,6 @@ export interface JobTerminalProgress {
   currentBatch?: number | null
   totalBatches?: number | null
   elapsed?: string | null
-  remaining?: string | null
   rate?: string | null
   percent?: number | null
 }
@@ -47,7 +46,7 @@ export interface JobDeviceSummary {
 export interface JobPackedSubmodelCheckpointSummary {
   submodelIndex: number
   submodelName?: string | null
-  bestValidationMetric?: number | null
+  bestValidationEsr?: number | null
   epoch?: number | null
   step?: number | null
   checkpointPath?: string | null
@@ -58,7 +57,6 @@ export interface JobCheckpointSummary {
   latestCheckpointEpoch?: number | null
   bestValidationEsr?: number | null
   bestValidationMse?: number | null
-  bestValidationEsrKind?: 'single' | 'aggregate'
   packedSubmodels?: JobPackedSubmodelCheckpointSummary[]
   bestCheckpointPath?: string | null
   modelFilePath?: string | null

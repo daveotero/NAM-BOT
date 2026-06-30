@@ -115,6 +115,48 @@ describe('validateJobSpec', () => {
 })
 
 describe('buildJobConfigs', () => {
+  it('keeps the strict final 9 second validation split for default input audio', () => {
+    const tempDir = createTempDir()
+    const preset = getBuiltInPreset(DEFAULT_PRESET_ID)
+    const paths = buildJobConfigs(buildJobSpec({ inputAudioIsDefault: true }), tempDir, preset)
+    const dataConfig = JSON.parse(readFileSync(paths.dataConfig, 'utf-8')) as {
+      train?: { start_seconds?: number | null; stop_seconds?: number | null }
+      validation?: { start_seconds?: number | null; stop_seconds?: number | null }
+      common?: { require_input_pre_silence?: unknown }
+    }
+
+    expect(dataConfig.train).toMatchObject({
+      start_seconds: null,
+      stop_seconds: -9.0
+    })
+    expect(dataConfig.validation).toMatchObject({
+      start_seconds: -9.0,
+      stop_seconds: null
+    })
+    expect(dataConfig.common).not.toHaveProperty('require_input_pre_silence')
+  })
+
+  it('uses a generic final 10 second validation split and bypasses pre-silence checks for custom input audio', () => {
+    const tempDir = createTempDir()
+    const preset = getBuiltInPreset(DEFAULT_PRESET_ID)
+    const paths = buildJobConfigs(buildJobSpec({ inputAudioIsDefault: false }), tempDir, preset)
+    const dataConfig = JSON.parse(readFileSync(paths.dataConfig, 'utf-8')) as {
+      train?: { start_seconds?: number | null; stop_seconds?: number | null }
+      validation?: { start_seconds?: number | null; stop_seconds?: number | null }
+      common?: { require_input_pre_silence?: unknown }
+    }
+
+    expect(dataConfig.train).toMatchObject({
+      start_seconds: null,
+      stop_seconds: -10.0
+    })
+    expect(dataConfig.validation).toMatchObject({
+      start_seconds: -10.0,
+      stop_seconds: null
+    })
+    expect(dataConfig.common?.require_input_pre_silence).toBeNull()
+  })
+
   it('generates A2 PackedWaveNet model and output normalization configs by default', () => {
     const tempDir = createTempDir()
     const preset = getBuiltInPreset(DEFAULT_PRESET_ID)

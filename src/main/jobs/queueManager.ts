@@ -214,6 +214,17 @@ function readConfirmedTrainingMetadata(runtime: JobRuntimeState): ConfirmedNamTr
     trainingMetadata.validationEsr = bestValidationEsr
   }
 
+  const packedSubmodels = runtime.checkpointSummary?.packedSubmodels
+  if (packedSubmodels && packedSubmodels.length > 0) {
+    trainingMetadata.packedSubmodels = packedSubmodels.map((submodel) => ({
+      submodelIndex: submodel.submodelIndex,
+      submodelName: submodel.submodelName ?? null,
+      validationEsr: submodel.bestValidationEsr ?? null,
+      epoch: submodel.epoch ?? null,
+      step: submodel.step ?? null
+    }))
+  }
+
   const dataConfigPath = runtime.generatedConfigPaths?.dataConfig
   if (!dataConfigPath || !existsSync(dataConfigPath)) {
     return trainingMetadata
@@ -414,7 +425,7 @@ function readPackedBestSubmodels(outputRunDirectory: string): JobPackedSubmodelC
       return [{
         submodelIndex,
         submodelName: typeof entry.submodel_name === 'string' ? entry.submodel_name : null,
-        bestValidationMetric: typeof entry.best_metric === 'number' && Number.isFinite(entry.best_metric) ? entry.best_metric : null,
+        bestValidationEsr: typeof entry.best_metric === 'number' && Number.isFinite(entry.best_metric) ? entry.best_metric : null,
         epoch: typeof entry.epoch === 'number' && Number.isFinite(entry.epoch) ? entry.epoch : null,
         step: typeof entry.step === 'number' && Number.isFinite(entry.step) ? entry.step : null,
         checkpointPath: typeof entry.checkpoint_path === 'string' ? entry.checkpoint_path : null
@@ -424,6 +435,41 @@ function readPackedBestSubmodels(outputRunDirectory: string): JobPackedSubmodelC
     log.warn('Failed to read packed A2 checkpoint metadata:', metadataPath, error)
     return []
   }
+}
+
+function getSubmodelChannelCount(submodel: JobPackedSubmodelCheckpointSummary): number | null {
+  const match = /^channels_(\d+)$/i.exec(submodel.submodelName ?? '')
+  if (!match) {
+    return null
+  }
+  const channelCount = Number(match[1])
+  return Number.isFinite(channelCount) ? channelCount : null
+}
+
+function selectPrimaryPackedSubmodel(
+  submodels: JobPackedSubmodelCheckpointSummary[]
+): JobPackedSubmodelCheckpointSummary | null {
+  if (submodels.length === 0) {
+    return null
+  }
+
+  const metricSubmodels = submodels.filter((submodel) => submodel.bestValidationEsr != null)
+  const candidates = metricSubmodels.length > 0 ? metricSubmodels : submodels
+
+  return [...candidates].sort((left, right) => {
+    const leftChannels = getSubmodelChannelCount(left)
+    const rightChannels = getSubmodelChannelCount(right)
+    if (leftChannels != null && rightChannels != null && leftChannels !== rightChannels) {
+      return rightChannels - leftChannels
+    }
+    if (leftChannels != null && rightChannels == null) {
+      return -1
+    }
+    if (leftChannels == null && rightChannels != null) {
+      return 1
+    }
+    return right.submodelIndex - left.submodelIndex
+  })[0]
 }
 
 function walkTrainingArtifacts(rootDir: string, depth: number): string[] {
@@ -475,6 +521,7 @@ function buildCheckpointSummary(
   let modelFilePath: string | null = null
   let comparisonPlotPath: string | null = null
   const packedSubmodels = readPackedBestSubmodels(outputRunDirectory)
+  const primaryPackedSubmodel = usesPackedA2 ? selectPrimaryPackedSubmodel(packedSubmodels) : null
 
   for (const filePath of files) {
     const normalized = filePath.toLowerCase()
@@ -512,11 +559,10 @@ function buildCheckpointSummary(
   return {
     checkpointCount,
     latestCheckpointEpoch,
-    bestValidationEsr,
-    bestValidationMse,
-    bestValidationEsrKind: usesPackedA2 || packedSubmodels.length > 0 ? 'aggregate' : 'single',
+    bestValidationEsr: primaryPackedSubmodel ? primaryPackedSubmodel.bestValidationEsr ?? null : bestValidationEsr,
+    bestValidationMse: primaryPackedSubmodel ? null : bestValidationMse,
     packedSubmodels: packedSubmodels.length > 0 ? packedSubmodels : undefined,
-    bestCheckpointPath,
+    bestCheckpointPath: primaryPackedSubmodel?.checkpointPath ?? bestCheckpointPath,
     modelFilePath,
     comparisonPlotPath
   }
@@ -568,7 +614,11 @@ function normalizePackedSubmodels(value: unknown): JobPackedSubmodelCheckpointSu
     return [{
       submodelIndex,
       submodelName: typeof entry.submodelName === 'string' ? entry.submodelName : null,
-      bestValidationMetric: typeof entry.bestValidationMetric === 'number' && Number.isFinite(entry.bestValidationMetric) ? entry.bestValidationMetric : null,
+      bestValidationEsr: typeof entry.bestValidationEsr === 'number' && Number.isFinite(entry.bestValidationEsr)
+        ? entry.bestValidationEsr
+        : typeof entry.bestValidationMetric === 'number' && Number.isFinite(entry.bestValidationMetric)
+          ? entry.bestValidationMetric
+          : null,
       epoch: typeof entry.epoch === 'number' && Number.isFinite(entry.epoch) ? entry.epoch : null,
       step: typeof entry.step === 'number' && Number.isFinite(entry.step) ? entry.step : null,
       checkpointPath: typeof entry.checkpointPath === 'string' ? entry.checkpointPath : null
@@ -591,7 +641,6 @@ function normalizeProgress(value: unknown): JobTerminalProgress | undefined {
     totalBatches: typeof candidate.totalBatches === 'number' ? candidate.totalBatches : null,
     percent: typeof candidate.percent === 'number' ? candidate.percent : null,
     elapsed: typeof candidate.elapsed === 'string' ? candidate.elapsed : null,
-    remaining: typeof candidate.remaining === 'string' ? candidate.remaining : null,
     rate: typeof candidate.rate === 'string' ? candidate.rate : null
   }
 }
@@ -710,10 +759,6 @@ function normalizeRuntimeState(value: unknown): JobRuntimeState | null {
             typeof (candidate.checkpointSummary as Record<string, unknown>).bestValidationMse === 'number'
               ? Number((candidate.checkpointSummary as Record<string, unknown>).bestValidationMse)
               : null,
-          bestValidationEsrKind:
-            (candidate.checkpointSummary as Record<string, unknown>).bestValidationEsrKind === 'aggregate'
-              ? 'aggregate'
-              : 'single',
           packedSubmodels: normalizePackedSubmodels((candidate.checkpointSummary as Record<string, unknown>).packedSubmodels),
           bestCheckpointPath:
             typeof (candidate.checkpointSummary as Record<string, unknown>).bestCheckpointPath === 'string'
@@ -1017,12 +1062,9 @@ export class QueueManager extends EventEmitter {
       if (nextCheckpointCount > previousCheckpointCount) {
         const bestEsr = nextSummary?.bestValidationEsr
         if (bestEsr != null) {
-          const metricLabel = nextSummary?.bestValidationEsrKind === 'aggregate'
-            ? 'Best aggregate validation ESR'
-            : 'Best validation ESR'
           this.appendUserMessage(
             runtime,
-            `Checkpoint ${nextCheckpointCount} saved. ${metricLabel} so far: ${bestEsr.toFixed(4)}.`
+            `Checkpoint ${nextCheckpointCount} saved. Best validation ESR so far: ${bestEsr.toFixed(4)}.`
           )
         } else {
           this.appendUserMessage(runtime, `Checkpoint ${nextCheckpointCount} saved.`)
@@ -1187,7 +1229,6 @@ export class QueueManager extends EventEmitter {
     const timingMatch = /(\d{1,2}:\d{2}(?::\d{2})?)\s*[•·]\s*([\-:0-9]+)\s+([0-9.]+it\/s)/.exec(trimmed)
     if (timingMatch) {
       progress.elapsed = timingMatch[1]
-      progress.remaining = timingMatch[2]
       progress.rate = timingMatch[3].trim()
     }
 
@@ -1293,7 +1334,6 @@ export class QueueManager extends EventEmitter {
         currentBatch: null,
         totalBatches: null,
         elapsed: null,
-        remaining: null,
         rate: null,
         percent: 0
       },
@@ -1455,7 +1495,6 @@ export class QueueManager extends EventEmitter {
       currentBatch: null,
       totalBatches: null,
       elapsed: null,
-      remaining: null,
       rate: null,
       percent: 0
     }

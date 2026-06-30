@@ -49,10 +49,45 @@ export function formatEsr(value: number | null | undefined): string {
   return value < 0.001 ? value.toExponential(2) : value.toFixed(4)
 }
 
+function getSubmodelChannelCount(submodel: JobPackedSubmodelCheckpointSummary): number | null {
+  const match = /^channels_(\d+)$/i.exec(submodel.submodelName ?? '')
+  if (!match) {
+    return null
+  }
+  const channelCount = Number(match[1])
+  return Number.isFinite(channelCount) ? channelCount : null
+}
+
+export function getPrimaryPackedSubmodel(
+  runtime: JobRuntimeState
+): JobPackedSubmodelCheckpointSummary | null {
+  const submodels = runtime.checkpointSummary?.packedSubmodels ?? []
+  if (submodels.length === 0) {
+    return null
+  }
+
+  const metricSubmodels = submodels.filter((submodel) => submodel.bestValidationEsr != null)
+  const candidates = metricSubmodels.length > 0 ? metricSubmodels : submodels
+
+  return [...candidates].sort((left, right) => {
+    const leftChannels = getSubmodelChannelCount(left)
+    const rightChannels = getSubmodelChannelCount(right)
+    if (leftChannels != null && rightChannels != null && leftChannels !== rightChannels) {
+      return rightChannels - leftChannels
+    }
+    if (leftChannels != null && rightChannels == null) {
+      return -1
+    }
+    if (leftChannels == null && rightChannels != null) {
+      return 1
+    }
+    return right.submodelIndex - left.submodelIndex
+  })[0]
+}
+
 export function getBestEsrLabel(runtime: JobRuntimeState): string {
-  return runtime.checkpointSummary?.bestValidationEsrKind === 'aggregate'
-    ? 'Best aggregate ESR'
-    : 'Best ESR'
+  const primaryPackedSubmodel = getPrimaryPackedSubmodel(runtime)
+  return primaryPackedSubmodel ? formatPackedSubmodelMetricLabel(primaryPackedSubmodel) : 'Best ESR'
 }
 
 export function formatPackedSubmodelMetricLabel(submodel: JobPackedSubmodelCheckpointSummary): string {
@@ -194,49 +229,12 @@ function getElapsedRunSeconds(runtime: JobRuntimeState, nowMs: number): number |
   return Math.max(0, Math.floor((nowMs - startedAtMs) / 1000))
 }
 
-function getRemainingRunSeconds(runtime: JobRuntimeState, nowMs: number): number | null {
-  const elapsedSeconds = getElapsedRunSeconds(runtime, nowMs)
-  const progressPercent = getProgressPercent(runtime)
-  if (elapsedSeconds == null || progressPercent == null || progressPercent <= 0 || progressPercent >= 100) {
-    return null
-  }
-
-  const progressFraction = progressPercent / 100
-  const estimatedTotalSeconds = elapsedSeconds / progressFraction
-  return Math.max(0, Math.round(estimatedTotalSeconds - elapsedSeconds))
-}
-
 export function getElapsedLabel(runtime: JobRuntimeState, nowMs: number): string | null {
   const elapsedRunSeconds = getElapsedRunSeconds(runtime, nowMs)
   if (elapsedRunSeconds != null) {
     return formatDuration(elapsedRunSeconds)
   }
   return runtime.terminalProgress?.elapsed || null
-}
-
-export function getRemainingLabel(runtime: JobRuntimeState, nowMs: number): string | null {
-  const remainingRunSeconds = getRemainingRunSeconds(runtime, nowMs)
-  if (remainingRunSeconds != null) {
-    return formatDuration(remainingRunSeconds)
-  }
-  return null
-}
-
-export function getProgressMeta(runtime: JobRuntimeState, nowMs: number): string | null {
-  const elapsedRunSeconds = getElapsedRunSeconds(runtime, nowMs)
-  const remainingRunSeconds = getRemainingRunSeconds(runtime, nowMs)
-  const parts = [
-    elapsedRunSeconds != null
-      ? `Elapsed ${formatDuration(elapsedRunSeconds)}`
-      : runtime.terminalProgress?.elapsed
-        ? `Elapsed ${runtime.terminalProgress.elapsed}`
-        : null,
-    remainingRunSeconds != null
-      ? `Remaining ${formatDuration(remainingRunSeconds)}`
-      : null,
-    runtime.terminalProgress?.rate || null
-  ].filter((entry): entry is string => Boolean(entry))
-  return parts.length > 0 ? parts.join(' - ') : null
 }
 
 export function getTotalRuntimeLabel(runtime: JobRuntimeState): string | null {
@@ -309,7 +307,6 @@ export function getCollapsedSummaryItems(
   const bestEsr = runtime.checkpointSummary?.bestValidationEsr
   const totalRuntime = getTotalRuntimeLabel(runtime) || getElapsedLabel(runtime, nowMs)
   const elapsed = getElapsedLabel(runtime, nowMs)
-  const remaining = getRemainingLabel(runtime, nowMs)
   const epochs = getPlannedEpochsLabel(runtime)
 
   switch (runtime.status) {
@@ -332,8 +329,7 @@ export function getCollapsedSummaryItems(
     case 'running':
       return [
         { label: progressStat.label, value: progressStat.value },
-        { label: 'Elapsed', value: elapsed || 'Calculating...' },
-        { label: 'Remaining', value: remaining || 'Estimating...' }
+        { label: 'Elapsed', value: elapsed || 'Calculating...' }
       ]
     case 'stopping':
       return [
@@ -488,6 +484,7 @@ export interface QueueDetailItem {
 }
 
 export function getExpandedDetails(runtime: JobRuntimeState): QueueDetailItem[] {
+  const packedSubmodels = runtime.checkpointSummary?.packedSubmodels ?? []
   const details: QueueDetailItem[] = [
     {
       label: 'Device',
@@ -497,14 +494,13 @@ export function getExpandedDetails(runtime: JobRuntimeState): QueueDetailItem[] 
       label: 'Checkpoints',
       value: String(runtime.checkpointSummary?.checkpointCount ?? 0)
     },
-    {
+    ...(packedSubmodels.length > 0 ? packedSubmodels.map((submodel) => ({
+      label: formatPackedSubmodelMetricLabel(submodel),
+      value: formatEsr(submodel.bestValidationEsr)
+    })) : [{
       label: getBestEsrLabel(runtime),
       value: formatEsr(runtime.checkpointSummary?.bestValidationEsr)
-    },
-    ...(runtime.checkpointSummary?.packedSubmodels ?? []).map((submodel) => ({
-      label: formatPackedSubmodelMetricLabel(submodel),
-      value: formatEsr(submodel.bestValidationMetric)
-    })),
+    }]),
     {
       label: 'Workspace log',
       value: runtime.terminalLogPath || 'Not yet available',

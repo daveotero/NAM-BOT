@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
 import { defaultJobSpec, type JobRuntimeState, type JobSpec } from '../../state/types'
-import { formatPackedSubmodelMetricLabel, getBestEsrLabel, getElapsedLabel } from './job-helpers'
+import {
+  formatPackedSubmodelMetricLabel,
+  getBestEsrLabel,
+  getCollapsedSummaryItems,
+  getElapsedLabel,
+  getPrimaryPackedSubmodel
+} from './job-helpers'
 
 const nowMs = Date.parse('2026-05-11T12:00:00.000Z')
 
@@ -87,24 +93,56 @@ describe('getElapsedLabel', () => {
   })
 })
 
+describe('getCollapsedSummaryItems', () => {
+  it('does not include unreliable remaining time estimates for running jobs', () => {
+    const runtime = buildRuntime({
+      startedAt: '2026-05-11T11:59:00.000Z',
+      terminalProgress: {
+        percent: 50,
+        currentEpoch: 1,
+        totalEpochs: 2
+      }
+    })
+
+    const items = getCollapsedSummaryItems(runtime, 'A2 Packed WaveNet', nowMs)
+
+    expect(items).toEqual([
+      { label: 'Progress', value: '50%' },
+      { label: 'Elapsed', value: '1:00' }
+    ])
+  })
+})
+
 describe('checkpoint metric labels', () => {
-  it('labels packed A2 checkpoint ESR as aggregate', () => {
+  it('uses the highest-quality packed submodel as the primary ESR', () => {
     const runtime = buildRuntime({
       checkpointSummary: {
         checkpointCount: 3,
         bestValidationEsr: 0.0123,
-        bestValidationEsrKind: 'aggregate'
+        packedSubmodels: [
+          {
+            submodelIndex: 0,
+            submodelName: 'channels_3',
+            bestValidationEsr: 0.02
+          },
+          {
+            submodelIndex: 1,
+            submodelName: 'channels_8',
+            bestValidationEsr: 0.0123
+          }
+        ]
       }
     })
 
-    expect(getBestEsrLabel(runtime)).toBe('Best aggregate ESR')
+    expect(getBestEsrLabel(runtime)).toBe('A2 Full ESR')
+    expect(getPrimaryPackedSubmodel(runtime)?.submodelName).toBe('channels_8')
   })
 
   it('uses friendly labels for official packed A2 submodels', () => {
     expect(formatPackedSubmodelMetricLabel({
       submodelIndex: 0,
       submodelName: 'channels_3',
-      bestValidationMetric: 0.014,
+      bestValidationEsr: 0.014,
       epoch: 12,
       step: 100,
       checkpointPath: 'packed_best_submodel_0.ckpt'
@@ -113,7 +151,7 @@ describe('checkpoint metric labels', () => {
     expect(formatPackedSubmodelMetricLabel({
       submodelIndex: 1,
       submodelName: 'channels_8',
-      bestValidationMetric: 0.009,
+      bestValidationEsr: 0.009,
       epoch: 12,
       step: 100,
       checkpointPath: 'packed_best_submodel_1.ckpt'

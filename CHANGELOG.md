@@ -7,19 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.6.0-rc.2] - 2026-06-05
-
-### Changed
-
-- A2 queue validation now uses the NAM version already collected by Diagnostics instead of launching a fresh Python/NAM version probe each time a job is queued.
-- A2 Packed WaveNet job cards now label checkpoint ESR as aggregate and show the per-submodel A2 Lite and A2 Full ESR values when NAM writes packed checkpoint metadata.
-
-### Fixed
-
-- A1 WaveNet presets and imported legacy WaveNet JSON snippets now emit NAM `0.13`'s required layer-array `head` object schema, fixing immediate A1 startup crashes under newer NAM installs.
-- Queueing multiple A2 drafts no longer adds repeated NAM version probes while another training job is running, reducing avoidable process and memory pressure.
-
-## [0.6.0-rc.1] - 2026-06-04
+## [0.6.0] - 2026-06-29
 
 ### Added
 
@@ -27,19 +15,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Presets now expose A1/A2 architecture tags, A2 recipe fields, A2-first preset ordering, and JSON override indicators for advanced custom recipes.
 - Jobs now show architecture tags across drafts, queue cards, runtime cards, and finished runs.
 - Dashboard diagnostics now summarize Backend, Accelerator, Training Launch, and NAM Version readiness in four compact cards.
-- Added focused test coverage for A2 config generation, A1 preservation, NAM version comparison, expert net replacement, and new-job default preset selection.
+- Added focused test coverage for A2 config generation, A1 preservation, NAM version comparison, expert net replacement, new-job defaults, custom input data splitting, and packed A2 ESR metadata.
 
 ### Changed
 
 - A2 training now requires `neural-amp-modeler>=0.13.0`, with setup, diagnostics, and documentation updated to point users at the newer NAM requirement.
+- A2 queue validation now uses the NAM version already collected by Diagnostics instead of launching a fresh Python/NAM version probe each time a job is queued.
+- A2 Packed WaveNet jobs now use the highest-quality packed submodel ESR as the primary ESR for runtime cards, filename suffixes, and official `metadata.training.validation_esr`; per-submodel ESRs are kept under NAM-BOT metadata.
+- Custom input jobs now treat paired audio as user-managed training data, using a generic final-10-second validation holdout and bypassing NAM's pre-validation silence guard by default.
+- Runtime cards no longer show remaining-time estimates because they were too unreliable for real NAM training runs.
 - New jobs and drag/drop drafts now prefer the current A2 default preset instead of reusing an older remembered A1 preset.
 - Expert `model.net` overrides now replace the generated network block instead of deep-merging into it, avoiding mixed A1/A2 model configs.
 - Queue actions now provide immediate `Queueing...` feedback and disable duplicate draft actions while enqueue validation is running.
-- Presets, Jobs, Dashboard, Diagnostics, Settings, and README documentation now describe the A2 workflow and updated diagnostics surface.
+- Presets, Jobs, Dashboard, Diagnostics, Settings, and README documentation now describe the A2 workflow, custom input validation behavior, and updated diagnostics surface.
 
 ### Fixed
 
+- A1 WaveNet presets and imported legacy WaveNet JSON snippets now emit NAM `0.13`'s required layer-array `head` object schema, fixing immediate A1 startup crashes under newer NAM installs.
 - Batch enqueue now preflights all selected drafts before adding any of them to the queue, preventing partial batches when an A2 version requirement fails.
+- Queueing multiple A2 drafts no longer adds repeated NAM version probes while another training job is running, reducing avoidable process and memory pressure.
+- Update checks now compare release candidates correctly, so `0.6.0` is not flagged as older than `0.6.0-rc.2` while RC installs still see the final stable release as newer.
 - The NAM version update action no longer offers an irrelevant Settings shortcut when the fix is a Python environment package upgrade.
 
 ## [0.5.1] - 2026-05-11

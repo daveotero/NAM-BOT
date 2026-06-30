@@ -244,16 +244,19 @@ export default function RuntimeCard({
             </div>
             {(displayState === 'Running' || displayState === 'Successful') && (
               <>
-                <div className="queue-detail-stat">
-                  <span className="stat-label">{getBestEsrLabel(runtime)}</span>
-                  <span className="stat-value">{formatEsr(runtime.checkpointSummary?.bestValidationEsr)}</span>
-                </div>
-                {runtime.checkpointSummary?.packedSubmodels?.map((submodel) => (
-                  <div className="queue-detail-stat" key={`${runtime.jobId}-packed-${submodel.submodelIndex}`}>
-                    <span className="stat-label">{formatPackedSubmodelMetricLabel(submodel)}</span>
-                    <span className="stat-value">{formatEsr(submodel.bestValidationMetric)}</span>
+                {runtime.checkpointSummary?.packedSubmodels?.length ? (
+                  runtime.checkpointSummary.packedSubmodels.map((submodel) => (
+                    <div className="queue-detail-stat" key={`${runtime.jobId}-packed-${submodel.submodelIndex}`}>
+                      <span className="stat-label">{formatPackedSubmodelMetricLabel(submodel)}</span>
+                      <span className="stat-value">{formatEsr(submodel.bestValidationEsr)}</span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="queue-detail-stat">
+                    <span className="stat-label">{getBestEsrLabel(runtime)}</span>
+                    <span className="stat-value">{formatEsr(runtime.checkpointSummary?.bestValidationEsr)}</span>
                   </div>
-                ))}
+                )}
                 <div className="queue-detail-stat">
                   <span className="stat-label">Checkpoints</span>
                   <span className="stat-value">{runtime.checkpointSummary?.checkpointCount ?? 0}</span>
