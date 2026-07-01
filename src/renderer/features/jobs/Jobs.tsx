@@ -68,6 +68,7 @@ import {
   getPreferredOutputRootSelection,
   LAST_APPEND_ESR_STORAGE_KEY,
   LAST_APPEND_PRESET_NAME_STORAGE_KEY,
+  LAST_COPY_FINAL_MODEL_TO_OUTPUT_AUDIO_FOLDER_STORAGE_KEY,
   LAST_USED_PRESET_STORAGE_KEY,
   persistOutputRootPreference,
   persistReusableJobDefaults,
@@ -1167,6 +1168,10 @@ function JobEditor({
       LAST_APPEND_ESR_STORAGE_KEY,
       editedJob.appendEsrToModelFileName ? 'true' : 'false'
     )
+    window.localStorage.setItem(
+      LAST_COPY_FINAL_MODEL_TO_OUTPUT_AUDIO_FOLDER_STORAGE_KEY,
+      editedJob.copyFinalModelToOutputAudioFolder ? 'true' : 'false'
+    )
     persistOutputRootPreference(outputRootMode, editedJob.outputRootDir)
     persistReusableJobDefaults(editedJob, inputMode)
     await Promise.resolve(onSave(editedJob))
@@ -1489,6 +1494,29 @@ function JobEditor({
                   />
                   <span>Append final ESR</span>
                 </label>
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginTop: '10px', color: 'var(--text-steel)', fontSize: '13px' }}>
+                  <input
+                    type="checkbox"
+                    checked={editedJob.copyFinalModelToOutputAudioFolder}
+                    onChange={(event) => {
+                      window.localStorage.setItem(
+                        LAST_COPY_FINAL_MODEL_TO_OUTPUT_AUDIO_FOLDER_STORAGE_KEY,
+                        event.target.checked ? 'true' : 'false'
+                      )
+                      onSessionChange({
+                        ...session,
+                        job: {
+                          ...editedJob,
+                          copyFinalModelToOutputAudioFolder: event.target.checked
+                        }
+                      })
+                    }}
+                  />
+                  <span>Copy model to output audio folder</span>
+                </label>
+                <p style={{ color: 'var(--text-steel)', fontSize: '12px', lineHeight: 1.45, marginTop: '8px', marginBottom: 0 }}>
+                  The training folder still keeps logs, checkpoints, and its finalized model. This option adds a convenient `.nam` copy next to the selected output audio file.
+                </p>
               </div>
             </div>
           </div>
@@ -1499,7 +1527,7 @@ function JobEditor({
               Training Settings
             </h4>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            <div className="training-settings-grid">
               <div className="form-group">
                 <label className="form-label" htmlFor="preset-select">Preset</label>
                 <select
@@ -1541,12 +1569,12 @@ function JobEditor({
               </div>
 
               {showPackedSubmodelSelector && (
-                <div className="form-group" style={{ gridColumn: '1 / -1', padding: '12px', border: '1px solid var(--border-dim)', borderRadius: '8px', background: 'rgba(5, 17, 24, 0.45)' }}>
+                <div className="form-group packed-submodel-panel">
                   <label className="form-label">Advanced Packed Submodels</label>
-                  <p style={{ color: 'var(--text-steel)', fontSize: '12px', marginTop: 0 }}>
-                    Choose which packed tiers NAM-BOT writes into this run's `model.json`. All tiers are selected by default; deselect larger tiers to shorten experimental packed runs.
+                  <p className="packed-submodel-helper">
+                    Choose the packed tiers written into this run's <code>model.json</code>. All tiers are selected by default.
                   </p>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+                  <div className="packed-submodel-options">
                     {packedSubmodelOptions.map((submodel) => {
                       const selection = toPackedSubmodelSelection(submodel)
                       const selectionKey = getPackedSubmodelSelectionKey(selection)
@@ -1554,7 +1582,7 @@ function JobEditor({
                       const isLastSelected = isSelected && selectedPackedSubmodelOptionCount === 1
 
                       return (
-                        <label key={selectionKey} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', color: 'var(--text-steel)', fontSize: '13px' }}>
+                        <label key={selectionKey} className="packed-submodel-option">
                           <input
                             type="checkbox"
                             checked={isSelected}

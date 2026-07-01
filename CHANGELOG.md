@@ -18,6 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Packed A2 ESR labeling now identifies the 12-channel tier as `A2 Heavy ESR`, and packed exports continue to use the highest-quality selected tier as the headline ESR.
 - Changing a job's preset now adopts the next preset's epoch default only when the current value still matches the previous preset default, preserving manually customized epoch counts.
+- The job editor now places advanced packed-submodel selection beside the preset picker in a vertical checklist, and expanded preset cards show packed bundles as itemized tiers.
+- The sidebar Diagnostics item now shows a small rotating work indicator while diagnostics checks are running.
+- Jobs can now also copy the finalized `.nam` model into the output audio file's folder while keeping logs, checkpoints, and the original finalized model in the training folder.
+
+### Fixed
+
+- A2 jobs with an unconfirmed NAM version now stay queued with a diagnostics-required notice instead of moving straight to failed before training starts.
 
 ## [0.6.0] - 2026-06-29
 

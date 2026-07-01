@@ -6,6 +6,7 @@ import {
   getBestEsrLabel,
   getCollapsedSummaryItems,
   getElapsedLabel,
+  getStatusSentence,
   getPrimaryPackedSubmodel
 } from './job-helpers'
 
@@ -109,6 +110,21 @@ describe('getCollapsedSummaryItems', () => {
     expect(items).toEqual([
       { label: 'Progress', value: '50%' },
       { label: 'Elapsed', value: '1:00' }
+    ])
+  })
+
+  it('shows diagnostics-blocked queued jobs as blocked instead of ordinary waiting jobs', () => {
+    const runtime = buildRuntime({
+      status: 'queued',
+      errorCategory: 'a2_diagnostics_pending',
+      plannedEpochs: 100
+    })
+
+    expect(getStatusSentence(runtime)).toBe('Run Diagnostics to confirm NAM 0.13.0+ before this A2 job can start.')
+    expect(getCollapsedSummaryItems(runtime, 'A2 Packed WaveNet', nowMs)).toEqual([
+      { label: 'Blocked', value: 'Run Diagnostics', tone: 'error' },
+      { label: 'Preset', value: 'A2 Packed WaveNet' },
+      { label: 'Epochs', value: '100' }
     ])
   })
 })

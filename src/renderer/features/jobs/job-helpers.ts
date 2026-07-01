@@ -314,6 +314,14 @@ export function getCollapsedSummaryItems(
 
   switch (runtime.status) {
     case 'queued':
+      if (runtime.errorCategory === 'a2_diagnostics_pending') {
+        return [
+          { label: 'Blocked', value: 'Run Diagnostics', tone: 'error' },
+          { label: 'Preset', value: presetName },
+          { label: 'Epochs', value: epochs }
+        ]
+      }
+
       return [
         { label: 'Preset', value: presetName },
         { label: 'Epochs', value: epochs }
@@ -375,6 +383,10 @@ export function getCollapsedSummaryItems(
 
 export function getStatusSentence(runtime: JobRuntimeState): string {
   if (runtime.status === 'queued') {
+    if (runtime.errorCategory === 'a2_diagnostics_pending') {
+      return 'Run Diagnostics to confirm NAM 0.13.0+ before this A2 job can start.'
+    }
+
     return 'Waiting in queue'
   }
 

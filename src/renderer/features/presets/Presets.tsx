@@ -7,6 +7,7 @@ import {
   type ImportedPresetResult,
   type ModelFamily,
   type NamArchitectureVersion,
+  type PackedPresetSubmodel,
   type PresetCategory,
   type TrainingPresetFile,
   buildLstmConfig,
@@ -218,10 +219,12 @@ function getExpertOverrideSummary(preset: TrainingPresetFile): string {
   return labels.length > 0 ? labels.join(', ') : 'None'
 }
 
-function getPackedSubmodelSummary(preset: TrainingPresetFile): string | null {
-  const labels = getPackedSubmodelsForPreset(preset).map(formatPackedSubmodelDisplayName)
+function getPackedSubmodelTitle(submodel: PackedPresetSubmodel): string {
+  return formatPackedSubmodelDisplayName(submodel).replace(/\s+\(\d+\s+ch\)$/i, '')
+}
 
-  return labels.length > 0 ? `${labels.length} tiers: ${labels.join(', ')}` : null
+function getPackedSubmodelChannelLabel(submodel: PackedPresetSubmodel): string {
+  return submodel.channelCount != null ? `${submodel.channelCount} channels` : 'Channels unknown'
 }
 
 function getNestedValue(
@@ -688,7 +691,7 @@ function PresetCard({
   const architectureTag = formatPresetArchitectureTag(preset)
   const summary = `${preset.values.modelFamily} / ${preset.values.architectureSize} / ${preset.values.batchSize} batch`
   const ownershipBadge = getPresetOwnershipBadge(preset)
-  const packedSubmodelSummary = getPackedSubmodelSummary(preset)
+  const packedSubmodels = getPackedSubmodelsForPreset(preset)
 
   return (
     <div
@@ -803,12 +806,6 @@ function PresetCard({
                 <span className="path-label">Fit MRSTFT:</span>
                 <span className="path-value">{preset.values.fitMrstft ? 'Enabled' : 'Disabled'}</span>
               </div>
-              {packedSubmodelSummary && (
-                <div className="detail-path-row">
-                  <span className="path-label">Packed Submodels:</span>
-                  <span className="path-value">{packedSubmodelSummary}</span>
-                </div>
-              )}
               <div className="detail-path-row">
                 <span className="path-label">Overrides:</span>
                 <span className="path-value">{getExpertOverrideSummary(preset)}</span>
@@ -839,6 +836,26 @@ function PresetCard({
                 </div>
               )}
             </div>
+            {packedSubmodels.length > 0 && (
+              <div className="preset-packed-bundle">
+                <div className="preset-packed-bundle-header">
+                  <span className="preset-packed-kicker">Packed Model Bundle</span>
+                  <span className="preset-packed-count">{packedSubmodels.length} tiers</span>
+                </div>
+                <div className="preset-packed-list">
+                  {packedSubmodels.map((submodel) => {
+                    const submodelKey = `${submodel.submodelIndex}:${submodel.submodelName ?? ''}`
+                    return (
+                      <div className="preset-packed-item" key={submodelKey}>
+                        <span className="preset-packed-item-title">{getPackedSubmodelTitle(submodel)}</span>
+                        <span className="preset-packed-item-meta">{getPackedSubmodelChannelLabel(submodel)}</span>
+                        <span className="preset-packed-item-code">{submodel.submodelName ?? `submodel_${submodel.submodelIndex}`}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
           </div>
           <div className="preset-card-footer" data-no-card-toggle="true">
             <button type="button" className="btn btn-sm btn-secondary" onClick={() => void onCopyJson(preset)}>

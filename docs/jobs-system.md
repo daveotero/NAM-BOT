@@ -175,6 +175,8 @@ The final exported `.nam` filename always starts with the job name.
   - adds the selected preset name after the job name
 - `Append final ESR`
   - adds the best validation ESR after the preset segment when enabled, or directly after the job name when preset naming is off
+- `Also copy final model to output audio folder`
+  - keeps the finalized `.nam` in the training folder, then writes an additional copy beside the selected output audio file
 
 The suffix order is fixed so filenames read consistently:
 
@@ -193,7 +195,8 @@ Queued jobs appear in their own section.
 
 The queue UI shows the queued list in reverse visual order compared to the internal logical queue so the "next up" behavior feels natural in the interface.
 
-- A2 jobs are preflighted before enqueue. If the selected NAM environment is missing or older than `neural-amp-modeler` `0.13.0`, enqueue is blocked with an upgrade command.
+- A2 jobs are preflighted before enqueue. If the selected NAM environment is confirmed older than `neural-amp-modeler` `0.13.0`, enqueue is blocked with an upgrade command.
+- If Diagnostics has not confirmed the selected NAM version yet, A2 jobs can be queued but pause as diagnostics-blocked queued items instead of failing. Run Diagnostics or `Re-check All` to confirm the environment; a valid NAM version resumes the queue automatically.
 - Batch enqueue preflights all selected drafts before adding any of them to the queue so partial A2 batch enqueue does not occur.
 - The A2 gate uses the NAM version already collected by Diagnostics so queueing drafts does not spawn new Python probes while another job is training.
 - The renderer shows an immediate queueing state while this preflight runs so validation does not look like a missed click.
@@ -243,6 +246,7 @@ interface JobSpec {
   presetId: string | null
   appendPresetToModelFileName: boolean
   appendEsrToModelFileName: boolean
+  copyFinalModelToOutputAudioFolder: boolean
   inputAudioPath: string
   inputAudioIsDefault: boolean
   outputAudioPath: string
@@ -284,8 +288,9 @@ interface JobSpec {
 - Older models that still contain NAM-BOT traceability under `metadata.training.nam_bot` are treated as legacy-compatible input if NAM-BOT rewrites metadata again; those values are migrated into `metadata.nam_bot` rather than preserved inside `metadata.training`.
 - `appendPresetToModelFileName` controls whether the exported `.nam` file includes the selected preset name after the job name.
 - `appendEsrToModelFileName` controls whether the exported `.nam` file includes the best validation ESR after training finishes.
+- `copyFinalModelToOutputAudioFolder` keeps the normal training-folder model and publishes an additional finalized copy into the directory containing `outputAudioPath`.
 - `batchId` and `batchSourceName` are optional display-only traceability fields for drafts and runtime cards created from the same batch/template flow.
-- New jobs seed both filename options from the user's most recent checkbox choices in the job editor.
+- New jobs seed filename and final-copy options from the user's most recent checkbox choices in the job editor.
 
 ## Runtime State
 
@@ -350,7 +355,7 @@ If a selected preset locks epochs or latency through expert config, the job edit
 
 When changing presets, the job editor adopts the next preset's epoch default only if the current epoch value still matches the previous preset default. Manually customized epoch values are preserved across preset changes.
 
-For Packed WaveNet presets with three or more submodels, the job editor shows an advanced packed-submodel checklist. Every tier is selected by default. Deselecting tiers stores a job-level `packedSubmodels` override, which lets experimental presets such as Heavy or Ultra packs train only a subset of their declared submodels without creating another preset.
+For Packed WaveNet presets with three or more submodels, the job editor shows an advanced packed-submodel checklist next to the preset selector. Every tier is selected by default. Deselecting tiers stores a job-level `packedSubmodels` override, which lets experimental presets such as Heavy or Ultra packs train only a subset of their declared submodels without creating another preset.
 
 ## Queue Lifecycle
 

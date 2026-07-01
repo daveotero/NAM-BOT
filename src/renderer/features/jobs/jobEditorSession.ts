@@ -10,6 +10,7 @@ import { getDirname } from './job-helpers'
 export const LAST_USED_PRESET_STORAGE_KEY = 'nam-bot:last-used-preset-id'
 export const LAST_APPEND_PRESET_NAME_STORAGE_KEY = 'nam-bot:last-append-preset-name'
 export const LAST_APPEND_ESR_STORAGE_KEY = 'nam-bot:last-append-esr'
+export const LAST_COPY_FINAL_MODEL_TO_OUTPUT_AUDIO_FOLDER_STORAGE_KEY = 'nam-bot:last-copy-final-model-to-output-audio-folder'
 export const LAST_OUTPUT_ROOT_MODE_STORAGE_KEY = 'nam-bot:last-output-root-mode'
 export const LAST_CUSTOM_OUTPUT_ROOT_STORAGE_KEY = 'nam-bot:last-custom-output-root'
 export const LAST_INPUT_AUDIO_MODE_STORAGE_KEY = 'nam-bot:last-input-audio-mode'
@@ -58,6 +59,10 @@ export function getStoredAppendPresetToModelFileNamePreference(): boolean {
 
 export function getStoredAppendEsrToModelFileNamePreference(): boolean {
   return window.localStorage.getItem(LAST_APPEND_ESR_STORAGE_KEY) === 'true'
+}
+
+export function getStoredCopyFinalModelToOutputAudioFolderPreference(): boolean {
+  return window.localStorage.getItem(LAST_COPY_FINAL_MODEL_TO_OUTPUT_AUDIO_FOLDER_STORAGE_KEY) === 'true'
 }
 
 export function getStoredCustomOutputRootPreference(): string | null {
@@ -232,6 +237,7 @@ export function createNewJobDraft(options: CreateNewJobDraftOptions): JobSpec {
     presetId: fallbackPreset?.id ?? DEFAULT_PRESET_ID,
     appendPresetToModelFileName: getStoredAppendPresetToModelFileNamePreference(),
     appendEsrToModelFileName: getStoredAppendEsrToModelFileNamePreference(),
+    copyFinalModelToOutputAudioFolder: getStoredCopyFinalModelToOutputAudioFolderPreference(),
     outputRootDir: preferredOutputRootSelection.outputRootDir,
     outputRootDirIsDefault: preferredOutputRootSelection.outputRootDirIsDefault
   }

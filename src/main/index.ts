@@ -66,6 +66,7 @@ let mainWindow: BrowserWindow | null = null
 let allowUnsafeClose = false
 let trainingPowerSaveBlockerId: number | null = null
 const reportedFinishedStatuses: Map<string, JobStatus> = new Map()
+const reportedDiagnosticBlocks: Set<string> = new Set()
 
 app.setAppUserModelId(APP_ID)
 
@@ -270,6 +271,32 @@ function updateWindowProgress(): void {
 }
 
 function maybeShowJobNotification(runtime: JobRuntimeState): void {
+  if (runtime.status === 'queued' && runtime.errorCategory === 'a2_diagnostics_pending') {
+    if (reportedDiagnosticBlocks.has(runtime.jobId)) {
+      return
+    }
+    reportedDiagnosticBlocks.add(runtime.jobId)
+
+    if (!Notification.isSupported()) {
+      return
+    }
+
+    const notification = new Notification({
+      title: 'Diagnostics needed before training',
+      body: runtime.jobName
+    })
+
+    notification.on('click', () => {
+      focusMainWindow()
+      sendAppCommand({ type: 'navigate', path: '/diagnostics' })
+    })
+
+    notification.show()
+    return
+  }
+
+  reportedDiagnosticBlocks.delete(runtime.jobId)
+
   if (!FINISHED_JOB_STATUSES.includes(runtime.status)) {
     return
   }

@@ -437,6 +437,10 @@ function Dashboard() {
 function AppShell() {
   const navigate = useNavigate()
   const { isTraining } = useAppStore()
+  const isLoading = useAppStore((state) => state.isLoading)
+  const isAcceleratorDiagnosticsLoading = useAppStore((state) => state.isAcceleratorDiagnosticsLoading)
+  const isTrainingLaunchDiagnosticsLoading = useAppStore((state) => state.isTrainingLaunchDiagnosticsLoading)
+  const isNamVersionInfoLoading = useAppStore((state) => state.isNamVersionInfoLoading)
   const settings = useAppStore((state) => state.settings)
   const presets = useAppStore((state) => state.presets)
   const queue = useAppStore((state) => state.queue)
@@ -452,6 +456,10 @@ function AppShell() {
   const loadJobs = useAppStore((state) => state.loadJobs)
   const subscribeToJobEvents = useAppStore((state) => state.subscribeToJobEvents)
   const hasUpdateAvailable = updateStatus.state === 'update-available'
+  const isDiagnosticsChecking = isLoading
+    || isAcceleratorDiagnosticsLoading
+    || isTrainingLaunchDiagnosticsLoading
+    || isNamVersionInfoLoading
 
   useEffect(() => {
     void loadSettings()
@@ -524,7 +532,7 @@ function AppShell() {
             <NavLink to="/settings" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
               Settings
             </NavLink>
-            <NavLink to="/diagnostics" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+            <NavLink to="/diagnostics" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''} ${isDiagnosticsChecking ? 'processing-text' : ''}`}>
               Diagnostics
             </NavLink>
             <NavLink to="/help" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
