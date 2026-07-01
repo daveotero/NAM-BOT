@@ -233,7 +233,7 @@ Completed, failed, and stopped jobs appear in the finished section.
 
 For A2 Packed WaveNet jobs, NAM-BOT uses the highest-quality packed submodel as the primary ESR. With the default built-in A2 preset, that means A2 Full ESR is used for the headline runtime card, exported filename ESR suffix, and official `metadata.training.validation_esr` value. With the bundled A2 Heavy 12 preset, the `channels_12` Heavy submodel becomes the primary ESR because it is the highest-quality packed tier. Expanded details show all available packed submodel ESRs when NAM writes `packed_best.json`. NAM's aggregate packed ESR is not surfaced because it is a sum across submodels rather than the value most users compare against A1.
 
-While a job is preparing, running, or stopping, NAM-BOT starts Electron's system sleep blocker with `prevent-app-suspension`. This keeps supported Windows and macOS systems awake for the training process while still allowing the display to sleep. The blocker is released as soon as no active training job remains or the app exits.
+While the queue runner is processing training work, NAM-BOT starts Electron's system sleep blocker. Windows uses `prevent-display-sleep`, the strongest Electron blocker, to avoid system sleep during long batches and during handoff between queued jobs. Other platforms use `prevent-app-suspension`, which keeps the system active while still allowing the display to sleep. The blocker is released as soon as the queue runner is idle and no active training job remains, or when the app exits.
 
 ## Job Schema
 

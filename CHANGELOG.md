@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Multi-file output audio drops and selections now open a batch training editor so shared settings can be reviewed once before drafts are created.
 - Queued job cards now expose `Create Batch` so waiting jobs can be reused as batch templates.
 - Draft jobs can now be reordered by drag-and-drop, matching the queued job ordering workflow.
-- NAM-BOT now starts Electron's `prevent-app-suspension` blocker while jobs are preparing, running, or stopping so supported Windows and macOS systems stay awake during active training.
+- NAM-BOT now keeps the power-save blocker active across queued training handoffs, and Windows training runs use Electron's stronger `prevent-display-sleep` blocker to avoid system sleep during long batches.
 
 ### Changed
 

@@ -23,6 +23,9 @@ const ISSUE_TRACKER_URL = 'https://github.com/daveotero/nam-bot/issues'
 const NAM_GITHUB_URL = 'https://github.com/sdatkinson/neural-amp-modeler'
 const ACTIVE_JOB_STATUSES: JobStatus[] = ['preparing', 'running', 'stopping']
 const FINISHED_JOB_STATUSES: JobStatus[] = ['succeeded', 'failed', 'canceled']
+const TRAINING_POWER_SAVE_BLOCKER_TYPE = process.platform === 'win32'
+  ? 'prevent-display-sleep'
+  : 'prevent-app-suspension'
 
 log.transports.file.level = 'info'
 log.transports.console.level = 'debug'
@@ -124,15 +127,17 @@ function resolveWindowIcon(): NativeImage | undefined {
   return undefined
 }
 
-function hasActiveTrainingJobs(): boolean {
-  return getQueueManager().getQueue().some((runtime) => ACTIVE_JOB_STATUSES.includes(runtime.status))
+function hasActiveTrainingWork(): boolean {
+  const queueManager = getQueueManager()
+  return queueManager.isQueueProcessing()
+    || queueManager.getQueue().some((runtime) => ACTIVE_JOB_STATUSES.includes(runtime.status))
 }
 
 function updateTrainingPowerSaveBlocker(): void {
-  if (hasActiveTrainingJobs()) {
+  if (hasActiveTrainingWork()) {
     if (trainingPowerSaveBlockerId == null || !powerSaveBlocker.isStarted(trainingPowerSaveBlockerId)) {
-      trainingPowerSaveBlockerId = powerSaveBlocker.start('prevent-app-suspension')
-      log.info(`Started training power save blocker: ${trainingPowerSaveBlockerId}`)
+      trainingPowerSaveBlockerId = powerSaveBlocker.start(TRAINING_POWER_SAVE_BLOCKER_TYPE)
+      log.info(`Started training power save blocker (${TRAINING_POWER_SAVE_BLOCKER_TYPE}): ${trainingPowerSaveBlockerId}`)
     }
     return
   }

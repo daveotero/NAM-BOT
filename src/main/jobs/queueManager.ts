@@ -1424,6 +1424,10 @@ export class QueueManager extends EventEmitter {
     return this.currentJob
   }
 
+  isQueueProcessing(): boolean {
+    return this.isRunning
+  }
+
   addToQueue(jobSpec: JobSpec): JobRuntimeState {
     const runtime: JobRuntimeState = {
       jobId: jobSpec.id,
