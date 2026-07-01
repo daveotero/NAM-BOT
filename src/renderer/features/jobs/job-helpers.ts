@@ -101,6 +101,12 @@ export function formatPackedSubmodelMetricLabel(submodel: JobPackedSubmodelCheck
   if (submodelName === 'channels_12') {
     return 'A2 Heavy ESR'
   }
+  if (submodelName === 'channels_16') {
+    return 'A2 Ultra ESR'
+  }
+  if (submodelName === 'channels_20') {
+    return 'A2 Mammoth ESR'
+  }
   return submodelName ? `${submodelName} ESR` : `Submodel ${submodel.submodelIndex + 1} ESR`
 }
 

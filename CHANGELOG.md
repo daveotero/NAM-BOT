@@ -9,14 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Bundled `A2 Packed WaveNet Heavy 12`, an experimental built-in A2 quality preset with the official 3-channel Lite and 8-channel Full tiers plus a 12-channel Heavy tier and a 200-epoch default.
+- Bundled `A2 Packed WaveNet Heavy 12`, an experimental built-in A2 quality preset with the official 3-channel Lite and 8-channel Full tiers plus a 12-channel Heavy tier and a 400-epoch default.
+- Bundled `A2 Packed WaveNet Ultra 20`, an experimental five-tier A2 preset with Lite, Full, Heavy, Ultra, and Mammoth submodels and a 666-epoch default.
+- Standard `A2 Packed WaveNet` jobs now default to `200` epochs.
 - Preset cards now show declared Packed WaveNet submodel tiers in expanded details, including imported custom packs such as larger Ultra-style experiments.
 - Jobs using Packed WaveNet presets with three or more submodels now expose an advanced per-run submodel checklist, defaulting to all tiers while allowing smaller experimental runs without creating another preset.
 - NAM-BOT now starts Electron's `prevent-app-suspension` blocker while jobs are preparing, running, or stopping so supported Windows and macOS systems stay awake during active training.
 
 ### Changed
 
-- Packed A2 ESR labeling now identifies the 12-channel tier as `A2 Heavy ESR`, and packed exports continue to use the highest-quality selected tier as the headline ESR.
+- Packed A2 ESR labeling now identifies the 12-channel tier as `A2 Heavy ESR`, the 16-channel tier as `A2 Ultra ESR`, and the 20-channel tier as `A2 Mammoth ESR`; packed exports continue to use the highest-quality selected tier as the headline ESR.
 - Changing a job's preset now adopts the next preset's epoch default only when the current value still matches the previous preset default, preserving manually customized epoch counts.
 - The job editor now places advanced packed-submodel selection beside the preset picker in a vertical checklist, and expanded preset cards show packed bundles as itemized tiers.
 - The sidebar Diagnostics item now shows a small rotating work indicator while diagnostics checks are running.

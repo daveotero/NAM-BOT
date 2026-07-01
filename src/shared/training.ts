@@ -218,11 +218,13 @@ export const NAM_TONE_TYPE_OPTIONS: Array<{ value: NamToneType; label: string }>
 
 export const DEFAULT_PRESET_ID = 'a2-packed-wavenet'
 export const A2_HEAVY_12_PRESET_ID = 'a2-packed-wavenet-heavy-12'
+export const A2_ULTRA_20_PRESET_ID = 'a2-packed-wavenet-ultra-20'
 export const A1_STANDARD_PRESET_ID = 'wavenet-standard'
 export const LEGACY_LSTM_PRESET_ID = 'compat-lstm-standard'
 export const MIN_A2_NAM_VERSION = '0.13.0'
 const A2_DEFAULT_PACKED_CHANNELS = [3, 8] as const
 const A2_HEAVY_12_PACKED_CHANNELS = [3, 8, 12] as const
+const A2_ULTRA_20_PACKED_CHANNELS = [3, 8, 12, 16, 20] as const
 
 export const DEFAULT_TRAINING_PRESET_VALUES: TrainingPresetValues = {
   architectureVersion: 'a2',
@@ -268,7 +270,7 @@ export const defaultJobSpec: Omit<JobSpec, 'id' | 'createdAt' | 'updatedAt'> = {
     outputLevelDbu: undefined
   },
   trainingOverrides: {
-    epochs: DEFAULT_TRAINING_PRESET_VALUES.epochs,
+    epochs: 200,
     latencySamples: 0
   },
   uiNotes: ''
@@ -783,6 +785,12 @@ export function formatPackedSubmodelDisplayName(submodel: PackedPresetSubmodel):
   if (submodel.submodelName === 'channels_12') {
     return 'A2 Heavy (12 ch)'
   }
+  if (submodel.submodelName === 'channels_16') {
+    return 'A2 Ultra (16 ch)'
+  }
+  if (submodel.submodelName === 'channels_20') {
+    return 'A2 Mammoth (20 ch)'
+  }
   if (submodel.channelCount != null) {
     return submodel.submodelName ? `${submodel.submodelName} (${submodel.channelCount} ch)` : `${submodel.channelCount} ch`
   }
@@ -1215,7 +1223,8 @@ export function buildBuiltInPresets(): TrainingPresetFile[] {
         ...DEFAULT_TRAINING_PRESET_VALUES,
         architectureVersion: 'a2',
         modelFamily: 'PackedWaveNet',
-        architectureSize: 'packed'
+        architectureSize: 'packed',
+        epochs: 200
       }
     }),
     createTrainingPreset({
@@ -1231,11 +1240,32 @@ export function buildBuiltInPresets(): TrainingPresetFile[] {
         architectureVersion: 'a2',
         modelFamily: 'PackedWaveNet',
         architectureSize: 'packed',
-        epochs: 200
+        epochs: 400
       },
       expert: {
         model: {
           net: buildA2PackedNetConfig(A2_HEAVY_12_PACKED_CHANNELS)
+        }
+      }
+    }),
+    createTrainingPreset({
+      id: A2_ULTRA_20_PRESET_ID,
+      name: 'A2 Packed WaveNet Ultra 20',
+      description: 'Experimental A2 packed architecture with A2-Lite, A2-Full, A2-Heavy, A2-Ultra, and A2-Mammoth submodels for maximum-quality local testing at substantially increased CPU cost.',
+      category: 'quality',
+      builtIn: true,
+      readOnly: true,
+      visible: true,
+      values: {
+        ...DEFAULT_TRAINING_PRESET_VALUES,
+        architectureVersion: 'a2',
+        modelFamily: 'PackedWaveNet',
+        architectureSize: 'packed',
+        epochs: 666
+      },
+      expert: {
+        model: {
+          net: buildA2PackedNetConfig(A2_ULTRA_20_PACKED_CHANNELS)
         }
       }
     }),

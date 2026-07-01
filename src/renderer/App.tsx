@@ -236,6 +236,7 @@ function Dashboard() {
   const [visibleLogJobIds, setVisibleLogJobIds] = useState<Set<string>>(new Set())
   const [logContents, setLogContents] = useState<Record<string, string>>({})
   const [loadingLogs, setLoadingLogs] = useState<Set<string>>(new Set())
+  const [nowMs, setNowMs] = useState<number>(() => Date.now())
 
   const diagnosticsCards = getDashboardDiagnosticsCards(
     validation,
@@ -248,6 +249,18 @@ function Dashboard() {
   const queuedJobs = queue.filter(r => r.status === 'queued' || r.status === 'validating')
   const completedJobs = queue.filter(r => r.status === 'succeeded')
   const errorJobs = queue.filter(r => r.status === 'failed' || r.status === 'canceled')
+
+  useEffect(() => {
+    if (trainingJobs.length === 0) {
+      return
+    }
+
+    const interval = window.setInterval(() => {
+      setNowMs(Date.now())
+    }, 1000)
+
+    return () => window.clearInterval(interval)
+  }, [trainingJobs.length])
 
   useEffect(() => {
     if (!validation && !isLoading) {
@@ -333,8 +346,6 @@ function Dashboard() {
       })
     }
   }
-
-  const nowMs = Date.now()
 
   return (
     <div className="layout-main">

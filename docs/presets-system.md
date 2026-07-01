@@ -326,7 +326,7 @@ Current built-in defaults are aligned with official NAM A2 local training:
 - NAM architecture: `a2`
 - model family: `PackedWaveNet`
 - architecture: `packed`
-- epochs: `100`
+- base epoch fallback: `100`
 - batch size: `16`
 - learning rate: `0.004`
 - learning-rate decay: `0.006`
@@ -336,9 +336,11 @@ Current built-in defaults are aligned with official NAM A2 local training:
 - weight decay: `0.000000317`
 - output normalization: `-18 dB RMS`
 
-The default selected preset remains `A2 Packed WaveNet` (`a2-packed-wavenet`). It trains the official two-tier A2 packed model with `channels_3` Lite and `channels_8` Full submodels.
+The default selected preset remains `A2 Packed WaveNet` (`a2-packed-wavenet`). It trains the official two-tier A2 packed model with `channels_3` Lite and `channels_8` Full submodels and defaults to `200` epochs.
 
-`A2 Packed WaveNet Heavy 12` (`a2-packed-wavenet-heavy-12`) is also bundled as a built-in quality preset. It keeps the official A2 Lite and Full submodels, adds a third `channels_12` Heavy submodel as the highest-quality tier, and defaults to `200` epochs for the larger packed training run.
+`A2 Packed WaveNet Heavy 12` (`a2-packed-wavenet-heavy-12`) is also bundled as a built-in quality preset. It keeps the official A2 Lite and Full submodels, adds a third `channels_12` Heavy submodel as the highest-quality tier, and defaults to `400` epochs for the larger packed training run.
+
+`A2 Packed WaveNet Ultra 20` (`a2-packed-wavenet-ultra-20`) is bundled for maximum-quality local experiments. It adds `channels_16` Ultra and `channels_20` Mammoth tiers above Heavy and defaults to `666` epochs.
 
 Packed submodel identity comes from each `model.net.config.submodels[]` entry's `name` plus its array index. NAM-BOT displays those names in Presets and uses them for per-job packed-submodel selection when a pack has three or more tiers.
 

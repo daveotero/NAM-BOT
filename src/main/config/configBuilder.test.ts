@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   A1_STANDARD_PRESET_ID,
   A2_HEAVY_12_PRESET_ID,
+  A2_ULTRA_20_PRESET_ID,
   DEFAULT_PRESET_ID,
   createTrainingPreset,
   defaultJobSpec,
@@ -170,7 +171,11 @@ describe('buildJobConfigs', () => {
       loss?: { mrstft_weight?: number }
       optimizer?: { weight_decay?: number }
     }
+    const learningConfig = JSON.parse(readFileSync(paths.learningConfig, 'utf-8')) as {
+      trainer?: { max_epochs?: number }
+    }
 
+    expect(preset.values.epochs).toBe(200)
     expect(modelConfig.net?.name).toBe('PackedWaveNet')
     expect(modelConfig.net?.config?.submodels).toHaveLength(2)
     expect(modelConfig.net?.config?.export?.container_max_values).toBe('uniform')
@@ -182,6 +187,7 @@ describe('buildJobConfigs', () => {
         level_rms_dbfs: -18
       }
     })
+    expect(learningConfig.trainer?.max_epochs).toBe(200)
   })
 
   it('generates the built-in A2 Heavy 12 packed model with three submodels', () => {
@@ -203,7 +209,7 @@ describe('buildJobConfigs', () => {
       trainer?: { max_epochs?: number }
     }
 
-    expect(preset.values.epochs).toBe(200)
+    expect(preset.values.epochs).toBe(400)
     expect(modelConfig.net?.name).toBe('PackedWaveNet')
     expect(modelConfig.net?.config?.submodels?.map((submodel) => submodel.name)).toEqual([
       'channels_3',
@@ -216,7 +222,46 @@ describe('buildJobConfigs', () => {
       12
     ])
     expect(modelConfig.net?.config?.export?.container_max_values).toBe('uniform')
-    expect(learningConfig.trainer?.max_epochs).toBe(200)
+    expect(learningConfig.trainer?.max_epochs).toBe(400)
+  })
+
+  it('generates the built-in A2 Ultra 20 packed model with five submodels', () => {
+    const tempDir = createTempDir()
+    const preset = getBuiltInPreset(A2_ULTRA_20_PRESET_ID)
+    const job = buildJobSpec()
+    delete job.trainingOverrides.epochs
+    const paths = buildJobConfigs(job, tempDir, preset)
+    const modelConfig = JSON.parse(readFileSync(paths.modelConfig, 'utf-8')) as {
+      net?: {
+        name?: string
+        config?: {
+          submodels?: Array<{ name?: string; config?: { layers_configs?: Array<{ channels?: number }> } }>
+          export?: { container_max_values?: string }
+        }
+      }
+    }
+    const learningConfig = JSON.parse(readFileSync(paths.learningConfig, 'utf-8')) as {
+      trainer?: { max_epochs?: number }
+    }
+
+    expect(preset.values.epochs).toBe(666)
+    expect(modelConfig.net?.name).toBe('PackedWaveNet')
+    expect(modelConfig.net?.config?.submodels?.map((submodel) => submodel.name)).toEqual([
+      'channels_3',
+      'channels_8',
+      'channels_12',
+      'channels_16',
+      'channels_20'
+    ])
+    expect(modelConfig.net?.config?.submodels?.map((submodel) => submodel.config?.layers_configs?.[0].channels)).toEqual([
+      3,
+      8,
+      12,
+      16,
+      20
+    ])
+    expect(modelConfig.net?.config?.export?.container_max_values).toBe('uniform')
+    expect(learningConfig.trainer?.max_epochs).toBe(666)
   })
 
   it('filters A2 packed model configs to selected job submodels', () => {

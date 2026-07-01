@@ -210,5 +210,23 @@ describe('checkpoint metric labels', () => {
       step: 100,
       checkpointPath: 'packed_best_submodel_2.ckpt'
     })).toBe('A2 Heavy ESR')
+
+    expect(formatPackedSubmodelMetricLabel({
+      submodelIndex: 3,
+      submodelName: 'channels_16',
+      bestValidationEsr: 0.006,
+      epoch: 12,
+      step: 100,
+      checkpointPath: 'packed_best_submodel_3.ckpt'
+    })).toBe('A2 Ultra ESR')
+
+    expect(formatPackedSubmodelMetricLabel({
+      submodelIndex: 4,
+      submodelName: 'channels_20',
+      bestValidationEsr: 0.005,
+      epoch: 12,
+      step: 100,
+      checkpointPath: 'packed_best_submodel_4.ckpt'
+    })).toBe('A2 Mammoth ESR')
   })
 })
