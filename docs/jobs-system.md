@@ -49,7 +49,8 @@ Draft jobs are editable saved jobs that have not been frozen into the queue yet.
 - Draft cards expose `Edit`, `Queue`, `Copy`, and `Delete`.
 - Draft, queue, training, and finished cards show the selected preset's architecture tag: `A2`, `A1`, or `CUSTOM`.
 - Draft cards also expose `Create Batch`, which uses that draft as a template for multiple output audio files.
-- `Queue All` enqueues every valid draft and skips drafts missing required fields.
+- Draft cards can be reordered by drag-and-drop. The lowest visible draft is the first draft used by `Queue All`.
+- `Queue All` enqueues every valid draft from bottom to top and skips drafts missing required fields.
 - While a draft is being queued, its Queue button changes to `Queueing...` and draft actions are disabled to prevent duplicate enqueue clicks.
 - Draft delete confirmation includes a `Don't show this again` option that bypasses future draft-delete confirmations on that device.
 - New jobs default to the A2 preset and remember the last-used output root mode, the last-used exported-model naming preferences, and a small set of low-risk reusable capture fields.
@@ -58,11 +59,13 @@ Drafts are where users can iterate safely before they commit a run to the queue.
 
 ### Create Batch From A Draft Template
 
-`Create Batch` creates one new editable draft per selected output audio file.
+`Create Batch` opens a batch editor after output audio files are selected, then creates one new editable draft per selected output audio file when saved.
 
 - the selected draft is the explicit template source
-- shared template fields are copied into each generated draft
+- queued and finished runtime cards can also be used as the explicit template source through `Create Batch` / `Use as Template`
+- shared template fields can be reviewed and edited once before the generated drafts are created
 - job name and NAM model name are regenerated from each output filename without its extension
+- if the batch editor's shared metadata model name is left blank, each generated model uses its output filename; if a shared metadata model name is typed, every generated draft uses that value
 - the template draft, generated drafts, and their later training/finished cards show a `Batch: <template name>` badge for traceability
 - generated drafts are still normal drafts and can be edited independently before queueing
 
@@ -89,7 +92,8 @@ The batch badge is display-only. It does not create a locked group, and editing 
 The Jobs page supports dragging output audio files directly onto the main panel.
 
 - supported file extensions include `.wav`, `.mp3`, and `.flac`
-- each dropped output file becomes its own draft
+- dropping or selecting one output file creates one draft directly
+- dropping or selecting multiple output files opens the batch editor before any drafts are created
 - the draft name defaults to the output filename without extension
 - the NAM model name defaults to the output filename without extension
 - the output root defaults to the dropped file's directory
@@ -193,7 +197,7 @@ Queued jobs appear in their own section.
 - `Unqueue All` restores waiting queue items back into drafts
 - individual queued jobs can also be unqueued one at a time
 
-The queue UI shows the queued list in reverse visual order compared to the internal logical queue so the "next up" behavior feels natural in the interface.
+The queue UI follows the same bottom-first execution model as drafts. The lowest visible queued job is the next item to move into Training, and drag-and-drop reordering preserves that logical order.
 
 - A2 jobs are preflighted before enqueue. If the selected NAM environment is confirmed older than `neural-amp-modeler` `0.13.0`, enqueue is blocked with an upgrade command.
 - If Diagnostics has not confirmed the selected NAM version yet, A2 jobs can be queued but pause as diagnostics-blocked queued items instead of failing. Run Diagnostics or `Re-check All` to confirm the environment; a valid NAM version resumes the queue automatically.
@@ -450,6 +454,7 @@ Important IPC handlers include:
 - `jobs:saveDraft`
 - `jobs:deleteDraft`
 - `jobs:listDrafts`
+- `jobs:reorderDrafts`
 - `jobs:enqueue`
 - `jobs:enqueueMany`
 - `jobs:unqueue`

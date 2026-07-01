@@ -39,7 +39,7 @@ function getSettingsDefaultOutputRoot(settings: AppSettings | null): string | nu
   return trimmed.length > 0 ? trimmed : null
 }
 
-function getOutputRootModeForJob(job: JobSpec, settings: AppSettings | null): JobOutputRootMode {
+export function getOutputRootModeForJob(job: JobSpec, settings: AppSettings | null): JobOutputRootMode {
   const settingsDefaultOutputRoot = getSettingsDefaultOutputRoot(settings)
 
   if (job.outputRootDirIsDefault) {

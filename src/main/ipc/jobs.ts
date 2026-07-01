@@ -112,6 +112,28 @@ export function setupJobIpcHandlers(): void {
     return Array.from(drafts.values())
   })
 
+  ipcMain.handle('jobs:reorderDrafts', async (_event, draftIds: string[]) => {
+    const orderedDrafts: JobSpec[] = []
+    for (const draftId of draftIds) {
+      const draft = drafts.get(draftId)
+      if (draft) {
+        orderedDrafts.push(draft)
+      }
+    }
+
+    for (const draft of drafts.values()) {
+      if (!draftIds.includes(draft.id)) {
+        orderedDrafts.push(draft)
+      }
+    }
+
+    drafts.clear()
+    for (const draft of orderedDrafts) {
+      drafts.set(draft.id, draft)
+    }
+    saveDrafts()
+  })
+
   ipcMain.handle('jobs:enqueue', async (_event, draftId: string) => {
     const draft = drafts.get(draftId)
     if (!draft) {

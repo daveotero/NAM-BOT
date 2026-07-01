@@ -22,6 +22,7 @@ export interface NamBotApi {
     saveDraft: (job: unknown) => Promise<unknown>
     deleteDraft: (jobId: string) => Promise<void>
     listDrafts: () => Promise<unknown[]>
+    reorderDrafts: (jobIds: string[]) => Promise<void>
     enqueue: (jobId: string) => Promise<void>
     enqueueMany: (jobIds: string[]) => Promise<void>
     reorder: (jobIds: string[]) => Promise<void>
@@ -86,6 +87,7 @@ const api: NamBotApi = {
     saveDraft: (job) => ipcRenderer.invoke('jobs:saveDraft', job),
     deleteDraft: (jobId) => ipcRenderer.invoke('jobs:deleteDraft', jobId),
     listDrafts: () => ipcRenderer.invoke('jobs:listDrafts'),
+    reorderDrafts: (jobIds) => ipcRenderer.invoke('jobs:reorderDrafts', jobIds),
     enqueue: (jobId) => ipcRenderer.invoke('jobs:enqueue', jobId),
     enqueueMany: (jobIds) => ipcRenderer.invoke('jobs:enqueueMany', jobIds),
     reorder: (jobIds) => ipcRenderer.invoke('jobs:reorder', jobIds),

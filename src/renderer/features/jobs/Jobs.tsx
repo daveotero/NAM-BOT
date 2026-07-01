@@ -6,9 +6,7 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
-  DragEndEvent,
-  DragOverlay,
-  defaultDropAnimationSideEffects
+  DragEndEvent
 } from '@dnd-kit/core'
 import {
   arrayMove,
@@ -65,6 +63,7 @@ import {
   getStoredAppendEsrToModelFileNamePreference,
   createNewJobDraft,
   getStoredAppendPresetToModelFileNamePreference,
+  getOutputRootModeForJob,
   getPreferredOutputRootSelection,
   LAST_APPEND_ESR_STORAGE_KEY,
   LAST_APPEND_PRESET_NAME_STORAGE_KEY,
@@ -193,7 +192,7 @@ function DraftCard({ job, presets, onEdit, onQueue, onDuplicate, onBatchFromTemp
           )}
         </div>
       </div>
-      <div className="job-actions">
+      <div className="job-actions" onMouseDown={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()}>
         <button className="btn btn-sm btn-blue" onClick={() => onEdit(job)} disabled={isQueueing}>
           Edit
         </button>
@@ -220,6 +219,18 @@ type BatchTemplateSource =
   | { kind: 'draft'; template: JobSpec }
   | { kind: 'runtime'; template: JobSpec; runtimeId: string }
 
+interface BatchOutputFile {
+  outputAudioPath: string
+  outputFileName: string
+}
+
+interface BatchEditorState {
+  editorSession: JobEditorSession
+  outputFiles: BatchOutputFile[]
+  source: BatchTemplateSource | null
+  batchId: string
+}
+
 function serializeJobEditorSession(session: JobEditorSession): string {
   return JSON.stringify({
     job: session.job,
@@ -228,21 +239,54 @@ function serializeJobEditorSession(session: JobEditorSession): string {
   })
 }
 
+interface SortableDraftItemProps extends DraftCardProps {
+  id: string
+}
+
+function SortableDraftItem({ id, ...props }: SortableDraftItemProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging
+  } = useSortable({ id })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+    cursor: isDragging ? 'grabbing' : 'grab',
+    position: 'relative' as const,
+    zIndex: isDragging ? 1000 : 1
+  }
+
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      <DraftCard {...props} />
+    </div>
+  )
+}
+
 interface SortableQueueItemProps {
   runtime: JobRuntimeState
   queue: JobRuntimeState[]
   presets: TrainingPresetFile[]
   index: number
   onUnqueue: (jobId: string) => Promise<void>
+  onBatchFromRuntime: (runtime: JobRuntimeState) => void
 }
 
-function SortableQueueItem({ runtime, queue, presets, index, onUnqueue }: SortableQueueItemProps) {
+function SortableQueueItem({ runtime, queue, presets, index, onUnqueue, onBatchFromRuntime }: SortableQueueItemProps) {
   const preset = presets.find(p => p.id === runtime.frozenJob.presetId)
   const presetName = preset?.name || runtime.frozenJob.presetId || 'Unknown'
   const presetTag = preset ? formatPresetArchitectureTag(preset) : 'CUSTOM'
   const headline = runtime.status === 'validating'
     ? 'Validating job before queue'
-    : `Waiting in queue - ${index + 1} of ${queue.length}`
+    : index === 0
+      ? `Next to train - 1 of ${queue.length}`
+      : `Waiting in queue - ${index + 1} of ${queue.length}`
   const {
     attributes,
     listeners,
@@ -290,6 +334,7 @@ function SortableQueueItem({ runtime, queue, presets, index, onUnqueue }: Sortab
           </div>
         </div>
         <div className="job-actions queue-card-actions" onMouseDown={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
+          <button className="btn btn-sm btn-secondary" onClick={() => onBatchFromRuntime(runtime)}>Create Batch</button>
           <button className="btn btn-sm btn-secondary" onClick={() => void onUnqueue(runtime.jobId)}>Unqueue</button>
         </div>
       </div>
@@ -326,6 +371,7 @@ export default function Jobs() {
   const [pendingDeleteJob, setPendingDeleteJob] = useState<JobSpec | null>(null)
   const [skipDraftDeleteConfirm, setSkipDraftDeleteConfirm] = useState(false)
   const [queueingDraftIds, setQueueingDraftIds] = useState<Set<string>>(() => new Set())
+  const [batchEditorState, setBatchEditorState] = useState<BatchEditorState | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const batchFileInputRef = useRef<HTMLInputElement>(null)
   const batchTemplateRef = useRef<BatchTemplateSource | null>(null)
@@ -362,6 +408,52 @@ export default function Jobs() {
       queueingDraftIdsRef.current.delete(jobId)
     }
     setQueueingDraftIds(new Set(queueingDraftIdsRef.current))
+  }
+
+  const buildBatchOutputFiles = (files: File[]): BatchOutputFile[] => files.map((file) => ({
+    outputAudioPath: window.namBot.jobs.getPathForFile(file) || file.name,
+    outputFileName: file.name
+  }))
+
+  const openBatchEditor = async (files: File[], source: BatchTemplateSource | null): Promise<void> => {
+    const audioFiles = files.filter(isBatchAudioFile)
+    if (audioFiles.length === 0) {
+      return
+    }
+
+    const outputFiles = buildBatchOutputFiles(audioFiles)
+    const firstOutput = outputFiles[0]
+    const firstOutputStem = filenameWithoutExt(firstOutput.outputFileName || firstOutput.outputAudioPath).trim() || 'Batch Training'
+    const template = source?.template ?? createNewJobDraft({ presets, settings })
+    const outputRootSelection = getPreferredOutputRootSelection(settings, firstOutput.outputAudioPath)
+    const outputRootMode = source
+      ? getOutputRootModeForJob(template, settings)
+      : outputRootSelection.mode
+    const outputRootFollowsAudio = outputRootMode === 'output-audio'
+    const batchTemplate: JobSpec = {
+      ...(JSON.parse(JSON.stringify(template)) as JobSpec),
+      name: source ? template.name : firstOutputStem,
+      outputAudioPath: firstOutput.outputAudioPath,
+      outputRootDir: outputRootFollowsAudio
+        ? getDirname(firstOutput.outputAudioPath)
+        : source
+          ? template.outputRootDir
+          : outputRootSelection.outputRootDir,
+      outputRootDirIsDefault: outputRootFollowsAudio,
+      metadata: {
+        ...template.metadata,
+        name: ''
+      },
+      batchId: undefined,
+      batchSourceName: undefined
+    }
+
+    setBatchEditorState({
+      editorSession: buildJobEditorSession(`Batch Training (${outputFiles.length} files)`, batchTemplate, settings),
+      outputFiles,
+      source,
+      batchId: createBatchId()
+    })
   }
 
   useEffect(() => {
@@ -438,11 +530,17 @@ export default function Jobs() {
       return
     }
 
+    if (audioFiles.length > 1) {
+      await openBatchEditor(audioFiles, null)
+      return
+    }
+
     const defaultInputRef = await window.namBot.jobs.getDefaultInputAudioPath() as string | null
     const visiblePresets = presets.filter((preset) => preset.visible)
     const storedPresetId = window.localStorage.getItem(LAST_USED_PRESET_STORAGE_KEY)
     const appendPresetToModelFileName = getStoredAppendPresetToModelFileNamePreference()
     const appendEsrToModelFileName = getStoredAppendEsrToModelFileNamePreference()
+    const copyFinalModelToOutputAudioFolder = window.localStorage.getItem(LAST_COPY_FINAL_MODEL_TO_OUTPUT_AUDIO_FOLDER_STORAGE_KEY) === 'true'
     const fallbackPreset = visiblePresets.find((preset) => preset.id === DEFAULT_PRESET_ID)
       ?? visiblePresets.find((preset) => preset.id === storedPresetId)
       ?? visiblePresets[0]
@@ -458,6 +556,7 @@ export default function Jobs() {
         presetId: fallbackPreset?.id ?? DEFAULT_PRESET_ID,
         appendPresetToModelFileName,
         appendEsrToModelFileName,
+        copyFinalModelToOutputAudioFolder,
         inputAudioPath: defaultInputRef || '',
         outputAudioPath: filePath,
         outputRootDir: preferredOutputRootSelection.outputRootDir,
@@ -522,37 +621,7 @@ export default function Jobs() {
       return
     }
 
-    const template = source.template
-    const batchId = createBatchId()
-    const batchSourceName = template.name.trim() || 'Template Draft'
-    const taggedTemplate = {
-      ...template,
-      batchId,
-      batchSourceName
-    }
-    const createdJobs: JobSpec[] = []
-
-    for (const file of audioFiles) {
-      const outputAudioPath = window.namBot.jobs.getPathForFile(file) || file.name
-      const draftInput = buildDraftFromTemplateForOutput({
-        template,
-        outputAudioPath,
-        outputFileName: file.name,
-        batchId,
-        batchSourceName
-      })
-      const newJob = await window.namBot.jobs.createDraft(draftInput) as JobSpec
-      createdJobs.push(newJob)
-    }
-
-    if (createdJobs.length > 0) {
-      if (source.kind === 'draft') {
-        await window.namBot.jobs.saveDraft(taggedTemplate)
-      } else {
-        await window.namBot.jobs.tagBatchSource(source.runtimeId, batchId, batchSourceName)
-      }
-      await loadData()
-    }
+    await openBatchEditor(audioFiles, source)
   }
 
   const handleSaveJob = async (job: JobSpec) => {
@@ -567,6 +636,50 @@ export default function Jobs() {
       setDrafts((current) => current.map((draft) => draft.id === updated.id ? updated : draft))
     }
     clearJobEditorSession()
+  }
+
+  const handleSaveBatch = async (job: JobSpec): Promise<void> => {
+    if (!batchEditorState) {
+      return
+    }
+
+    const batchId = batchEditorState.batchId
+    const batchSourceName = job.name.trim() || 'Batch Training'
+    const sharedMetadataName = job.metadata.name?.trim() || ''
+    const template: JobSpec = {
+      ...job,
+      batchId,
+      batchSourceName,
+      metadata: {
+        ...job.metadata,
+        name: sharedMetadataName
+      }
+    }
+
+    for (const outputFile of batchEditorState.outputFiles) {
+      const draftInput = buildDraftFromTemplateForOutput({
+        template,
+        outputAudioPath: outputFile.outputAudioPath,
+        outputFileName: outputFile.outputFileName,
+        batchId,
+        batchSourceName,
+        useSharedMetadataName: sharedMetadataName.length > 0
+      })
+      await window.namBot.jobs.createDraft(draftInput)
+    }
+
+    if (batchEditorState.source?.kind === 'draft') {
+      await window.namBot.jobs.saveDraft({
+        ...batchEditorState.source.template,
+        batchId,
+        batchSourceName
+      })
+    } else if (batchEditorState.source?.kind === 'runtime') {
+      await window.namBot.jobs.tagBatchSource(batchEditorState.source.runtimeId, batchId, batchSourceName)
+    }
+
+    setBatchEditorState(null)
+    await loadData()
   }
 
   const handleDeleteJob = async (jobId: string) => {
@@ -663,19 +776,34 @@ export default function Jobs() {
     })
   )
 
-  const handleDragEnd = async (event: DragEndEvent) => {
+  const handleDraftDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event
+
+    if (over && active.id !== over.id) {
+      const visualDrafts = [...drafts].reverse()
+      const oldIndex = visualDrafts.findIndex((draft) => draft.id === active.id)
+      const newIndex = visualDrafts.findIndex((draft) => draft.id === over.id)
+
+      if (oldIndex !== -1 && newIndex !== -1) {
+        const updatedVisualDrafts = arrayMove(visualDrafts, oldIndex, newIndex)
+        const nextLogicalDrafts = [...updatedVisualDrafts].reverse()
+        setDrafts(nextLogicalDrafts)
+        await window.namBot.jobs.reorderDrafts(nextLogicalDrafts.map((draft) => draft.id))
+      }
+    }
+  }
+
+  const handleQueueDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event
 
     if (over && active.id !== over.id) {
       const queuedJobs = queue.filter((runtime) => runtime.status === 'queued' || runtime.status === 'validating')
-      // The UI shows the list reversed, so we work with the reversed list for indices
       const reversedQueued = [...queuedJobs].reverse()
       const oldIndex = reversedQueued.findIndex((j) => j.jobId === active.id)
       const newIndex = reversedQueued.findIndex((j) => j.jobId === over.id)
 
       if (oldIndex !== -1 && newIndex !== -1) {
         const updatedReversed = arrayMove(reversedQueued, oldIndex, newIndex)
-        // Reverse back to get the logical order (NextJob at index 0)
         const newLogicalOrder = [...updatedReversed].reverse()
         
         // Optimistic update
@@ -755,6 +883,7 @@ export default function Jobs() {
   }
 
   const queuedJobs = queue.filter((runtime) => runtime.status === 'queued' || runtime.status === 'validating')
+  const visualDrafts = [...drafts].reverse()
   const trainingJobs = [...queue.filter((runtime) => isActiveRuntime(runtime.status))]
     .sort((left, right) => Date.parse(right.startedAt || right.queuedAt || '0') - Date.parse(left.startedAt || left.queuedAt || '0'))
   const finishedJobs = [...queue.filter((runtime) => isFinishedTraining(runtime))]
@@ -764,6 +893,22 @@ export default function Jobs() {
 
   const isEmpty = drafts.length === 0 && queue.length === 0
   const isAnyDraftQueueing = queueingDraftIds.size > 0
+
+  if (batchEditorState) {
+    return (
+      <JobEditor
+        session={batchEditorState.editorSession}
+        settings={settings}
+        presets={presets}
+        onSessionChange={(editorSession) => setBatchEditorState({ ...batchEditorState, editorSession })}
+        onSave={handleSaveBatch}
+        onCancel={() => setBatchEditorState(null)}
+        batchOutputFiles={batchEditorState.outputFiles}
+        saveLabel="Create Batch"
+        allowSaveWithoutChanges
+      />
+    )
+  }
 
   if (jobEditorSession) {
     return (
@@ -865,19 +1010,31 @@ export default function Jobs() {
                   {isAnyDraftQueueing ? 'Queueing...' : 'Queue All'}
                 </button>
               </div>
-              {drafts.map((job) => (
-                <DraftCard
-                  key={job.id}
-                  job={job}
-                  presets={presets}
-                  onEdit={(j) => setJobEditorSession(buildJobEditorSession('Edit Job', j, settings))}
-                  onQueue={handleEnqueue}
-                  onDuplicate={handleDuplicate}
-                  onBatchFromTemplate={handleBatchFromTemplate}
-                  onDelete={handleRequestDeleteJob}
-                  isQueueing={queueingDraftIds.has(job.id)}
-                />
-              ))}
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleDraftDragEnd}
+              >
+                <SortableContext
+                  items={visualDrafts.map((job) => job.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  {visualDrafts.map((job) => (
+                    <SortableDraftItem
+                      key={job.id}
+                      id={job.id}
+                      job={job}
+                      presets={presets}
+                      onEdit={(j) => setJobEditorSession(buildJobEditorSession('Edit Job', j, settings))}
+                      onQueue={handleEnqueue}
+                      onDuplicate={handleDuplicate}
+                      onBatchFromTemplate={handleBatchFromTemplate}
+                      onDelete={handleRequestDeleteJob}
+                      isQueueing={queueingDraftIds.has(job.id)}
+                    />
+                  ))}
+                </SortableContext>
+              </DndContext>
               </div>
             )}
 
@@ -893,7 +1050,7 @@ export default function Jobs() {
                 <DndContext
                   sensors={sensors}
                   collisionDetection={closestCenter}
-                  onDragEnd={handleDragEnd}
+                  onDragEnd={handleQueueDragEnd}
                 >
                   <SortableContext
                     items={[...queuedJobs].reverse().map(j => j.jobId)}
@@ -907,6 +1064,7 @@ export default function Jobs() {
                         presets={presets}
                         index={queuedJobs.length - 1 - index} // Logical index
                         onUnqueue={handleUnqueue}
+                        onBatchFromRuntime={handleUseRuntimeAsTemplate}
                       />
                     ))}
                   </SortableContext>
@@ -1020,7 +1178,10 @@ function JobEditor({
   presets,
   onSessionChange,
   onSave,
-  onCancel
+  onCancel,
+  batchOutputFiles,
+  saveLabel = 'Save Job',
+  allowSaveWithoutChanges = false
 }: {
   session: JobEditorSession
   settings: AppSettings | null
@@ -1028,9 +1189,13 @@ function JobEditor({
   onSessionChange: (session: JobEditorSession) => void
   onSave: (job: JobSpec) => Promise<void> | void
   onCancel: () => void
+  batchOutputFiles?: BatchOutputFile[]
+  saveLabel?: string
+  allowSaveWithoutChanges?: boolean
 }) {
   const { title, job, inputMode, outputRootMode, showValidationErrors } = session
   const editedJob = job
+  const isBatchMode = !!batchOutputFiles && batchOutputFiles.length > 0
   const [defaultAudioPath, setDefaultAudioPath] = useState<string | null>(null)
   const [savingDefault, setSavingDefault] = useState(false)
   const [isUnsavedConfirmOpen, setIsUnsavedConfirmOpen] = useState(false)
@@ -1147,7 +1312,7 @@ function JobEditor({
   const isRootDirValid = editedJob.outputRootDir.trim().length > 0
   const isValid = isNameValid && isInputValid && isOutputValid && isRootDirValid && isPackedSubmodelSelectionValid
   const isDirty = session.initialSnapshot !== serializeJobEditorSession(session)
-  const canSave = isDirty && isValid
+  const canSave = (allowSaveWithoutChanges || isDirty) && isValid
 
   const performSave = async (): Promise<void> => {
     if (!isValid) {
@@ -1250,7 +1415,7 @@ function JobEditor({
               className={`btn btn-sm ${canSave ? 'btn-green' : 'btn-secondary'}`}
               disabled={!canSave}
             >
-              Save Job
+              {saveLabel}
             </button>
             <button type="button" className="btn btn-sm btn-secondary" onClick={handleAttemptExit}>
               Cancel
@@ -1264,19 +1429,21 @@ function JobEditor({
           <div className="form-group">
             <div className="form-label-row">
               <label className="form-label" htmlFor="job-name">
-                Job Name {showValidationErrors && !isNameValid && <span style={{ color: 'var(--neon-magenta)', fontSize: '12px' }}>(Required)</span>}
+                {isBatchMode ? 'Batch Label' : 'Job Name'} {showValidationErrors && !isNameValid && <span style={{ color: 'var(--neon-magenta)', fontSize: '12px' }}>(Required)</span>}
               </label>
-              <button
-                type="button"
-                className="btn btn-xs btn-secondary"
-                disabled={!outputFilenameStem}
-                onClick={() => onSessionChange({
-                  ...session,
-                  job: { ...editedJob, name: outputFilenameStem }
-                })}
-              >
-                Use Output Filename
-              </button>
+              {!isBatchMode && (
+                <button
+                  type="button"
+                  className="btn btn-xs btn-secondary"
+                  disabled={!outputFilenameStem}
+                  onClick={() => onSessionChange({
+                    ...session,
+                    job: { ...editedJob, name: outputFilenameStem }
+                  })}
+                >
+                  Use Output Filename
+                </button>
+              )}
             </div>
             <input
               id="job-name"
@@ -1289,6 +1456,11 @@ function JobEditor({
                 job: { ...editedJob, name: e.target.value }
               })}
             />
+            {isBatchMode && (
+              <p style={{ color: 'var(--text-steel)', fontSize: '12px', marginTop: '6px' }}>
+                Generated drafts still use each output filename as their job name. This label identifies the batch.
+              </p>
+            )}
           </div>
 
           {/* ── Input Audio ── */}
@@ -1349,20 +1521,32 @@ function JobEditor({
           {/* ── Output Audio ── */}
           <div className="form-group">
             <label className="form-label" htmlFor="output-audio-path">
-              Output Audio (Re-amped Signal) {showValidationErrors && !isOutputValid && <span style={{ color: 'var(--neon-magenta)', fontSize: '12px' }}>(Required)</span>}
+              {isBatchMode ? `Output Audio Files (${batchOutputFiles?.length ?? 0})` : 'Output Audio (Re-amped Signal)'} {showValidationErrors && !isOutputValid && <span style={{ color: 'var(--neon-magenta)', fontSize: '12px' }}>(Required)</span>}
             </label>
-            <FilePickerRow
-              id="output-audio-path"
-              value={editedJob.outputAudioPath}
-              displayValue={getBasename(editedJob.outputAudioPath)}
-              onChange={(val) => onSessionChange({
-                ...session,
-                job: { ...editedJob, outputAudioPath: val }
-              })}
-              placeholder="C:\path\to\reamped.wav"
-              onBrowse={() => window.namBot.jobs.chooseAudioFile() as Promise<string | null>}
-              error={showValidationErrors && !isOutputValid}
-            />
+            {isBatchMode ? (
+              <div className="batch-output-list">
+                {batchOutputFiles?.map((outputFile, index) => (
+                  <div className="batch-output-item" key={`${outputFile.outputAudioPath}:${index}`}>
+                    <span className="batch-output-index">{index + 1}</span>
+                    <span className="batch-output-name">{getBasename(outputFile.outputAudioPath) || outputFile.outputFileName}</span>
+                    <span className="batch-output-path">{outputFile.outputAudioPath}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <FilePickerRow
+                id="output-audio-path"
+                value={editedJob.outputAudioPath}
+                displayValue={getBasename(editedJob.outputAudioPath)}
+                onChange={(val) => onSessionChange({
+                  ...session,
+                  job: { ...editedJob, outputAudioPath: val }
+                })}
+                placeholder="C:\path\to\reamped.wav"
+                onBrowse={() => window.namBot.jobs.chooseAudioFile() as Promise<string | null>}
+                error={showValidationErrors && !isOutputValid}
+              />
+            )}
           </div>
 
           {/* ── Output Root Dir ── */}
@@ -1671,24 +1855,31 @@ function JobEditor({
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
               <div className="form-group">
                 <div className="form-label-row">
-                  <label className="form-label" htmlFor="meta-name">Model Name</label>
-                  <button
-                    type="button"
-                    className="btn btn-xs btn-secondary"
-                    disabled={!outputFilenameStem}
-                    onClick={() => updateMeta({ name: outputFilenameStem })}
-                  >
-                    Use Output Filename
-                  </button>
+                  <label className="form-label" htmlFor="meta-name">{isBatchMode ? 'Shared Model Name' : 'Model Name'}</label>
+                  {!isBatchMode && (
+                    <button
+                      type="button"
+                      className="btn btn-xs btn-secondary"
+                      disabled={!outputFilenameStem}
+                      onClick={() => updateMeta({ name: outputFilenameStem })}
+                    >
+                      Use Output Filename
+                    </button>
+                  )}
                 </div>
                 <input
                   id="meta-name"
                   type="text"
                   className="form-input"
                   value={editedJob.metadata?.name || ''}
-                  placeholder="e.g. My Plexi"
+                  placeholder={isBatchMode ? 'Leave blank to use each output filename' : 'e.g. My Plexi'}
                   onChange={(e) => updateMeta({ name: e.target.value })}
                 />
+                {isBatchMode && (
+                  <p style={{ color: 'var(--text-steel)', fontSize: '12px', marginTop: '6px', marginBottom: 0 }}>
+                    Leave blank to embed each output filename as that model's metadata name. Type a value here only if every generated model should share the same embedded name.
+                  </p>
+                )}
               </div>
 
               <div className="form-group">
@@ -1796,7 +1987,7 @@ function JobEditor({
               className={`btn ${canSave ? 'btn-green' : 'btn-secondary'}`}
               disabled={!canSave}
             >
-              Save Job
+              {saveLabel}
             </button>
             <button type="button" className="btn btn-secondary" onClick={handleAttemptExit}>
               Cancel
@@ -1815,7 +2006,7 @@ function JobEditor({
         message="This job has unsaved edits. Save it now, keep editing, or discard your changes."
         confirmLabel="Discard Changes"
         cancelLabel="Keep Editing"
-        alternateLabel={canSave ? 'Save Job' : undefined}
+        alternateLabel={canSave ? saveLabel : undefined}
         alternateClassName="btn btn-green"
         onConfirm={() => {
           setIsUnsavedConfirmOpen(false)

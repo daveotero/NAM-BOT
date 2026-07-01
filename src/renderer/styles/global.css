@@ -1424,6 +1424,44 @@ input[type="number"] {
   min-width: 0;
 }
 
+.batch-output-list {
+  display: grid;
+  gap: 8px;
+  max-height: 220px;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid var(--border-dim);
+  background: rgba(5, 17, 24, 0.45);
+}
+
+.batch-output-item {
+  display: grid;
+  grid-template-columns: auto minmax(160px, 0.45fr) minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  color: var(--text-steel);
+  font-size: 12px;
+}
+
+.batch-output-index {
+  color: var(--neon-cyan);
+  font-family: Consolas, monospace;
+}
+
+.batch-output-name {
+  color: var(--text-ash);
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.batch-output-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .form-label-row {
   display: flex;
   align-items: center;

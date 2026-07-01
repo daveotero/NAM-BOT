@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Standard `A2 Packed WaveNet` jobs now default to `200` epochs.
 - Preset cards now show declared Packed WaveNet submodel tiers in expanded details, including imported custom packs such as larger Ultra-style experiments.
 - Jobs using Packed WaveNet presets with three or more submodels now expose an advanced per-run submodel checklist, defaulting to all tiers while allowing smaller experimental runs without creating another preset.
+- Multi-file output audio drops and selections now open a batch training editor so shared settings can be reviewed once before drafts are created.
+- Queued job cards now expose `Create Batch` so waiting jobs can be reused as batch templates.
+- Draft jobs can now be reordered by drag-and-drop, matching the queued job ordering workflow.
 - NAM-BOT now starts Electron's `prevent-app-suspension` blocker while jobs are preparing, running, or stopping so supported Windows and macOS systems stay awake during active training.
 
 ### Changed
@@ -23,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The job editor now places advanced packed-submodel selection beside the preset picker in a vertical checklist, and expanded preset cards show packed bundles as itemized tiers.
 - The sidebar Diagnostics item now shows a small rotating work indicator while diagnostics checks are running.
 - Jobs can now also copy the finalized `.nam` model into the output audio file's folder while keeping logs, checkpoints, and the original finalized model in the training folder.
+- Draft and queue lists now use a consistent bottom-first execution model: the lowest visible draft queues first, and the lowest visible queued job trains next.
 
 ### Fixed
 

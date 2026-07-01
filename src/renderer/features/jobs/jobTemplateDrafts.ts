@@ -9,6 +9,7 @@ interface BuildTemplateDraftOptions {
   outputFileName?: string
   batchId: string
   batchSourceName: string
+  useSharedMetadataName?: boolean
 }
 
 function cloneJson<T>(value: T): T {
@@ -25,6 +26,7 @@ export function buildDraftFromTemplateForOutput(options: BuildTemplateDraftOptio
   const outputStem = getOutputStem(options.outputAudioPath, options.outputFileName)
   const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...draftInput } = template
   const outputRootFollowsAudio = template.outputRootDirIsDefault
+  const sharedMetadataName = template.metadata.name?.trim() || ''
 
   return {
     ...draftInput,
@@ -36,7 +38,7 @@ export function buildDraftFromTemplateForOutput(options: BuildTemplateDraftOptio
     outputRootDirIsDefault: outputRootFollowsAudio,
     metadata: {
       ...template.metadata,
-      name: outputStem
+      name: options.useSharedMetadataName && sharedMetadataName ? sharedMetadataName : outputStem
     },
     trainingOverrides: {
       ...template.trainingOverrides
