@@ -56,6 +56,7 @@ The editor shows a `Save Preset` button at both the top and bottom of the form.
 - Save buttons stay neutral when the editor is clean.
 - Save buttons turn green only when the preset has unsaved changes and the current editor state is valid to save.
 - Clicking `Cancel` with unsaved preset edits opens a confirm dialog so the user can save, keep editing, or discard changes.
+- Choosing another app section from the sidebar or app menu while the editor has unsaved edits opens a discard warning before navigation.
 
 ### Import JSON Mode
 
@@ -344,6 +345,20 @@ The default selected preset remains `A2 Packed WaveNet` (`a2-packed-wavenet`). I
 `A2 Packed WaveNet Ultra 20` (`a2-packed-wavenet-ultra-20`) is bundled for maximum-quality local experiments. It adds `channels_16` Ultra and `channels_20` Mammoth tiers above Heavy and defaults to `666` epochs.
 
 Packed submodel identity comes from each `model.net.config.submodels[]` entry's `name` plus its array index. NAM-BOT displays those names in Presets and uses them for per-job packed-submodel selection when a pack has three or more tiers.
+
+Friendly A2 packed-tier labels are range-based instead of requiring one exact channel count. For example, `channels_21` through `channels_24` display as A2 Colossal, and `channels_25` through `channels_28` display as A2 Leviathan.
+
+Estimated runtime CPU coefficients are normalized to A2 Full (`channels_8`) as `1.00`. These are planning estimates, not measured benchmarks. They use `(channels / 8)^2`, because Packed WaveNet hidden-channel work generally scales closer to channel-count squared than linearly. Actual CPU use can vary by host, plugin wrapper, sample rate, block size, compiler optimizations, and fixed overhead.
+
+| Tier label | Channel range | Reference submodel | Estimated CPU coefficient at reference |
+| --- | ---: | --- | ---: |
+| A2 Lite | `1-3` | `channels_3` | `0.14x` |
+| A2 Full | `4-8` | `channels_8` | `1.00x` |
+| A2 Heavy | `9-12` | `channels_12` | `2.25x` |
+| A2 Ultra | `13-16` | `channels_16` | `4.00x` |
+| A2 Mammoth | `17-20` | `channels_20` | `6.25x` |
+| A2 Colossal | `21-24` | `channels_24` | `9.00x` |
+| A2 Leviathan | `25-28` | `channels_28` | `12.25x` |
 
 The previous WaveNet presets remain available as `a1` presets. There is also a hidden LSTM compatibility preset used to preserve older drafts.
 

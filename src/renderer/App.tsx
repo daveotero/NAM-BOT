@@ -1,11 +1,13 @@
-import { useEffect, useState } from 'react'
-import { HashRouter, NavLink, Route, Routes, useNavigate } from 'react-router-dom'
+import { useCallback, useEffect, useState } from 'react'
+import { HashRouter, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 
 import type { AppCommand } from '../shared/appShell'
 import {
   AcceleratorDiagnosticsSummary,
   BackendValidationSummary,
   NamVersionInfo,
+  type JobEditorSession,
+  type PresetEditorSession,
   TrainingLaunchDiagnosticsSummary,
   useAppStore
 } from './state/store'
@@ -20,7 +22,32 @@ import About from './features/about/About'
 import RuntimeCard from './features/jobs/RuntimeCard'
 import { buildJobEditorSession, createNewJobDraft } from './features/jobs/jobEditorSession'
 import { buildNewPresetDraft, buildPresetEditorSession } from './features/presets/presetEditorSession'
+import ConfirmDialog from './components/ConfirmDialog'
 import log from 'electron-log/renderer'
+
+type PendingAppAction =
+  | { type: 'navigate'; path: string }
+  | { type: 'new-job' }
+  | { type: 'new-preset' }
+
+function serializeJobEditorSession(session: JobEditorSession): string {
+  return JSON.stringify({
+    job: session.job,
+    inputMode: session.inputMode,
+    outputRootMode: session.outputRootMode
+  })
+}
+
+function serializePresetEditorSession(session: PresetEditorSession): string {
+  return JSON.stringify({
+    preset: session.preset,
+    dataJson: session.dataJson,
+    modelJson: session.modelJson,
+    learningJson: session.learningJson,
+    editorMode: session.editorMode,
+    importJson: session.importJson
+  })
+}
 
 type DashboardDiagnosticsStatus = 'pass' | 'warn' | 'fail' | 'skip'
 
@@ -448,6 +475,8 @@ function Dashboard() {
 
 function AppShell() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const [pendingAction, setPendingAction] = useState<PendingAppAction | null>(null)
   const { isTraining } = useAppStore()
   const isLoading = useAppStore((state) => state.isLoading)
   const isAcceleratorDiagnosticsLoading = useAppStore((state) => state.isAcceleratorDiagnosticsLoading)
@@ -465,6 +494,8 @@ function AppShell() {
   const setIsTraining = useAppStore((state) => state.setIsTraining)
   const setJobEditorSession = useAppStore((state) => state.setJobEditorSession)
   const setPresetEditorSession = useAppStore((state) => state.setPresetEditorSession)
+  const jobEditorSession = useAppStore((state) => state.jobEditorSession)
+  const presetEditorSession = useAppStore((state) => state.presetEditorSession)
   const loadJobs = useAppStore((state) => state.loadJobs)
   const subscribeToJobEvents = useAppStore((state) => state.subscribeToJobEvents)
   const hasUpdateAvailable = updateStatus.state === 'update-available'
@@ -472,6 +503,67 @@ function AppShell() {
     || isAcceleratorDiagnosticsLoading
     || isTrainingLaunchDiagnosticsLoading
     || isNamVersionInfoLoading
+  const hasUnsavedJobChanges = jobEditorSession != null
+    && jobEditorSession.initialSnapshot !== serializeJobEditorSession(jobEditorSession)
+  const hasUnsavedPresetChanges = presetEditorSession != null
+    && presetEditorSession.initialSnapshot !== serializePresetEditorSession(presetEditorSession)
+  const hasUnsavedEditorChanges = hasUnsavedJobChanges || hasUnsavedPresetChanges
+
+  const performAction = useCallback((action: PendingAppAction): void => {
+    switch (action.type) {
+      case 'navigate':
+        navigate(action.path)
+        return
+      case 'new-job':
+        setPresetEditorSession(null)
+        setJobEditorSession(buildJobEditorSession('New Job', createNewJobDraft({ presets, settings }), settings))
+        navigate('/jobs')
+        return
+      case 'new-preset':
+        setJobEditorSession(null)
+        setPresetEditorSession(buildPresetEditorSession('New Preset', buildNewPresetDraft(settings)))
+        navigate('/presets')
+        return
+      default:
+        return
+    }
+  }, [navigate, presets, setJobEditorSession, setPresetEditorSession, settings])
+
+  const requestAction = useCallback((action: PendingAppAction): boolean => {
+    if (action.type === 'navigate' && action.path === location.pathname) {
+      return true
+    }
+
+    if (!hasUnsavedEditorChanges) {
+      performAction(action)
+      return true
+    }
+
+    setPendingAction(action)
+    return false
+  }, [hasUnsavedEditorChanges, location.pathname, performAction])
+
+  const handleConfirmNavigationDiscard = (): void => {
+    if (!pendingAction) {
+      return
+    }
+
+    const action = pendingAction
+    setPendingAction(null)
+    setJobEditorSession(null)
+    setPresetEditorSession(null)
+    performAction(action)
+  }
+
+  const handleCancelNavigationDiscard = (): void => {
+    setPendingAction(null)
+  }
+
+  const buildGuardedNavClick = (path: string) => (event: React.MouseEvent<HTMLAnchorElement>): void => {
+    if (!requestAction({ type: 'navigate', path })) {
+      event.preventDefault()
+    }
+  }
 
   useEffect(() => {
     void loadSettings()
@@ -506,21 +598,19 @@ function AppShell() {
     return window.namBot.events.onAppCommand((command: AppCommand) => {
       switch (command.type) {
         case 'navigate':
-          navigate(command.path)
+          requestAction({ type: 'navigate', path: command.path })
           return
         case 'new-job':
-          setJobEditorSession(buildJobEditorSession('New Job', createNewJobDraft({ presets, settings }), settings))
-          navigate('/jobs')
+          requestAction({ type: 'new-job' })
           return
         case 'new-preset':
-          setPresetEditorSession(buildPresetEditorSession('New Preset', buildNewPresetDraft(settings)))
-          navigate('/presets')
+          requestAction({ type: 'new-preset' })
           return
         default:
           return
       }
     })
-  }, [navigate, presets, setJobEditorSession, setPresetEditorSession, settings])
+  }, [requestAction])
 
   return (
     <>
@@ -532,25 +622,25 @@ function AppShell() {
       <main>
         <div className="layout-two-column">
           <nav className="nav-sidebar">
-            <NavLink to="/" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+            <NavLink to="/" onClick={buildGuardedNavClick('/')} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
               Dashboard
             </NavLink>
-            <NavLink to="/jobs" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''} ${isTraining ? 'processing-text' : ''}`}>
+            <NavLink to="/jobs" onClick={buildGuardedNavClick('/jobs')} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''} ${isTraining ? 'processing-text' : ''}`}>
               Jobs
             </NavLink>
-            <NavLink to="/presets" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+            <NavLink to="/presets" onClick={buildGuardedNavClick('/presets')} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
               Presets
             </NavLink>
-            <NavLink to="/settings" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+            <NavLink to="/settings" onClick={buildGuardedNavClick('/settings')} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
               Settings
             </NavLink>
-            <NavLink to="/diagnostics" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''} ${isDiagnosticsChecking ? 'processing-text' : ''}`}>
+            <NavLink to="/diagnostics" onClick={buildGuardedNavClick('/diagnostics')} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''} ${isDiagnosticsChecking ? 'processing-text' : ''}`}>
               Diagnostics
             </NavLink>
-            <NavLink to="/help" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+            <NavLink to="/help" onClick={buildGuardedNavClick('/help')} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
               Setup Guide
             </NavLink>
-            <NavLink to="/about" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+            <NavLink to="/about" onClick={buildGuardedNavClick('/about')} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
               <span>About</span>
               {hasUpdateAvailable && <span className="nav-update-indicator" aria-label="Update available" />}
             </NavLink>
@@ -567,6 +657,16 @@ function AppShell() {
           </Routes>
         </div>
       </main>
+
+      <ConfirmDialog
+        isOpen={pendingAction !== null}
+        title="Discard Unsaved Changes?"
+        message="The current training or preset editor has unsaved changes. If you leave now, those changes will be lost."
+        confirmLabel="Discard and Leave"
+        cancelLabel="Keep Editing"
+        onConfirm={handleConfirmNavigationDiscard}
+        onCancel={handleCancelNavigationDiscard}
+      />
     </>
   )
 }

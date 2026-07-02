@@ -6,6 +6,7 @@ import { buildJobConfigs } from '../main/config/configBuilder'
 import {
   DEFAULT_PRESET_ID,
   createImportedPreset,
+  formatPackedSubmodelDisplayName,
   getBuiltInPreset,
   normalizeTrainingPreset,
   type JobSpec
@@ -179,5 +180,33 @@ describe('legacy custom preset compatibility', () => {
     expect(preset.values.architectureVersion).toBe('a2')
     expect(preset.values.modelFamily).toBe('PackedWaveNet')
     expect(preset.values.architectureSize).toBe('packed')
+  })
+})
+
+describe('packed submodel display names', () => {
+  it('uses friendly labels by packed A2 channel range', () => {
+    const expectedLabels: Array<[number, string]> = [
+      [3, 'A2 Lite (3 ch)'],
+      [4, 'A2 Full (4 ch)'],
+      [8, 'A2 Full (8 ch)'],
+      [9, 'A2 Heavy (9 ch)'],
+      [12, 'A2 Heavy (12 ch)'],
+      [13, 'A2 Ultra (13 ch)'],
+      [16, 'A2 Ultra (16 ch)'],
+      [17, 'A2 Mammoth (17 ch)'],
+      [20, 'A2 Mammoth (20 ch)'],
+      [21, 'A2 Colossal (21 ch)'],
+      [24, 'A2 Colossal (24 ch)'],
+      [25, 'A2 Leviathan (25 ch)'],
+      [28, 'A2 Leviathan (28 ch)']
+    ]
+
+    for (const [channels, expectedLabel] of expectedLabels) {
+      expect(formatPackedSubmodelDisplayName({
+        submodelIndex: channels,
+        submodelName: `channels_${channels}`,
+        channelCount: channels
+      })).toBe(expectedLabel)
+    }
   })
 })

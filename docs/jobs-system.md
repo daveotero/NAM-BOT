@@ -126,6 +126,7 @@ The editor shows `Save Job` buttons at both the top and bottom of the form.
 - Save buttons turn green only when the job has unsaved changes and the current editor state is valid to save.
 - `Use Output Filename` beside Job Name and Model Name copies the selected output audio filename stem into that field.
 - Clicking `Cancel` with unsaved edits opens a confirm dialog so the user can save, keep editing, or discard changes.
+- Choosing another app section from the sidebar or app menu while the editor has unsaved edits opens a discard warning before navigation.
 
 ### Input Audio Modes
 
@@ -428,8 +429,8 @@ This is handled by the queue manager and represents queued, active, and historic
 
 The open job editor session is renderer-memory only.
 
-- switching to another section does not discard the open editor session
-- returning to Jobs restores the in-progress editor state
+- switching to another section with unsaved edits prompts before discarding the open editor session
+- canceling that prompt keeps the user on the editor with the in-progress state intact
 - the renderer session includes form values, selected preset, input mode, output-root mode, and validation visibility
 - closing the app still discards an unsaved editor session that was never saved as a draft
 

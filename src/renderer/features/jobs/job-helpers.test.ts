@@ -183,50 +183,32 @@ describe('checkpoint metric labels', () => {
     expect(getPrimaryPackedSubmodel(runtime)?.submodelName).toBe('channels_12')
   })
 
-  it('uses friendly labels for official packed A2 submodels', () => {
-    expect(formatPackedSubmodelMetricLabel({
-      submodelIndex: 0,
-      submodelName: 'channels_3',
-      bestValidationEsr: 0.014,
-      epoch: 12,
-      step: 100,
-      checkpointPath: 'packed_best_submodel_0.ckpt'
-    })).toBe('A2 Lite ESR')
+  it('uses friendly ESR labels by packed A2 channel range', () => {
+    const expectedLabels: Array<[number, string]> = [
+      [3, 'A2 Lite ESR'],
+      [4, 'A2 Full ESR'],
+      [8, 'A2 Full ESR'],
+      [9, 'A2 Heavy ESR'],
+      [12, 'A2 Heavy ESR'],
+      [13, 'A2 Ultra ESR'],
+      [16, 'A2 Ultra ESR'],
+      [17, 'A2 Mammoth ESR'],
+      [20, 'A2 Mammoth ESR'],
+      [21, 'A2 Colossal ESR'],
+      [24, 'A2 Colossal ESR'],
+      [25, 'A2 Leviathan ESR'],
+      [28, 'A2 Leviathan ESR']
+    ]
 
-    expect(formatPackedSubmodelMetricLabel({
-      submodelIndex: 1,
-      submodelName: 'channels_8',
-      bestValidationEsr: 0.009,
-      epoch: 12,
-      step: 100,
-      checkpointPath: 'packed_best_submodel_1.ckpt'
-    })).toBe('A2 Full ESR')
-
-    expect(formatPackedSubmodelMetricLabel({
-      submodelIndex: 2,
-      submodelName: 'channels_12',
-      bestValidationEsr: 0.007,
-      epoch: 12,
-      step: 100,
-      checkpointPath: 'packed_best_submodel_2.ckpt'
-    })).toBe('A2 Heavy ESR')
-
-    expect(formatPackedSubmodelMetricLabel({
-      submodelIndex: 3,
-      submodelName: 'channels_16',
-      bestValidationEsr: 0.006,
-      epoch: 12,
-      step: 100,
-      checkpointPath: 'packed_best_submodel_3.ckpt'
-    })).toBe('A2 Ultra ESR')
-
-    expect(formatPackedSubmodelMetricLabel({
-      submodelIndex: 4,
-      submodelName: 'channels_20',
-      bestValidationEsr: 0.005,
-      epoch: 12,
-      step: 100,
-      checkpointPath: 'packed_best_submodel_4.ckpt'
-    })).toBe('A2 Mammoth ESR')
+    for (const [channels, expectedLabel] of expectedLabels) {
+      expect(formatPackedSubmodelMetricLabel({
+        submodelIndex: channels,
+        submodelName: `channels_${channels}`,
+        bestValidationEsr: 0.014,
+        epoch: 12,
+        step: 100,
+        checkpointPath: `packed_best_submodel_${channels}.ckpt`
+      })).toBe(expectedLabel)
+    }
   })
 })

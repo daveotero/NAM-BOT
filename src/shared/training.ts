@@ -775,21 +775,38 @@ export function getPackedSubmodelSelectionKey(selection: JobPackedSubmodelSelect
   return `${selection.submodelIndex}:${selection.submodelName ?? ''}`
 }
 
+function getA2PackedTierName(channelCount: number | null | undefined): string | null {
+  if (channelCount == null || !Number.isFinite(channelCount)) {
+    return null
+  }
+  if (channelCount <= 3) {
+    return 'A2 Lite'
+  }
+  if (channelCount <= 8) {
+    return 'A2 Full'
+  }
+  if (channelCount <= 12) {
+    return 'A2 Heavy'
+  }
+  if (channelCount <= 16) {
+    return 'A2 Ultra'
+  }
+  if (channelCount <= 20) {
+    return 'A2 Mammoth'
+  }
+  if (channelCount <= 24) {
+    return 'A2 Colossal'
+  }
+  if (channelCount <= 28) {
+    return 'A2 Leviathan'
+  }
+  return null
+}
+
 export function formatPackedSubmodelDisplayName(submodel: PackedPresetSubmodel): string {
-  if (submodel.submodelName === 'channels_3') {
-    return 'A2 Lite (3 ch)'
-  }
-  if (submodel.submodelName === 'channels_8') {
-    return 'A2 Full (8 ch)'
-  }
-  if (submodel.submodelName === 'channels_12') {
-    return 'A2 Heavy (12 ch)'
-  }
-  if (submodel.submodelName === 'channels_16') {
-    return 'A2 Ultra (16 ch)'
-  }
-  if (submodel.submodelName === 'channels_20') {
-    return 'A2 Mammoth (20 ch)'
+  const tierName = getA2PackedTierName(submodel.channelCount)
+  if (tierName && submodel.channelCount != null) {
+    return `${tierName} (${submodel.channelCount} ch)`
   }
   if (submodel.channelCount != null) {
     return submodel.submodelName ? `${submodel.submodelName} (${submodel.channelCount} ch)` : `${submodel.channelCount} ch`
