@@ -724,143 +724,161 @@ function PresetCard({
           </p>
         </div>
 
-        <div className="job-actions queue-card-actions" data-no-card-toggle="true">
-          <button
-            type="button"
-            className={`btn btn-sm btn-secondary${isExpanded ? ' is-toggled' : ''}`}
-            onClick={() => onToggleExpanded(preset.id)}
-          >
-            {isExpanded ? 'Show Less' : 'Show More'}
-          </button>
-          {isEditable ? (
-            <button type="button" className="btn btn-sm btn-blue" onClick={() => onEdit(preset)}>
-              Edit
+        <div className="job-actions queue-card-actions">
+          <div className="queue-card-action-row queue-card-action-row-primary">
+            {isEditable ? (
+              <button type="button" className="btn btn-sm btn-blue" onClick={() => onEdit(preset)}>
+                Edit
+              </button>
+            ) : (
+              <button type="button" className="btn btn-sm btn-blue" onClick={() => onDuplicate(preset)}>
+                Customize
+              </button>
+            )}
+            {isEditable && (
+              <button type="button" className="btn btn-sm btn-secondary" onClick={() => onDuplicate(preset)}>
+                Duplicate
+              </button>
+            )}
+            <button type="button" className="btn btn-sm btn-secondary" onClick={() => void onExport(preset)}>
+              Export
             </button>
-          ) : (
-            <button type="button" className="btn btn-sm btn-blue" onClick={() => onDuplicate(preset)}>
-              Customize
+          </div>
+
+          <div className="queue-card-action-row queue-card-action-row-secondary">
+            <button
+              type="button"
+              className={`btn btn-sm btn-secondary${isExpanded ? ' is-toggled' : ''}`}
+              onClick={() => onToggleExpanded(preset.id)}
+            >
+              {isExpanded ? 'Show Less' : 'Show More'}
             </button>
-          )}
-          {isEditable && (
-            <button type="button" className="btn btn-sm btn-secondary" onClick={() => onDuplicate(preset)}>
-              Duplicate
-            </button>
-          )}
-          <button type="button" className="btn btn-sm btn-secondary" onClick={() => void onExport(preset)}>
-            Export
-          </button>
-          {isEditable && (
-            <button type="button" className="btn btn-sm btn-orange" onClick={() => void onDelete(preset)}>
-              Delete
-            </button>
-          )}
+            {isExpanded && (
+              <button type="button" className="btn btn-sm btn-secondary" onClick={() => void onCopyJson(preset)}>
+                Copy Preset JSON
+              </button>
+            )}
+            {isEditable && (
+              <button type="button" className="btn btn-sm btn-orange" onClick={() => void onDelete(preset)}>
+                Delete
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
       {isExpanded && (
         <>
           <div className="queue-card-details preset-card-details">
-            {/* Core Stats Grid */}
-            <div className="queue-details-grid">
-              <div className="queue-detail-stat">
-                <span className="stat-label">NAM</span>
-                <span className="stat-value">{architectureTag}</span>
+            <div className="preset-details-layout">
+              <div className="runtime-detail-column preset-detail-column">
+                <span className="runtime-detail-label">Training</span>
+                <div className="preset-detail-rows">
+                  <div className="preset-detail-row">
+                    <span className="preset-detail-label">NAM</span>
+                    <span className="preset-detail-value">{architectureTag}</span>
+                  </div>
+                  <div className="preset-detail-row">
+                    <span className="preset-detail-label">Family</span>
+                    <span className="preset-detail-value">{preset.values.modelFamily}</span>
+                  </div>
+                  <div className="preset-detail-row">
+                    <span className="preset-detail-label">Size</span>
+                    <span className="preset-detail-value">{formatArchitectureSize(preset.values.architectureSize)}</span>
+                  </div>
+                  <div className="preset-detail-row">
+                    <span className="preset-detail-label">Epochs</span>
+                    <span className="preset-detail-value">{preset.values.epochs}</span>
+                  </div>
+                  <div className="preset-detail-row">
+                    <span className="preset-detail-label">Batch</span>
+                    <span className="preset-detail-value">{preset.values.batchSize}</span>
+                  </div>
+                  <div className="preset-detail-row">
+                    <span className="preset-detail-label">LR</span>
+                    <span className="preset-detail-value">{preset.values.learningRate}</span>
+                  </div>
+                  <div className="preset-detail-row">
+                    <span className="preset-detail-label">Decay</span>
+                    <span className="preset-detail-value">{preset.values.learningRateDecay}</span>
+                  </div>
+                </div>
               </div>
-              <div className="queue-detail-stat">
-                <span className="stat-label">Family</span>
-                <span className="stat-value">{preset.values.modelFamily}</span>
-              </div>
-              <div className="queue-detail-stat">
-                <span className="stat-label">Size</span>
-                <span className="stat-value">{formatArchitectureSize(preset.values.architectureSize)}</span>
-              </div>
-              <div className="queue-detail-stat">
-                <span className="stat-label">Epochs</span>
-                <span className="stat-value">{preset.values.epochs}</span>
-              </div>
-              <div className="queue-detail-stat">
-                <span className="stat-label">Batch</span>
-                <span className="stat-value">{preset.values.batchSize}</span>
-              </div>
-              <div className="queue-detail-stat">
-                <span className="stat-label">LR</span>
-                <span className="stat-value">{preset.values.learningRate}</span>
-              </div>
-              <div className="queue-detail-stat">
-                <span className="stat-label">Decay</span>
-                <span className="stat-value">{preset.values.learningRateDecay}</span>
-              </div>
-            </div>
 
-            {/* Technical Details Paths */}
-            <div className="queue-details-paths">
-              <div className="detail-path-row">
-                <span className="path-label">Category:</span>
-                <span className="path-value">{formatPresetCategory(preset.category)}</span>
-              </div>
-              <div className="detail-path-row">
-                <span className="path-label">NY (Window):</span>
-                <span className="path-value">{preset.values.ny}</span>
-              </div>
-              <div className="detail-path-row">
-                <span className="path-label">Fit MRSTFT:</span>
-                <span className="path-value">{preset.values.fitMrstft ? 'Enabled' : 'Disabled'}</span>
-              </div>
-              <div className="detail-path-row">
-                <span className="path-label">Overrides:</span>
-                <span className="path-value">{getExpertOverrideSummary(preset)}</span>
-              </div>
-              <div className="detail-path-row">
-                <span className="path-label">Preset ID:</span>
-                <span className="path-value">{preset.id}</span>
-              </div>
-              
-              {preset.author?.name && (
-                <div className="detail-path-row">
-                  <span className="path-label">Created By:</span>
-                  <span className="path-value">{preset.author.name}</span>
+              <div className="runtime-detail-column preset-detail-column">
+                <span className="runtime-detail-label">Technical</span>
+                <div className="preset-detail-rows">
+                  <div className="preset-detail-row">
+                    <span className="preset-detail-label">Category</span>
+                    <span className="preset-detail-value">{formatPresetCategory(preset.category)}</span>
+                  </div>
+                  <div className="preset-detail-row">
+                    <span className="preset-detail-label">NY</span>
+                    <span className="preset-detail-value">{preset.values.ny}</span>
+                  </div>
+                  <div className="preset-detail-row">
+                    <span className="preset-detail-label">MRSTFT</span>
+                    <span className="preset-detail-value">{preset.values.fitMrstft ? 'Enabled' : 'Disabled'}</span>
+                  </div>
+                  <div className="preset-detail-row">
+                    <span className="preset-detail-label">Normalize</span>
+                    <span className="preset-detail-value">{preset.values.outputNormalizeRmsDb == null ? 'Off' : `${preset.values.outputNormalizeRmsDb} dB`}</span>
+                  </div>
+                  <div className="preset-detail-row">
+                    <span className="preset-detail-label">Overrides</span>
+                    <span className="preset-detail-value">{getExpertOverrideSummary(preset)}</span>
+                  </div>
+                  <div className="preset-detail-row">
+                    <span className="preset-detail-label">Preset ID</span>
+                    <span className="preset-detail-value" title={preset.id}>{preset.id}</span>
+                  </div>
+                  {preset.author?.name && (
+                    <div className="preset-detail-row">
+                      <span className="preset-detail-label">Created By</span>
+                      <span className="preset-detail-value">{preset.author.name}</span>
+                    </div>
+                  )}
+                  {preset.author?.url && (
+                    <div className="preset-detail-row">
+                      <span className="preset-detail-label">Website</span>
+                      <span className="preset-detail-value" title={preset.author.url}>{preset.author.url}</span>
+                    </div>
+                  )}
+                  {preset.origin?.app && (
+                    <div className="preset-detail-row">
+                      <span className="preset-detail-label">Origin</span>
+                      <span className="preset-detail-value">
+                        {preset.origin.version ? `${preset.origin.app} ${preset.origin.version}` : preset.origin.app}
+                      </span>
+                    </div>
+                  )}
                 </div>
-              )}
-              {preset.author?.url && (
-                <div className="detail-path-row">
-                  <span className="path-label">Website:</span>
-                  <span className="path-value">{preset.author.url}</span>
-                </div>
-              )}
-              {preset.origin?.app && (
-                <div className="detail-path-row">
-                  <span className="path-label">Origin:</span>
-                  <span className="path-value">
-                    {preset.origin.version ? `${preset.origin.app} ${preset.origin.version}` : preset.origin.app}
-                  </span>
-                </div>
-              )}
-            </div>
-            {packedSubmodels.length > 0 && (
-              <div className="preset-packed-bundle">
-                <div className="preset-packed-bundle-header">
-                  <span className="preset-packed-kicker">Packed Model Bundle</span>
+              </div>
+
+              <div className="runtime-detail-column preset-detail-column preset-packed-column">
+                <div className="preset-packed-compact-header">
+                  <span className="runtime-detail-label">Packed Tiers</span>
                   <span className="preset-packed-count">{packedSubmodels.length} tiers</span>
                 </div>
-                <div className="preset-packed-list">
-                  {packedSubmodels.map((submodel) => {
-                    const submodelKey = `${submodel.submodelIndex}:${submodel.submodelName ?? ''}`
-                    return (
-                      <div className="preset-packed-item" key={submodelKey}>
-                        <span className="preset-packed-item-title">{getPackedSubmodelTitle(submodel)}</span>
-                        <span className="preset-packed-item-meta">{getPackedSubmodelChannelLabel(submodel)}</span>
-                        <span className="preset-packed-item-code">{submodel.submodelName ?? `submodel_${submodel.submodelIndex}`}</span>
-                      </div>
-                    )
-                  })}
-                </div>
+                {packedSubmodels.length > 0 ? (
+                  <div className="preset-packed-compact-list">
+                    {packedSubmodels.map((submodel) => {
+                      const submodelKey = `${submodel.submodelIndex}:${submodel.submodelName ?? ''}`
+                      return (
+                        <div className="preset-packed-compact-row" key={submodelKey}>
+                          <span className="preset-packed-compact-title">{getPackedSubmodelTitle(submodel)}</span>
+                          <span className="preset-packed-compact-value" title={submodel.submodelName ?? `submodel_${submodel.submodelIndex}`}>
+                            {getPackedSubmodelChannelLabel(submodel)} · {submodel.submodelName ?? `submodel_${submodel.submodelIndex}`}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <span className="preset-packed-empty">No packed tiers</span>
+                )}
               </div>
-            )}
-          </div>
-          <div className="preset-card-footer" data-no-card-toggle="true">
-            <button type="button" className="btn btn-sm btn-secondary" onClick={() => void onCopyJson(preset)}>
-              Copy Preset JSON
-            </button>
+            </div>
           </div>
         </>
       )}

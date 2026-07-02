@@ -1,4 +1,5 @@
 import {
+  JobPackedSubmodelCheckpointSummary,
   JobRuntimeState,
   TrainingPresetFile,
   formatPresetArchitectureTag
@@ -21,6 +22,19 @@ import {
   QueueDisplayState
 } from './job-helpers'
 
+export type RuntimeArtifactTarget = 'workspace' | 'output' | 'workspace-log' | 'run-log' | 'model'
+
+interface RuntimeArtifactLink {
+  target: RuntimeArtifactTarget
+  label: string
+  path: string
+}
+
+interface RuntimeEsrItem {
+  label: string
+  value: string
+}
+
 interface RuntimeCardProps {
   runtime: JobRuntimeState
   presets: TrainingPresetFile[]
@@ -38,7 +52,72 @@ interface RuntimeCardProps {
   onCreateDraftFromRuntime?: (runtime: JobRuntimeState) => Promise<void>
   onUseRuntimeAsTemplate?: (runtime: JobRuntimeState) => void
   onOpenFolder: (jobId: string) => Promise<void>
+  onOpenArtifact: (jobId: string, target: RuntimeArtifactTarget) => Promise<void>
   onClearFinished?: (jobId: string) => Promise<void>
+}
+
+function cleanArtifactPath(path: string | null | undefined): string | null {
+  const trimmed = path?.trim()
+  return trimmed ? trimmed : null
+}
+
+function getPackedSubmodelChannelCount(submodel: JobPackedSubmodelCheckpointSummary): number | null {
+  const match = /^channels_(\d+)$/i.exec(submodel.submodelName ?? '')
+  if (!match) {
+    return null
+  }
+
+  const channelCount = Number(match[1])
+  return Number.isFinite(channelCount) ? channelCount : null
+}
+
+function formatCompactEsrLabel(label: string): string {
+  return label.replace(/\s+ESR$/i, '')
+}
+
+function buildRuntimeEsrItems(runtime: JobRuntimeState): RuntimeEsrItem[] {
+  const packedSubmodels = runtime.checkpointSummary?.packedSubmodels ?? []
+  if (packedSubmodels.length > 0) {
+    return [...packedSubmodels]
+      .sort((left, right) => {
+        const leftChannels = getPackedSubmodelChannelCount(left)
+        const rightChannels = getPackedSubmodelChannelCount(right)
+        if (leftChannels != null && rightChannels != null && leftChannels !== rightChannels) {
+          return leftChannels - rightChannels
+        }
+        if (leftChannels != null && rightChannels == null) {
+          return -1
+        }
+        if (leftChannels == null && rightChannels != null) {
+          return 1
+        }
+        return left.submodelIndex - right.submodelIndex
+      })
+      .map((submodel) => ({
+        label: formatCompactEsrLabel(formatPackedSubmodelMetricLabel(submodel)),
+        value: formatEsr(submodel.bestValidationEsr)
+      }))
+  }
+
+  return [{
+    label: formatCompactEsrLabel(getBestEsrLabel(runtime)),
+    value: formatEsr(runtime.checkpointSummary?.bestValidationEsr)
+  }]
+}
+
+function buildArtifactLinks(runtime: JobRuntimeState, outputPath: string): RuntimeArtifactLink[] {
+  const candidates: Array<{ target: RuntimeArtifactTarget; label: string; path: string | null }> = [
+    { target: 'workspace', label: 'Workspace folder', path: cleanArtifactPath(runtime.workspaceDirectory) },
+    { target: 'output', label: 'Output folder', path: cleanArtifactPath(outputPath) },
+    { target: 'workspace-log', label: 'Workspace log', path: cleanArtifactPath(runtime.terminalLogPath) },
+    { target: 'run-log', label: 'Saved run log', path: cleanArtifactPath(runtime.publishedTerminalLogPath) },
+    { target: 'model', label: 'Model file', path: cleanArtifactPath(runtime.publishedModelPath) }
+  ]
+
+  return candidates.flatMap((candidate) => candidate.path
+    ? [{ target: candidate.target, label: candidate.label, path: candidate.path }]
+    : []
+  )
 }
 
 export function renderDisplayBadge(displayState: QueueDisplayState) {
@@ -66,6 +145,7 @@ export default function RuntimeCard({
   onCreateDraftFromRuntime,
   onUseRuntimeAsTemplate,
   onOpenFolder,
+  onOpenArtifact,
   onClearFinished
 }: RuntimeCardProps) {
   const displayState = getDisplayState(runtime)
@@ -82,6 +162,8 @@ export default function RuntimeCard({
   const presetName = preset?.name || runtime.frozenJob.presetId || 'Unknown'
   const presetTag = preset ? formatPresetArchitectureTag(preset) : 'CUSTOM'
   const collapsedSummaryItems = getCollapsedSummaryItems(runtime, presetName, nowMs)
+  const artifactLinks = buildArtifactLinks(runtime, outputPath)
+  const esrItems = buildRuntimeEsrItems(runtime)
   const hasPrimaryActions = (displayState === 'Queued' && onUnqueue)
     || (displayState === 'Running' && stopAction)
     || (isSuccessfulDisplay && (outputPath || onCreateDraftFromRuntime))
@@ -233,65 +315,65 @@ export default function RuntimeCard({
 
       {hasTerminalToggle && isExpanded && (
         <div className="queue-card-details">
-          <div className="queue-details-grid">
-            <div className="queue-detail-stat">
-              <span className="stat-label">Preset</span>
-              <span className="stat-value"><span className="queue-status-badge queued">{presetTag}</span> {presetName}</span>
-            </div>
-            <div className="queue-detail-stat">
-              <span className="stat-label">Epochs</span>
-              <span className="stat-value">{getPlannedEpochsLabel(runtime)}</span>
-            </div>
-            {(displayState === 'Running' || displayState === 'Successful') && (
-              <>
-                {runtime.checkpointSummary?.packedSubmodels?.length ? (
-                  runtime.checkpointSummary.packedSubmodels.map((submodel) => (
-                    <div className="queue-detail-stat" key={`${runtime.jobId}-packed-${submodel.submodelIndex}`}>
-                      <span className="stat-label">{formatPackedSubmodelMetricLabel(submodel)}</span>
-                      <span className="stat-value">{formatEsr(submodel.bestValidationEsr)}</span>
-                    </div>
-                  ))
-                ) : (
-                  <div className="queue-detail-stat">
-                    <span className="stat-label">{getBestEsrLabel(runtime)}</span>
-                    <span className="stat-value">{formatEsr(runtime.checkpointSummary?.bestValidationEsr)}</span>
-                  </div>
-                )}
-                <div className="queue-detail-stat">
-                  <span className="stat-label">Checkpoints</span>
-                  <span className="stat-value">{runtime.checkpointSummary?.checkpointCount ?? 0}</span>
+          <div className="runtime-details-layout">
+            <div className="runtime-detail-column runtime-overview-column">
+              <div className="runtime-detail-field">
+                <span className="runtime-detail-label">Preset</span>
+                <span className="runtime-preset-value">
+                  <span className="queue-status-badge queued">{presetTag}</span>
+                  <span>{presetName}</span>
+                </span>
+              </div>
+              <div className="runtime-detail-facts">
+                <div className="runtime-detail-fact">
+                  <span className="runtime-detail-label">Epochs</span>
+                  <span className="runtime-detail-value">{getPlannedEpochsLabel(runtime)}</span>
                 </div>
-              </>
-            )}
-            <div className="queue-detail-stat">
-              <span className="stat-label">Device</span>
-              <span className="stat-value">{getDetailedDeviceLabel(runtime)}</span>
+                <div className="runtime-detail-fact">
+                  <span className="runtime-detail-label">Checkpoints</span>
+                  <span className="runtime-detail-value">{runtime.checkpointSummary?.checkpointCount ?? 0}</span>
+                </div>
+                <div className="runtime-detail-fact runtime-detail-fact-wide">
+                  <span className="runtime-detail-label">Device</span>
+                  <span className="runtime-detail-value" title={getDetailedDeviceLabel(runtime)}>{getDetailedDeviceLabel(runtime)}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="runtime-detail-column runtime-esr-column">
+              <span className="runtime-detail-label">ESR</span>
+              <div className="runtime-esr-row">
+                {esrItems.map((item) => (
+                  <div className="runtime-esr-item" key={`${runtime.jobId}-${item.label}`}>
+                    <span className="runtime-esr-label">{item.label}</span>
+                    <span className="runtime-esr-value">{item.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="runtime-detail-column runtime-artifacts-column">
+              <span className="runtime-detail-label">Artifacts</span>
+              {artifactLinks.length > 0 ? (
+                <div className="runtime-artifact-links">
+                  {artifactLinks.map((link) => (
+                    <button
+                      type="button"
+                      className="runtime-artifact-link"
+                      key={`${runtime.jobId}-${link.target}`}
+                      title={link.path}
+                      onClick={() => void onOpenArtifact(runtime.jobId, link.target)}
+                    >
+                      {link.label}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <span className="runtime-empty-artifacts">No artifacts yet</span>
+              )}
             </div>
           </div>
           
-          <div className="queue-details-paths">
-            <div className="detail-path-row">
-              <span className="path-label">Workspace Log</span>
-              <span className="path-value text-selectable" title={runtime.terminalLogPath || ''}>{runtime.terminalLogPath || 'Not yet available'}</span>
-            </div>
-            <div className="detail-path-row">
-              <span className="path-label">Output Folder</span>
-              <span className="path-value text-selectable" title={getOutputPath(runtime)}>{getOutputPath(runtime) || 'Waiting for output folder'}</span>
-            </div>
-            {runtime.publishedTerminalLogPath && (
-              <div className="detail-path-row">
-                <span className="path-label">Saved Run Log</span>
-                <span className="path-value text-selectable" title={runtime.publishedTerminalLogPath}>{runtime.publishedTerminalLogPath}</span>
-              </div>
-            )}
-            {runtime.publishedModelPath && (
-              <div className="detail-path-row">
-                <span className="path-label">Model File</span>
-                <span className="path-value text-selectable" title={runtime.publishedModelPath}>{runtime.publishedModelPath}</span>
-              </div>
-            )}
-          </div>
-
           {(displayState === 'Running' || displayState === 'Error') && getLatestTerminalLine(runtime) && (
             <div className="queue-details-terminal">
               <span className="terminal-label">Latest terminal line</span>

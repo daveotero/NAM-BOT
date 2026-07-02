@@ -1098,6 +1098,7 @@ export default function Jobs() {
                       onCreateDraftFromRuntime={handleCreateDraftFromRuntime}
                       onUseRuntimeAsTemplate={handleUseRuntimeAsTemplate}
                       onOpenFolder={async (jobId) => { await window.namBot.jobs.openResultFolder(jobId) }}
+                      onOpenArtifact={async (jobId, target) => { await window.namBot.jobs.openArtifact(jobId, target) }}
                       onClearFinished={handleClearItem}
                     />
                   )
@@ -1134,6 +1135,7 @@ export default function Jobs() {
                       onCreateDraftFromRuntime={handleCreateDraftFromRuntime}
                       onUseRuntimeAsTemplate={handleUseRuntimeAsTemplate}
                       onOpenFolder={async (jobId) => { await window.namBot.jobs.openResultFolder(jobId) }}
+                      onOpenArtifact={async (jobId, target) => { await window.namBot.jobs.openArtifact(jobId, target) }}
                       onClearFinished={handleClearItem}
                     />
                   )
@@ -1614,10 +1616,30 @@ function JobEditor({
               >
                 Custom Folder
               </button>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', minHeight: '30px', color: 'var(--text-steel)', fontSize: '13px' }}>
+                <input
+                  type="checkbox"
+                  checked={editedJob.copyFinalModelToOutputAudioFolder}
+                  onChange={(event) => {
+                    window.localStorage.setItem(
+                      LAST_COPY_FINAL_MODEL_TO_OUTPUT_AUDIO_FOLDER_STORAGE_KEY,
+                      event.target.checked ? 'true' : 'false'
+                    )
+                    onSessionChange({
+                      ...session,
+                      job: {
+                        ...editedJob,
+                        copyFinalModelToOutputAudioFolder: event.target.checked
+                      }
+                    })
+                  }}
+                />
+                <span>Copy model to output audio folder</span>
+              </label>
             </div>
 
             <p style={{ color: 'var(--text-steel)', fontSize: '12px', marginTop: '0', marginBottom: '10px' }}>
-              Uses the Settings default first when configured. Otherwise it can follow the training output file folder, or you can lock this draft to a custom folder.
+              Uses the Settings default first when configured. Otherwise it can follow the training output file folder, or you can lock this draft to a custom folder. The copy option adds a convenient `.nam` copy next to the selected output audio file.
             </p>
 
             <FilePickerRow
@@ -1678,29 +1700,6 @@ function JobEditor({
                   />
                   <span>Append final ESR</span>
                 </label>
-                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginTop: '10px', color: 'var(--text-steel)', fontSize: '13px' }}>
-                  <input
-                    type="checkbox"
-                    checked={editedJob.copyFinalModelToOutputAudioFolder}
-                    onChange={(event) => {
-                      window.localStorage.setItem(
-                        LAST_COPY_FINAL_MODEL_TO_OUTPUT_AUDIO_FOLDER_STORAGE_KEY,
-                        event.target.checked ? 'true' : 'false'
-                      )
-                      onSessionChange({
-                        ...session,
-                        job: {
-                          ...editedJob,
-                          copyFinalModelToOutputAudioFolder: event.target.checked
-                        }
-                      })
-                    }}
-                  />
-                  <span>Copy model to output audio folder</span>
-                </label>
-                <p style={{ color: 'var(--text-steel)', fontSize: '12px', lineHeight: 1.45, marginTop: '8px', marginBottom: 0 }}>
-                  The training folder still keeps logs, checkpoints, and its finalized model. This option adds a convenient `.nam` copy next to the selected output audio file.
-                </p>
               </div>
             </div>
           </div>

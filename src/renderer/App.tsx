@@ -408,10 +408,11 @@ function Dashboard() {
                  onToggleLogs={toggleLogs}
                  onCancel={async (id: string) => { await window.namBot.jobs.cancel(id) }}
                  onForceStop={async (id: string) => { await window.namBot.jobs.forceStop(id) }}
-                 onRetry={async (id: string) => { await window.namBot.jobs.retry(id) }}
-                 onOpenFolder={async (id: string) => { await window.namBot.jobs.openResultFolder(id) }}
-               />
-             ))}
+                  onRetry={async (id: string) => { await window.namBot.jobs.retry(id) }}
+                  onOpenFolder={async (id: string) => { await window.namBot.jobs.openResultFolder(id) }}
+                  onOpenArtifact={async (id, target) => { await window.namBot.jobs.openArtifact(id, target) }}
+                />
+              ))}
           </div>
         </div>
       )}

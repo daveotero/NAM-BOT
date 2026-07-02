@@ -212,6 +212,7 @@ Active jobs appear in the training section.
 - active jobs surface stop and force-stop controls
 - terminal logs can be expanded and refreshed while a job is active
 - while a run is active, elapsed time is measured from the start of the training run; remaining-time estimates are intentionally not shown because they proved unreliable across NAM training runs
+- expanded active-job details use a compact three-column layout: preset/training facts, ESR comparison, and artifact links
 
 ### Finished View
 
@@ -224,6 +225,7 @@ Completed, failed, and stopped jobs appear in the finished section.
 - terminal logs can be expanded after the run has finished
 - `Clear Finished` removes all finished runtime entries from the finished section
 - individual finished items can also be cleared from their card
+- expanded finished-job details use the same compact layout as active jobs, with artifact links instead of full path rows
 - across queue, training, and finished sections, collapsed runtime cards show status-specific quick stats:
   - queued and validating cards show preset and planned epochs
   - preparing cards show preset, detected device summary, and planned epochs
@@ -231,7 +233,9 @@ Completed, failed, and stopped jobs appear in the finished section.
   - successful cards show preset, total runtime, and best ESR
   - failed and canceled cards prioritize total runtime and failure or stop reason, with ESR when available
 
-For A2 Packed WaveNet jobs, NAM-BOT uses the highest-quality packed submodel as the primary ESR. With the default built-in A2 preset, that means A2 Full ESR is used for the headline runtime card, exported filename ESR suffix, and official `metadata.training.validation_esr` value. With the bundled A2 Heavy 12 preset, the `channels_12` Heavy submodel becomes the primary ESR because it is the highest-quality packed tier. Expanded details show all available packed submodel ESRs when NAM writes `packed_best.json`. NAM's aggregate packed ESR is not surfaced because it is a sum across submodels rather than the value most users compare against A1.
+For A2 Packed WaveNet jobs, NAM-BOT uses the highest-quality packed submodel as the primary ESR. With the default built-in A2 preset, that means A2 Full ESR is used for the headline runtime card, exported filename ESR suffix, and official `metadata.training.validation_esr` value. With the bundled A2 Heavy 12 preset, the `channels_12` Heavy submodel becomes the primary ESR because it is the highest-quality packed tier. Expanded details show all available packed submodel ESRs as a compact single-column comparison list from smallest to largest tier when NAM writes `packed_best.json`. NAM's aggregate packed ESR is not surfaced because it is a sum across submodels rather than the value most users compare against A1.
+
+Expanded active and finished cards show compact text links for available artifacts, including the workspace folder, output folder, workspace terminal log, saved run log, and model file. Hovering a link shows the full path. Folder links open directly; file links reveal the file in its folder. Links are job-scoped through IPC so the renderer only asks NAM-BOT to open known artifacts for that runtime entry.
 
 While the queue runner is processing training work, NAM-BOT starts Electron's system sleep blocker. Windows uses `prevent-display-sleep`, the strongest Electron blocker, to avoid system sleep during long batches and during handoff between queued jobs. Other platforms use `prevent-app-suspension`, which keeps the system active while still allowing the display to sleep. The blocker is released as soon as the queue runner is idle and no active training job remains, or when the app exits.
 

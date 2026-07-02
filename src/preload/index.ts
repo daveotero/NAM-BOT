@@ -38,6 +38,7 @@ export interface NamBotApi {
     listQueue: () => Promise<unknown[]>
     getRuntime: (jobId: string) => Promise<unknown | null>
     openResultFolder: (jobId: string) => Promise<void>
+    openArtifact: (jobId: string, target: string) => Promise<void>
     chooseAudioFile: () => Promise<string | null>
     getDefaultInputAudioPath: () => Promise<string | null>
     saveDefaultAudioTo: () => Promise<string | null>
@@ -103,6 +104,7 @@ const api: NamBotApi = {
     listQueue: () => ipcRenderer.invoke('jobs:listQueue'),
     getRuntime: (jobId) => ipcRenderer.invoke('jobs:getRuntime', jobId),
     openResultFolder: (jobId) => ipcRenderer.invoke('jobs:openResultFolder', jobId),
+    openArtifact: (jobId, target) => ipcRenderer.invoke('jobs:openArtifact', jobId, target),
     chooseAudioFile: () => ipcRenderer.invoke('jobs:chooseAudioFile'),
     getDefaultInputAudioPath: () => ipcRenderer.invoke('jobs:getDefaultInputAudioPath'),
     saveDefaultAudioTo: () => ipcRenderer.invoke('jobs:saveDefaultAudioTo'),

@@ -383,7 +383,7 @@ function createWindow(): void {
   })
 
   mainWindow.on('close', (event) => {
-    if (allowUnsafeClose || !hasActiveTrainingJobs()) {
+    if (allowUnsafeClose || !hasActiveTrainingWork()) {
       return
     }
 

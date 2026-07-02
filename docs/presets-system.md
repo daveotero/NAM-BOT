@@ -30,7 +30,8 @@ The presets page defaults to a library view rather than showing the editor at al
 - Each preset card shows an architecture tag: `A2`, `A1`, or `CUSTOM`.
 - Preset lists and job dropdowns sort A2 presets before A1 presets, with custom architecture recipes after those groups.
 - Clicking the card background toggles the same `Show More` / `Show Less` state as the explicit button.
-- Expanded Packed WaveNet preset details show every packed submodel tier in a dedicated packed-model bundle panel, including imported custom packs.
+- Expanded preset details use compact columns for training values, technical metadata, and packed tiers.
+- Expanded Packed WaveNet preset details show every packed submodel tier in a compact single-column list, including imported custom packs.
 - Built-in presets can be customized into user presets.
 - User presets can be edited, duplicated, exported, and deleted.
 - Any preset can be exported.
