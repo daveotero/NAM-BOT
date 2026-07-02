@@ -92,6 +92,21 @@ describe('NAM model metadata updates', () => {
     })
   })
 
+  it('writes auto latency samples separately from manual latency metadata', () => {
+    const metadata = buildUpdatedNamModelMetadata({
+      currentMetadata: {},
+      metadataPatch: {},
+      confirmedTrainingMetadata: {
+        autoLatency: -42
+      },
+      exportDate
+    })
+
+    expect(metadata.nam_bot).toEqual({
+      auto_latency_samples: -42
+    })
+  })
+
   it('preserves official training metadata and only updates known official fields', () => {
     const metadata = buildUpdatedNamModelMetadata({
       currentMetadata: {
@@ -196,5 +211,9 @@ describe('NAM model metadata updates', () => {
 
   it('treats zero manual latency as metadata worth preserving', () => {
     expect(hasNamModelMetadataUpdates({}, { manualLatency: 0 })).toBe(true)
+  })
+
+  it('treats zero auto latency as metadata worth preserving', () => {
+    expect(hasNamModelMetadataUpdates({}, { autoLatency: 0 })).toBe(true)
   })
 })

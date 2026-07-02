@@ -75,6 +75,7 @@ interface HostNvidiaSummary {
 
 const VULNERABLE_LIGHTNING_VERSIONS = new Set(['2.6.2', '2.6.3'])
 const LIGHTNING_SECURITY_PREFIX = 'NAM_BOT_LIGHTNING_SECURITY='
+const LATENCY_ANALYSIS_PREFIX = 'NAM_BOT_LATENCY_ANALYSIS='
 const TRAINING_LAUNCH_PTY_PREFIX = 'NAM_BOT_PTY_OK'
 const TRAINING_LAUNCH_TIMEOUT_MS = 30_000
 const LIGHTNING_SECURITY_RECENT_RESULT_TTL_MS = 5_000
@@ -87,6 +88,23 @@ interface PtyCommandResult {
   exitCode: number | null
   timedOut: boolean
   errorMessage: string | null
+}
+
+export interface NamLatencyAnalysisWarnings {
+  matchesLookahead: boolean
+  disagreementTooHigh: boolean
+  notDetected: boolean
+}
+
+export interface NamLatencyAnalysisResult {
+  ok: boolean
+  recommendedLatency: number | null
+  inputVersion: string | null
+  strongInputMatch: boolean | null
+  warnings: NamLatencyAnalysisWarnings | null
+  delays: number[]
+  errorMessage: string | null
+  output: string
 }
 
 export interface TrainingProcessController {
@@ -214,6 +232,89 @@ function tailOutput(output: string, maxLength = 2_000): string {
   }
 
   return trimmed.slice(trimmed.length - maxLength)
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function asNullableString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value : null
+}
+
+function asNullableNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function asNullableBoolean(value: unknown): boolean | null {
+  return typeof value === 'boolean' ? value : null
+}
+
+function parseLatencyWarnings(value: unknown): NamLatencyAnalysisWarnings | null {
+  if (!isRecord(value)) {
+    return null
+  }
+
+  return {
+    matchesLookahead: value.matchesLookahead === true,
+    disagreementTooHigh: value.disagreementTooHigh === true,
+    notDetected: value.notDetected === true
+  }
+}
+
+function parseNumberList(value: unknown): number[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value.flatMap((entry): number[] => (
+    typeof entry === 'number' && Number.isFinite(entry) ? [entry] : []
+  ))
+}
+
+function createFailedLatencyAnalysis(output: string, errorMessage: string): NamLatencyAnalysisResult {
+  return {
+    ok: false,
+    recommendedLatency: null,
+    inputVersion: null,
+    strongInputMatch: null,
+    warnings: null,
+    delays: [],
+    errorMessage,
+    output: output.trim()
+  }
+}
+
+export function parseNamLatencyAnalysisOutput(output: string): NamLatencyAnalysisResult {
+  const markerLine = output
+    .split(/\r?\n/)
+    .find((entry) => entry.trim().startsWith(LATENCY_ANALYSIS_PREFIX))
+
+  if (!markerLine) {
+    return createFailedLatencyAnalysis(output, tailOutput(output) || 'NAM latency analyzer did not return a structured result.')
+  }
+
+  try {
+    const payload = JSON.parse(markerLine.trim().slice(LATENCY_ANALYSIS_PREFIX.length)) as unknown
+    if (!isRecord(payload)) {
+      return createFailedLatencyAnalysis(output, 'NAM latency analyzer returned an invalid result payload.')
+    }
+
+    const recommendedLatency = asNullableNumber(payload.recommendedLatency)
+    return {
+      ok: payload.ok === true && recommendedLatency !== null,
+      recommendedLatency,
+      inputVersion: asNullableString(payload.inputVersion),
+      strongInputMatch: asNullableBoolean(payload.strongInputMatch),
+      warnings: parseLatencyWarnings(payload.warnings),
+      delays: parseNumberList(payload.delays),
+      errorMessage: asNullableString(payload.errorMessage),
+      output: output.trim()
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return createFailedLatencyAnalysis(output, `Failed to parse NAM latency analyzer result: ${message}`)
+  }
 }
 
 function isBareExecutablePath(command: string): boolean {
@@ -1974,6 +2075,85 @@ export async function runNamHelloWorld(
   }
 
   return runCondaCommand(settings, ['nam-hello-world'])
+}
+
+function buildNamLatencyAnalysisScript(inputPath: string, outputPath: string): string {
+  const inputPathLiteral = JSON.stringify(inputPath)
+  const outputPathLiteral = JSON.stringify(outputPath)
+  const prefixLiteral = JSON.stringify(LATENCY_ANALYSIS_PREFIX)
+
+  return [
+    'import json',
+    'import traceback',
+    'from nam.train import core',
+    '',
+    `input_path = ${inputPathLiteral}`,
+    `output_path = ${outputPathLiteral}`,
+    `prefix = ${prefixLiteral}`,
+    '',
+    'def get_warning_payload(warnings):',
+    '    if warnings is None:',
+    '        return None',
+    '    return {',
+    "        'matchesLookahead': bool(getattr(warnings, 'matches_lookahead', False)),",
+    "        'disagreementTooHigh': bool(getattr(warnings, 'disagreement_too_high', False)),",
+    "        'notDetected': bool(getattr(warnings, 'not_detected', False)),",
+    '    }',
+    '',
+    'try:',
+    '    input_version, strong_match = core._detect_input_version(input_path)',
+    '    try:',
+    '        latency = core._analyze_latency(None, input_version, input_path, output_path, silent=True, _override_suppress_plots=True)',
+    '    except TypeError:',
+    '        latency = core._analyze_latency(None, input_version, input_path, output_path, silent=True)',
+    '    calibration = getattr(latency, "calibration", None)',
+    '    recommended = getattr(calibration, "recommended", None)',
+    '    warnings = getattr(calibration, "warnings", None)',
+    '    delays = getattr(calibration, "delays", []) or []',
+    '    payload = {',
+    "        'ok': recommended is not None,",
+    "        'recommendedLatency': int(recommended) if recommended is not None else None,",
+    "        'inputVersion': str(input_version),",
+    "        'strongInputMatch': bool(strong_match),",
+    "        'warnings': get_warning_payload(warnings),",
+    "        'delays': [int(delay) for delay in delays],",
+    "        'errorMessage': None if recommended is not None else 'NAM did not detect a usable latency from the output audio.',",
+    '    }',
+    'except Exception as error:',
+    '    payload = {',
+    "        'ok': False,",
+    "        'recommendedLatency': None,",
+    "        'inputVersion': None,",
+    "        'strongInputMatch': None,",
+    "        'warnings': None,",
+    "        'delays': [],",
+    "        'errorMessage': str(error) or traceback.format_exc(),",
+    '    }',
+    'print(prefix + json.dumps(payload))'
+  ].join('\n')
+}
+
+export async function analyzeNamLatency(
+  settings: AppSettings,
+  inputPath: string,
+  outputPath: string
+): Promise<NamLatencyAnalysisResult> {
+  try {
+    await assertLightningPackageSafe(settings)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Lightning package security check failed'
+    return createFailedLatencyAnalysis('', message)
+  }
+
+  const script = buildNamLatencyAnalysisScript(inputPath, outputPath)
+  const result = await runPythonScriptInEnvironment(settings, script, 'latency-analysis.py')
+  const parsed = parseNamLatencyAnalysisOutput(result.output)
+
+  if (!result.ok && !parsed.errorMessage) {
+    return createFailedLatencyAnalysis(result.output, tailOutput(result.output) || 'NAM latency analyzer failed to run.')
+  }
+
+  return parsed
 }
 
 export async function runNamFull(

@@ -6,7 +6,9 @@ import { buildJobConfigs } from '../main/config/configBuilder'
 import {
   DEFAULT_PRESET_ID,
   createImportedPreset,
+  defaultJobSpec,
   getBuiltInPreset,
+  normalizeJobSpec,
   normalizeTrainingPreset,
   type JobSpec
 } from './training'
@@ -103,6 +105,40 @@ afterEach(() => {
       rmSync(dir, { recursive: true, force: true })
     }
   }
+})
+
+describe('job latency normalization', () => {
+  it('defaults brand-new jobs to auto latency mode', () => {
+    expect(defaultJobSpec.trainingOverrides.latencyMode).toBe('auto')
+  })
+
+  it('keeps legacy jobs with latency samples in manual mode', () => {
+    const job = normalizeJobSpec({
+      id: 'legacy-job',
+      name: 'Legacy Job',
+      trainingOverrides: {
+        epochs: 100,
+        latencySamples: 0
+      }
+    })
+
+    expect(job.trainingOverrides.latencyMode).toBe('manual')
+    expect(job.trainingOverrides.latencySamples).toBe(0)
+  })
+
+  it('preserves explicit auto latency mode', () => {
+    const job = normalizeJobSpec({
+      id: 'auto-job',
+      name: 'Auto Job',
+      trainingOverrides: {
+        epochs: 100,
+        latencyMode: 'auto',
+        latencySamples: 0
+      }
+    })
+
+    expect(job.trainingOverrides.latencyMode).toBe('auto')
+  })
 })
 
 describe('legacy custom preset compatibility', () => {

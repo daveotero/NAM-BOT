@@ -14,7 +14,14 @@ import {
 } from 'fs'
 import log from 'electron-log/main'
 import { v4 as uuidv4 } from 'uuid'
-import { compareVersions, inspectTorchRuntime, runNamFull, TorchRuntimeSummary, TrainingProcessController } from '../backend/adapter'
+import {
+  analyzeNamLatency,
+  compareVersions,
+  inspectTorchRuntime,
+  runNamFull,
+  TorchRuntimeSummary,
+  TrainingProcessController
+} from '../backend/adapter'
 import { buildJobConfigs } from '../config/configBuilder'
 import { getTrainingPresetById } from '../persistence/presetStore'
 import {
@@ -77,6 +84,10 @@ interface ParsedEpochProgress {
   totalEpochs: number | null
   currentBatch: number | null
   totalBatches: number | null
+}
+
+function formatLatencyAnalysisVersion(inputVersion: string | null): string {
+  return inputVersion ? ` using NAM input ${inputVersion}` : ''
 }
 
 function buildBackendSettingsKey(settings: AppSettings): string {
@@ -248,7 +259,11 @@ function readConfirmedTrainingMetadata(runtime: JobRuntimeState): ConfirmedNamTr
 
     const delay = parsed.common.delay
     if (typeof delay === 'number' && Number.isFinite(delay)) {
-      trainingMetadata.manualLatency = delay
+      if (runtime.frozenJob.trainingOverrides.latencyMode === 'auto') {
+        trainingMetadata.autoLatency = delay
+      } else {
+        trainingMetadata.manualLatency = delay
+      }
     }
   } catch (error) {
     log.warn('Failed to read generated data config for NAM training metadata:', error)
@@ -1629,9 +1644,49 @@ export class QueueManager extends EventEmitter {
 
     try {
       await this.assertTrainingRequirements(jobSpec)
-      this.appendUserMessage(runtime, 'Generating NAM training configuration files...')
       const preset = getTrainingPresetById(jobSpec.presetId)
-      const configPaths = buildJobConfigs(jobSpec, workspaceDir, preset)
+      const latencyLocked = preset.lockedJobFields.includes('latencySamples')
+      let jobSpecForConfig = jobSpec
+
+      if (jobSpec.trainingOverrides.latencyMode === 'auto' && !latencyLocked) {
+        this.appendUserMessage(runtime, 'Auto-aligning input/output latency with the NAM analyzer...')
+        runtime.logSummary = {
+          ...runtime.logSummary,
+          latestStructuredLine: 'Auto-aligning latency'
+        }
+        this.emitJobUpdate(runtime)
+
+        const latencyAnalysis = await analyzeNamLatency(this.settings!, jobSpec.inputAudioPath, jobSpec.outputAudioPath)
+        if (!latencyAnalysis.ok || latencyAnalysis.recommendedLatency == null) {
+          throw new Error(
+            `Auto latency alignment failed: ${latencyAnalysis.errorMessage ?? 'NAM could not calculate a recommended delay. Switch latency to Manual and enter a value, or use a recognized NAM standard input file.'}`
+          )
+        }
+
+        const resolvedLatencySamples = Math.round(latencyAnalysis.recommendedLatency)
+        jobSpecForConfig = {
+          ...jobSpec,
+          trainingOverrides: {
+            ...jobSpec.trainingOverrides,
+            latencySamples: resolvedLatencySamples
+          }
+        }
+
+        const versionLabel = formatLatencyAnalysisVersion(latencyAnalysis.inputVersion)
+        this.appendUserMessage(runtime, `Auto-aligned latency${versionLabel}: ${resolvedLatencySamples} samples.`)
+
+        if (latencyAnalysis.warnings?.matchesLookahead) {
+          this.appendUserMessage(runtime, 'Latency warning: the detected delay matched NAM analyzer lookahead, which can indicate unusual capture data.')
+        }
+        if (latencyAnalysis.warnings?.disagreementTooHigh) {
+          this.appendUserMessage(runtime, 'Latency warning: detected responses disagreed more than expected. If the model sounds wrong, try measuring latency manually.')
+        }
+      } else if (jobSpec.trainingOverrides.latencyMode === 'auto' && latencyLocked) {
+        this.appendUserMessage(runtime, 'Skipping auto latency alignment because the selected preset locks delay in its expert data config.')
+      }
+
+      this.appendUserMessage(runtime, 'Generating NAM training configuration files...')
+      const configPaths = buildJobConfigs(jobSpecForConfig, workspaceDir, preset)
       runtime.generatedConfigPaths = configPaths
       await this.prepareLearningConfigForRuntime(configPaths, runtime)
 

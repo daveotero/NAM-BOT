@@ -9,7 +9,7 @@ NAM-BOT presets are the source of truth for training configuration. A preset def
 - any expert JSON override blocks layered on top of the generated NAM config files
 - optional sharing metadata for preset creators
 
-Jobs do not own the full training recipe. Jobs only point at a preset and optionally override a small set of run-time values such as epochs and latency.
+Jobs do not own the full training recipe. Jobs only point at a preset and optionally override a small set of run-time values such as epochs and manual/auto latency behavior.
 
 ## Goals
 

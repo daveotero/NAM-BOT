@@ -1,6 +1,7 @@
 import type { AppSettings, JobEditorSession, JobOutputRootMode } from '../../state/store'
 import {
   DEFAULT_PRESET_ID,
+  type JobLatencyMode,
   type JobSpec,
   type TrainingPresetFile,
   defaultJobSpec
@@ -14,6 +15,7 @@ export const LAST_OUTPUT_ROOT_MODE_STORAGE_KEY = 'nam-bot:last-output-root-mode'
 export const LAST_CUSTOM_OUTPUT_ROOT_STORAGE_KEY = 'nam-bot:last-custom-output-root'
 export const LAST_INPUT_AUDIO_MODE_STORAGE_KEY = 'nam-bot:last-input-audio-mode'
 export const LAST_CUSTOM_INPUT_AUDIO_PATH_STORAGE_KEY = 'nam-bot:last-custom-input-audio-path'
+export const LAST_LATENCY_MODE_STORAGE_KEY = 'nam-bot:last-latency-mode'
 export const LAST_LATENCY_SAMPLES_STORAGE_KEY = 'nam-bot:last-latency-samples'
 export const LAST_MODELED_BY_STORAGE_KEY = 'nam-bot:last-modeled-by'
 export const LAST_INPUT_LEVEL_DBU_STORAGE_KEY = 'nam-bot:last-input-level-dbu'
@@ -133,6 +135,11 @@ function getStoredFiniteNumber(key: string): number | undefined {
   return Number.isFinite(value) ? value : undefined
 }
 
+function getStoredLatencyMode(): JobLatencyMode | undefined {
+  const raw = window.localStorage.getItem(LAST_LATENCY_MODE_STORAGE_KEY)
+  return raw === 'manual' || raw === 'auto' ? raw : undefined
+}
+
 function getStoredTrimmedString(key: string): string | undefined {
   const trimmed = window.localStorage.getItem(key)?.trim() || ''
   return trimmed.length > 0 ? trimmed : undefined
@@ -141,6 +148,7 @@ function getStoredTrimmedString(key: string): string | undefined {
 export function applyStoredReusableDefaults<T extends ReusableDefaultsJob>(job: T, settings: AppSettings | null): T {
   const inputMode = window.localStorage.getItem(LAST_INPUT_AUDIO_MODE_STORAGE_KEY)
   const customInputAudioPath = getStoredTrimmedString(LAST_CUSTOM_INPUT_AUDIO_PATH_STORAGE_KEY)
+  const latencyMode = getStoredLatencyMode()
   const latencySamples = getStoredFiniteNumber(LAST_LATENCY_SAMPLES_STORAGE_KEY)
   const settingsModeledBy = settings?.defaultAuthorName?.trim() || undefined
   const modeledBy = getStoredTrimmedString(LAST_MODELED_BY_STORAGE_KEY) ?? settingsModeledBy ?? job.metadata.modeledBy ?? ''
@@ -153,7 +161,8 @@ export function applyStoredReusableDefaults<T extends ReusableDefaultsJob>(job: 
     inputAudioIsDefault: inputMode === 'custom' && customInputAudioPath ? false : job.inputAudioIsDefault,
     trainingOverrides: {
       ...job.trainingOverrides,
-      ...(latencySamples === undefined ? {} : { latencySamples: Math.round(latencySamples) })
+      ...(latencyMode === undefined ? {} : { latencyMode }),
+      ...(latencyMode === 'manual' && latencySamples !== undefined ? { latencySamples: Math.round(latencySamples) } : {})
     },
     metadata: {
       ...job.metadata,
@@ -175,7 +184,10 @@ export function persistReusableJobDefaults(job: JobSpec, inputMode: 'default' | 
   }
 
   const latencySamples = job.trainingOverrides?.latencySamples
-  if (typeof latencySamples === 'number' && Number.isFinite(latencySamples)) {
+  const latencyMode = job.trainingOverrides?.latencyMode ?? 'manual'
+  window.localStorage.setItem(LAST_LATENCY_MODE_STORAGE_KEY, latencyMode)
+
+  if (latencyMode === 'manual' && typeof latencySamples === 'number' && Number.isFinite(latencySamples)) {
     window.localStorage.setItem(LAST_LATENCY_SAMPLES_STORAGE_KEY, String(Math.round(latencySamples)))
   }
 
