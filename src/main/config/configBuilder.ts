@@ -3,6 +3,7 @@ import { join } from 'path'
 import log from 'electron-log/main'
 import {
   JobSpec,
+  JobPackedSubmodelSelection,
   TrainingPresetFile,
   buildA2PackedModelConfig,
   buildLstmConfig,
@@ -50,6 +51,64 @@ function mergeModelConfig(base: Record<string, unknown>, override: Record<string
   }
 
   return result
+}
+
+function isSelectedPackedSubmodel(
+  submodel: Record<string, unknown>,
+  submodelIndex: number,
+  selections: JobPackedSubmodelSelection[]
+): boolean {
+  const submodelName = typeof submodel.name === 'string' ? submodel.name : null
+  return selections.some((selection) => selection.submodelIndex === submodelIndex && (
+    selection.submodelName == null
+    || submodelName == null
+    || selection.submodelName === submodelName
+  ))
+}
+
+function filterPackedSubmodelsForJob(modelConfig: Record<string, unknown>, job: JobSpec): Record<string, unknown> {
+  const selections = job.trainingOverrides.packedSubmodels
+  if (!selections || selections.length === 0) {
+    return modelConfig
+  }
+
+  const net = isRecord(modelConfig.net) ? modelConfig.net : null
+  const netConfig = isRecord(net?.config) ? net.config : null
+  const submodels = Array.isArray(netConfig?.submodels) ? netConfig.submodels : null
+  if (!net || net.name !== 'PackedWaveNet' || !netConfig || !submodels) {
+    return modelConfig
+  }
+
+  const selectedSubmodels = submodels.filter((submodel, submodelIndex) => (
+    isRecord(submodel) && isSelectedPackedSubmodel(submodel, submodelIndex, selections)
+  ))
+
+  if (selectedSubmodels.length === 0) {
+    throw new Error('At least one selected packed submodel must match the selected preset.')
+  }
+
+  const nextNetConfig: Record<string, unknown> = {
+    ...netConfig,
+    submodels: selectedSubmodels
+  }
+  const exportConfig = isRecord(netConfig.export) ? netConfig.export : null
+  if (exportConfig && Array.isArray(exportConfig.container_max_values)) {
+    const selectedMaxValues = exportConfig.container_max_values.filter((_value, submodelIndex) => (
+      isRecord(submodels[submodelIndex]) && isSelectedPackedSubmodel(submodels[submodelIndex], submodelIndex, selections)
+    ))
+    nextNetConfig.export = {
+      ...exportConfig,
+      container_max_values: selectedMaxValues
+    }
+  }
+
+  return {
+    ...modelConfig,
+    net: {
+      ...net,
+      config: nextNetConfig
+    }
+  }
 }
 
 function buildBaseDataConfig(job: JobSpec, preset: TrainingPresetFile): Record<string, unknown> {
@@ -193,9 +252,10 @@ export function buildJobConfigs(
     ? deepMerge(buildBaseDataConfig(job, preset), preset.expert.data)
     : buildBaseDataConfig(job, preset)
 
-  const modelConfig = preset.expert.model && isRecord(preset.expert.model)
+  const modelConfigBase = preset.expert.model && isRecord(preset.expert.model)
     ? mergeModelConfig(buildBaseModelConfig(preset), preset.expert.model)
     : buildBaseModelConfig(preset)
+  const modelConfig = filterPackedSubmodelsForJob(modelConfigBase, job)
 
   const learningConfig = preset.expert.learning && isRecord(preset.expert.learning)
     ? deepMerge(buildBaseLearningConfig(job, preset), preset.expert.learning)
@@ -244,6 +304,10 @@ export function validateJobSpec(job: JobSpec): { valid: boolean; errors: string[
 
   if (!Number.isFinite(job.trainingOverrides.latencySamples ?? 0)) {
     errors.push('Latency must be a valid number')
+  }
+
+  if (job.trainingOverrides.packedSubmodels && job.trainingOverrides.packedSubmodels.length < 1) {
+    errors.push('At least one packed submodel must be selected')
   }
 
   return {

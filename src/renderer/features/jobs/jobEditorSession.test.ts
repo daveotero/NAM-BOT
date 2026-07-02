@@ -7,6 +7,7 @@ import {
   createTrainingPreset
 } from '../../state/types'
 import {
+  LAST_COPY_FINAL_MODEL_TO_OUTPUT_AUDIO_FOLDER_STORAGE_KEY,
   LAST_LATENCY_MODE_STORAGE_KEY,
   LAST_LATENCY_SAMPLES_STORAGE_KEY,
   LAST_USED_PRESET_STORAGE_KEY,
@@ -81,6 +82,25 @@ describe('createNewJobDraft', () => {
 
     expect(draft.trainingOverrides.latencyMode).toBe('auto')
     expect(draft.trainingOverrides.latencySamples).toBe(0)
+  })
+
+  it('applies the remembered final model copy preference to new drafts', () => {
+    stubLocalStorage({
+      [LAST_COPY_FINAL_MODEL_TO_OUTPUT_AUDIO_FOLDER_STORAGE_KEY]: 'true'
+    })
+
+    const draft = createNewJobDraft({
+      settings: null,
+      presets: [
+        createTrainingPreset({
+          id: DEFAULT_PRESET_ID,
+          name: 'A2 Packed WaveNet',
+          visible: true
+        })
+      ]
+    })
+
+    expect(draft.copyFinalModelToOutputAudioFolder).toBe(true)
   })
 })
 

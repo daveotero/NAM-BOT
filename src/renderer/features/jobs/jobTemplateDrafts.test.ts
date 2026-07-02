@@ -89,6 +89,24 @@ describe('buildDraftFromTemplateForOutput', () => {
     expect(draft.name).toBe('edge-of-breakup')
     expect(draft.metadata.name).toBe('edge-of-breakup')
   })
+
+  it('uses a shared metadata name only when requested by the batch editor', () => {
+    const draft = buildDraftFromTemplateForOutput({
+      template: buildTemplate({
+        metadata: {
+          ...buildTemplate().metadata,
+          name: 'Shared Batch Name'
+        }
+      }),
+      outputAudioPath: 'D:\\batch\\mammoth-channel.wav',
+      batchId: 'batch-4',
+      batchSourceName: 'Plexi Template',
+      useSharedMetadataName: true
+    })
+
+    expect(draft.name).toBe('mammoth-channel')
+    expect(draft.metadata.name).toBe('Shared Batch Name')
+  })
 })
 
 describe('buildDraftFromFrozenJob', () => {

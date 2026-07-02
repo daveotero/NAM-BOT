@@ -58,6 +58,34 @@ function getSubmodelChannelCount(submodel: JobPackedSubmodelCheckpointSummary): 
   return Number.isFinite(channelCount) ? channelCount : null
 }
 
+function getA2PackedTierName(channelCount: number | null): string | null {
+  if (channelCount == null || !Number.isFinite(channelCount)) {
+    return null
+  }
+  if (channelCount <= 3) {
+    return 'A2 Lite'
+  }
+  if (channelCount <= 8) {
+    return 'A2 Full'
+  }
+  if (channelCount <= 12) {
+    return 'A2 Heavy'
+  }
+  if (channelCount <= 16) {
+    return 'A2 Ultra'
+  }
+  if (channelCount <= 20) {
+    return 'A2 Mammoth'
+  }
+  if (channelCount <= 24) {
+    return 'A2 Colossal'
+  }
+  if (channelCount <= 28) {
+    return 'A2 Leviathan'
+  }
+  return null
+}
+
 export function getPrimaryPackedSubmodel(
   runtime: JobRuntimeState
 ): JobPackedSubmodelCheckpointSummary | null {
@@ -92,11 +120,9 @@ export function getBestEsrLabel(runtime: JobRuntimeState): string {
 
 export function formatPackedSubmodelMetricLabel(submodel: JobPackedSubmodelCheckpointSummary): string {
   const submodelName = submodel.submodelName?.trim()
-  if (submodelName === 'channels_3') {
-    return 'A2 Lite ESR'
-  }
-  if (submodelName === 'channels_8') {
-    return 'A2 Full ESR'
+  const tierName = getA2PackedTierName(getSubmodelChannelCount(submodel))
+  if (tierName) {
+    return `${tierName} ESR`
   }
   return submodelName ? `${submodelName} ESR` : `Submodel ${submodel.submodelIndex + 1} ESR`
 }
@@ -311,6 +337,14 @@ export function getCollapsedSummaryItems(
 
   switch (runtime.status) {
     case 'queued':
+      if (runtime.errorCategory === 'a2_diagnostics_pending') {
+        return [
+          { label: 'Blocked', value: 'Run Diagnostics', tone: 'error' },
+          { label: 'Preset', value: presetName },
+          { label: 'Epochs', value: epochs }
+        ]
+      }
+
       return [
         { label: 'Preset', value: presetName },
         { label: 'Epochs', value: epochs }
@@ -372,6 +406,10 @@ export function getCollapsedSummaryItems(
 
 export function getStatusSentence(runtime: JobRuntimeState): string {
   if (runtime.status === 'queued') {
+    if (runtime.errorCategory === 'a2_diagnostics_pending') {
+      return 'Run Diagnostics to confirm NAM 0.13.0+ before this A2 job can start.'
+    }
+
     return 'Waiting in queue'
   }
 

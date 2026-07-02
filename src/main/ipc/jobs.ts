@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
-import { existsSync, copyFileSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, copyFileSync, readFileSync, statSync, writeFileSync } from 'fs'
 import log from 'electron-log/main'
 import { join } from 'path'
 import { v4 as uuidv4 } from 'uuid'
@@ -9,6 +9,53 @@ import { JobRuntimeState, JobSpec, defaultJobSpec, normalizeJobSpec } from '../t
 
 const draftsPath = join(app.getPath('userData'), 'drafts.json')
 const drafts: Map<string, JobSpec> = new Map()
+
+type JobArtifactTarget = 'workspace' | 'output' | 'workspace-log' | 'run-log' | 'model'
+
+function isJobArtifactTarget(value: unknown): value is JobArtifactTarget {
+  return value === 'workspace'
+    || value === 'output'
+    || value === 'workspace-log'
+    || value === 'run-log'
+    || value === 'model'
+}
+
+function getJobArtifactPath(job: JobRuntimeState, target: JobArtifactTarget): string | null {
+  if (target === 'workspace') {
+    return job.workspaceDirectory ?? null
+  }
+  if (target === 'output') {
+    return job.resolvedRunDirectory ?? job.outputRootDir ?? null
+  }
+  if (target === 'workspace-log') {
+    return job.terminalLogPath ?? null
+  }
+  if (target === 'run-log') {
+    return job.publishedTerminalLogPath ?? null
+  }
+  return job.publishedModelPath ?? null
+}
+
+async function openJobArtifactPath(targetPath: string): Promise<void> {
+  if (!existsSync(targetPath)) {
+    log.warn('Job artifact path does not exist:', targetPath)
+    return
+  }
+
+  try {
+    if (statSync(targetPath).isFile()) {
+      shell.showItemInFolder(targetPath)
+      return
+    }
+  } catch (error) {
+    log.warn('Failed to inspect job artifact path:', targetPath, error)
+  }
+
+  const errorMessage = await shell.openPath(targetPath)
+  if (errorMessage) {
+    log.warn('Failed to open job artifact path:', targetPath, errorMessage)
+  }
+}
 
 function cloneJobSpec(job: JobSpec): JobSpec {
   return JSON.parse(JSON.stringify(job)) as JobSpec
@@ -110,6 +157,28 @@ export function setupJobIpcHandlers(): void {
 
   ipcMain.handle('jobs:listDrafts', async () => {
     return Array.from(drafts.values())
+  })
+
+  ipcMain.handle('jobs:reorderDrafts', async (_event, draftIds: string[]) => {
+    const orderedDrafts: JobSpec[] = []
+    for (const draftId of draftIds) {
+      const draft = drafts.get(draftId)
+      if (draft) {
+        orderedDrafts.push(draft)
+      }
+    }
+
+    for (const draft of drafts.values()) {
+      if (!draftIds.includes(draft.id)) {
+        orderedDrafts.push(draft)
+      }
+    }
+
+    drafts.clear()
+    for (const draft of orderedDrafts) {
+      drafts.set(draft.id, draft)
+    }
+    saveDrafts()
   })
 
   ipcMain.handle('jobs:enqueue', async (_event, draftId: string) => {
@@ -239,6 +308,22 @@ export function setupJobIpcHandlers(): void {
     const targetPath = job?.resolvedRunDirectory || job?.outputRootDir || job?.workspaceDirectory
     if (targetPath) {
       shell.openPath(targetPath)
+    }
+  })
+
+  ipcMain.handle('jobs:openArtifact', async (_event, jobId: string, target: unknown) => {
+    if (!isJobArtifactTarget(target)) {
+      return
+    }
+
+    const job = queueManager.getQueue().find((entry) => entry.jobId === jobId)
+    if (!job) {
+      return
+    }
+
+    const targetPath = getJobArtifactPath(job, target)
+    if (targetPath) {
+      await openJobArtifactPath(targetPath)
     }
   })
 

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeImage, Notification, shell, type NativeImage } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, Notification, powerSaveBlocker, shell, type NativeImage } from 'electron'
 import { join } from 'path'
 import log from 'electron-log/main'
 import { existsSync, mkdirSync } from 'fs'
@@ -23,6 +23,9 @@ const ISSUE_TRACKER_URL = 'https://github.com/daveotero/nam-bot/issues'
 const NAM_GITHUB_URL = 'https://github.com/sdatkinson/neural-amp-modeler'
 const ACTIVE_JOB_STATUSES: JobStatus[] = ['preparing', 'running', 'stopping']
 const FINISHED_JOB_STATUSES: JobStatus[] = ['succeeded', 'failed', 'canceled']
+const TRAINING_POWER_SAVE_BLOCKER_TYPE = process.platform === 'win32'
+  ? 'prevent-display-sleep'
+  : 'prevent-app-suspension'
 
 log.transports.file.level = 'info'
 log.transports.console.level = 'debug'
@@ -42,6 +45,7 @@ log.info(`Is dev: ${isDev}`)
 process.on('uncaughtException', (error) => {
   log.error('Uncaught Exception:', error)
   getQueueManager().shutdownSync('unexpected error')
+  stopTrainingPowerSaveBlocker()
   dialog.showErrorBox('Unexpected Error', `An unexpected error occurred:\n${error.message}`)
   app.exit(1)
 })
@@ -63,7 +67,9 @@ interface RendererErrorPayload {
 
 let mainWindow: BrowserWindow | null = null
 let allowUnsafeClose = false
+let trainingPowerSaveBlockerId: number | null = null
 const reportedFinishedStatuses: Map<string, JobStatus> = new Map()
+const reportedDiagnosticBlocks: Set<string> = new Set()
 
 app.setAppUserModelId(APP_ID)
 
@@ -121,8 +127,35 @@ function resolveWindowIcon(): NativeImage | undefined {
   return undefined
 }
 
-function hasActiveTrainingJobs(): boolean {
-  return getQueueManager().getQueue().some((runtime) => ACTIVE_JOB_STATUSES.includes(runtime.status))
+function hasActiveTrainingWork(): boolean {
+  const queueManager = getQueueManager()
+  return queueManager.isQueueProcessing()
+    || queueManager.getQueue().some((runtime) => ACTIVE_JOB_STATUSES.includes(runtime.status))
+}
+
+function updateTrainingPowerSaveBlocker(): void {
+  if (hasActiveTrainingWork()) {
+    if (trainingPowerSaveBlockerId == null || !powerSaveBlocker.isStarted(trainingPowerSaveBlockerId)) {
+      trainingPowerSaveBlockerId = powerSaveBlocker.start(TRAINING_POWER_SAVE_BLOCKER_TYPE)
+      log.info(`Started training power save blocker (${TRAINING_POWER_SAVE_BLOCKER_TYPE}): ${trainingPowerSaveBlockerId}`)
+    }
+    return
+  }
+
+  stopTrainingPowerSaveBlocker()
+}
+
+function stopTrainingPowerSaveBlocker(): void {
+  if (trainingPowerSaveBlockerId == null) {
+    return
+  }
+
+  if (powerSaveBlocker.isStarted(trainingPowerSaveBlockerId)) {
+    powerSaveBlocker.stop(trainingPowerSaveBlockerId)
+    log.info(`Stopped training power save blocker: ${trainingPowerSaveBlockerId}`)
+  }
+
+  trainingPowerSaveBlockerId = null
 }
 
 async function showAboutDialog(): Promise<void> {
@@ -243,6 +276,32 @@ function updateWindowProgress(): void {
 }
 
 function maybeShowJobNotification(runtime: JobRuntimeState): void {
+  if (runtime.status === 'queued' && runtime.errorCategory === 'a2_diagnostics_pending') {
+    if (reportedDiagnosticBlocks.has(runtime.jobId)) {
+      return
+    }
+    reportedDiagnosticBlocks.add(runtime.jobId)
+
+    if (!Notification.isSupported()) {
+      return
+    }
+
+    const notification = new Notification({
+      title: 'Diagnostics needed before training',
+      body: runtime.jobName
+    })
+
+    notification.on('click', () => {
+      focusMainWindow()
+      sendAppCommand({ type: 'navigate', path: '/diagnostics' })
+    })
+
+    notification.show()
+    return
+  }
+
+  reportedDiagnosticBlocks.delete(runtime.jobId)
+
   if (!FINISHED_JOB_STATUSES.includes(runtime.status)) {
     return
   }
@@ -278,10 +337,12 @@ function setupShellIntegrations(): void {
   const queueManager = getQueueManager()
 
   queueManager.on('queueUpdated', () => {
+    updateTrainingPowerSaveBlocker()
     updateWindowProgress()
   })
 
   queueManager.on('jobUpdated', (runtime: JobRuntimeState) => {
+    updateTrainingPowerSaveBlocker()
     updateWindowProgress()
     maybeShowJobNotification(runtime)
   })
@@ -322,7 +383,7 @@ function createWindow(): void {
   })
 
   mainWindow.on('close', (event) => {
-    if (allowUnsafeClose || !hasActiveTrainingJobs()) {
+    if (allowUnsafeClose || !hasActiveTrainingWork()) {
       return
     }
 
@@ -447,5 +508,6 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   getQueueManager().shutdownSync('app shutdown')
+  stopTrainingPowerSaveBlocker()
   log.info('=== NAM-BOT SHUTTING DOWN ===')
 })

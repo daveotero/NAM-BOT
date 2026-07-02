@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events'
 import { app, shell } from 'electron'
-import { basename, dirname, join } from 'path'
+import { basename, dirname, extname, join } from 'path'
 import {
   appendFileSync,
   copyFileSync,
@@ -69,9 +69,20 @@ const LIGHTNING_BEST_CHECKPOINT_PATTERN = new RegExp(
 const ANSI_PATTERN = /\u001b\[[0-9;?]*[ -/]*[@-~]/g
 const OSC_PATTERN = /\u001b\][^\u0007]*(?:\u0007|\u001b\\)/g
 const CONTROL_PATTERN = /[\u0000-\u0008\u000b\u000c\u000e-\u001a\u007f]/g
+type RunJobResult = 'completed' | 'blocked'
+
 interface KnownNamVersion {
   settingsKey: string
   version: string | null
+}
+
+class A2DiagnosticsPendingError extends Error {
+  constructor() {
+    super(
+      `A2 training requires neural-amp-modeler ${MIN_A2_NAM_VERSION} or newer, but NAM-BOT has not confirmed the installed NAM version yet. Open Diagnostics or click Re-check All to verify this environment before training starts.`
+    )
+    this.name = 'A2DiagnosticsPendingError'
+  }
 }
 
 interface TranscriptAccumulator {
@@ -173,6 +184,24 @@ function buildPublishedModelPath(runtime: JobRuntimeState, modelPath: string): s
   return join(dirname(modelPath), `${sanitizeFilenameStem(segments.join(' - '), runtime.frozenJob.id)}.nam`)
 }
 
+function buildUniqueSiblingPath(targetPath: string): string {
+  if (!existsSync(targetPath)) {
+    return targetPath
+  }
+
+  const targetDirectory = dirname(targetPath)
+  const extension = extname(targetPath)
+  const baseName = basename(targetPath, extension)
+  for (let index = 2; index < 1000; index += 1) {
+    const candidatePath = join(targetDirectory, `${baseName} - ${index}${extension}`)
+    if (!existsSync(candidatePath)) {
+      return candidatePath
+    }
+  }
+
+  return join(targetDirectory, `${baseName} - ${Date.now()}${extension}`)
+}
+
 function stripTerminalControlSequences(value: string): string {
   return value.replace(OSC_PATTERN, '').replace(ANSI_PATTERN, '').replace(CONTROL_PATTERN, '')
 }
@@ -184,6 +213,10 @@ function parseNumericToken(value: string): number | null {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isA2DiagnosticsPendingError(value: unknown): value is A2DiagnosticsPendingError {
+  return value instanceof A2DiagnosticsPendingError
 }
 
 function isPositiveInteger(value: unknown): value is number {
@@ -950,6 +983,39 @@ export class QueueManager extends EventEmitter {
     }
   }
 
+  private copyPublishedModelToOutputAudioFolder(runtime: JobRuntimeState): void {
+    if (!runtime.frozenJob.copyFinalModelToOutputAudioFolder) {
+      return
+    }
+
+    const sourcePath = runtime.publishedModelPath ?? runtime.checkpointSummary?.modelFilePath
+    if (!sourcePath || !existsSync(sourcePath)) {
+      this.appendUserMessage(runtime, 'Training completed, but there was no final model file to copy beside the output audio.')
+      return
+    }
+
+    const outputAudioDirectory = dirname(runtime.frozenJob.outputAudioPath)
+    if (!outputAudioDirectory || outputAudioDirectory === '.') {
+      this.appendUserMessage(runtime, 'Training completed, but the output audio folder could not be resolved for the final model copy.')
+      return
+    }
+
+    const targetPath = join(outputAudioDirectory, basename(sourcePath))
+    if (sourcePath.toLowerCase() === targetPath.toLowerCase()) {
+      runtime.publishedModelPath = sourcePath
+      return
+    }
+
+    const destinationPath = buildUniqueSiblingPath(targetPath)
+    try {
+      copyFileSync(sourcePath, destinationPath)
+      runtime.publishedModelPath = destinationPath
+      this.appendUserMessage(runtime, `Final model copied to output audio folder: ${destinationPath}`)
+    } catch (error) {
+      this.appendUserMessage(runtime, `Training completed, but copying the final model to the output audio folder failed: ${String(error)}`)
+    }
+  }
+
   constructor() {
     super()
     this.ensureDirectories()
@@ -1283,10 +1349,49 @@ export class QueueManager extends EventEmitter {
     }
   }
 
+  private blockRuntimeForPendingA2Diagnostics(runtime: JobRuntimeState, message: string): void {
+    runtime.status = 'queued'
+    runtime.pid = null
+    runtime.queuedAt = new Date().toISOString()
+    runtime.startedAt = undefined
+    runtime.finishedAt = undefined
+    runtime.exitCode = undefined
+    runtime.resolvedRunDirectory = null
+    runtime.workspaceDirectory = null
+    runtime.generatedConfigPaths = undefined
+    runtime.terminalLogPath = null
+    runtime.publishedTerminalLogPath = null
+    runtime.publishedModelPath = null
+    runtime.logSummary = {
+      latestTerminalLine: null,
+      latestStructuredLine: 'Waiting for Diagnostics to confirm NAM version'
+    }
+    runtime.terminalProgress = {
+      currentEpoch: 0,
+      totalEpochs: runtime.plannedEpochs ?? runtime.frozenJob.trainingOverrides.epochs ?? null,
+      currentBatch: null,
+      totalBatches: null,
+      elapsed: null,
+      rate: null,
+      percent: 0
+    }
+    runtime.deviceSummary = undefined
+    runtime.checkpointSummary = undefined
+    runtime.stopRequestedAt = undefined
+    runtime.stopMode = null
+    runtime.errorCategory = 'a2_diagnostics_pending'
+    this.appendUserMessage(runtime, message)
+  }
+
   setKnownNamVersion(settings: AppSettings, version: string | null): void {
     this.knownNamVersion = {
       settingsKey: buildBackendSettingsKey(settings),
       version
+    }
+
+    const hasBlockedA2Jobs = this.queue.some((runtime) => runtime.errorCategory === 'a2_diagnostics_pending')
+    if (hasBlockedA2Jobs && version) {
+      void this.startQueue()
     }
   }
 
@@ -1305,9 +1410,7 @@ export class QueueManager extends EventEmitter {
       ? this.knownNamVersion.version
       : null
     if (!installedVersion) {
-      throw new Error(
-        `A2 training requires neural-amp-modeler ${MIN_A2_NAM_VERSION} or newer, but NAM-BOT has not confirmed the installed NAM version yet. Open Diagnostics or click Re-check All, then queue the job again.`
-      )
+      throw new A2DiagnosticsPendingError()
     }
 
     if (compareVersions(installedVersion, MIN_A2_NAM_VERSION) < 0) {
@@ -1318,7 +1421,14 @@ export class QueueManager extends EventEmitter {
   }
 
   async validateJobCanTrain(jobSpec: JobSpec): Promise<void> {
-    await this.assertTrainingRequirements(jobSpec)
+    try {
+      await this.assertTrainingRequirements(jobSpec)
+    } catch (error) {
+      if (isA2DiagnosticsPendingError(error)) {
+        return
+      }
+      throw error
+    }
   }
 
   getQueue(): JobRuntimeState[] {
@@ -1327,6 +1437,10 @@ export class QueueManager extends EventEmitter {
 
   getCurrentJob(): JobRuntimeState | null {
     return this.currentJob
+  }
+
+  isQueueProcessing(): boolean {
+    return this.isRunning
   }
 
   addToQueue(jobSpec: JobSpec): JobRuntimeState {
@@ -1467,8 +1581,11 @@ export class QueueManager extends EventEmitter {
         runtime.plannedEpochs = jobSpec.trainingOverrides.epochs ?? null
         runtime.outputRootDir = jobSpec.outputRootDir
         this.currentJob = runtime
-        await this.runJob(jobSpec, runtime)
+        const result = await this.runJob(jobSpec, runtime)
         this.currentJob = null
+        if (result === 'blocked') {
+          break
+        }
       }
     } finally {
       this.activeController = null
@@ -1478,7 +1595,7 @@ export class QueueManager extends EventEmitter {
     }
   }
 
-  private async runJob(jobSpec: JobSpec, runtime: JobRuntimeState): Promise<void> {
+  private async runJob(jobSpec: JobSpec, runtime: JobRuntimeState): Promise<RunJobResult> {
     const workspaceId = uuidv4()
     const workspaceRoot = resolveWorkspaceRoot(this.settings)
     const workspaceDir = join(workspaceRoot, workspaceId)
@@ -1537,6 +1654,7 @@ export class QueueManager extends EventEmitter {
         this.refreshTrainingArtifacts(runtime)
         this.renameExportedModel(runtime)
         this.injectMetadataIntoExportedModel(runtime)
+        this.copyPublishedModelToOutputAudioFolder(runtime)
         this.refreshTrainingArtifacts(runtime)
         this.syncPublishedTerminalLog(runtime)
       } catch (error) {
@@ -1696,12 +1814,20 @@ export class QueueManager extends EventEmitter {
 
       await runTrainingProcess(configPaths)
       await finalizeSuccessfulRun()
+      return 'completed'
     } catch (error) {
+      if (isA2DiagnosticsPendingError(error)) {
+        this.blockRuntimeForPendingA2Diagnostics(runtime, error.message)
+        this.emitJobUpdate(runtime)
+        return 'blocked'
+      }
+
       runtime.status = 'failed'
       runtime.errorCategory = 'unknown_error'
       runtime.finishedAt = new Date().toISOString()
       this.appendUserMessage(runtime, `Training setup failed: ${String(error)}`)
       this.emitJobUpdate(runtime)
+      return 'completed'
     } finally {
       this.activeController = null
       this.stopOutputPolling()

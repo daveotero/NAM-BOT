@@ -6,6 +6,7 @@ import {
   getBestEsrLabel,
   getCollapsedSummaryItems,
   getElapsedLabel,
+  getStatusSentence,
   getPrimaryPackedSubmodel
 } from './job-helpers'
 
@@ -111,6 +112,21 @@ describe('getCollapsedSummaryItems', () => {
       { label: 'Elapsed', value: '1:00' }
     ])
   })
+
+  it('shows diagnostics-blocked queued jobs as blocked instead of ordinary waiting jobs', () => {
+    const runtime = buildRuntime({
+      status: 'queued',
+      errorCategory: 'a2_diagnostics_pending',
+      plannedEpochs: 100
+    })
+
+    expect(getStatusSentence(runtime)).toBe('Run Diagnostics to confirm NAM 0.13.0+ before this A2 job can start.')
+    expect(getCollapsedSummaryItems(runtime, 'A2 Packed WaveNet', nowMs)).toEqual([
+      { label: 'Blocked', value: 'Run Diagnostics', tone: 'error' },
+      { label: 'Preset', value: 'A2 Packed WaveNet' },
+      { label: 'Epochs', value: '100' }
+    ])
+  })
 })
 
 describe('checkpoint metric labels', () => {
@@ -138,23 +154,61 @@ describe('checkpoint metric labels', () => {
     expect(getPrimaryPackedSubmodel(runtime)?.submodelName).toBe('channels_8')
   })
 
-  it('uses friendly labels for official packed A2 submodels', () => {
-    expect(formatPackedSubmodelMetricLabel({
-      submodelIndex: 0,
-      submodelName: 'channels_3',
-      bestValidationEsr: 0.014,
-      epoch: 12,
-      step: 100,
-      checkpointPath: 'packed_best_submodel_0.ckpt'
-    })).toBe('A2 Lite ESR')
+  it('uses the heavy packed submodel as the primary ESR when available', () => {
+    const runtime = buildRuntime({
+      checkpointSummary: {
+        checkpointCount: 4,
+        bestValidationEsr: 0.0088,
+        packedSubmodels: [
+          {
+            submodelIndex: 0,
+            submodelName: 'channels_3',
+            bestValidationEsr: 0.02
+          },
+          {
+            submodelIndex: 1,
+            submodelName: 'channels_8',
+            bestValidationEsr: 0.0123
+          },
+          {
+            submodelIndex: 2,
+            submodelName: 'channels_12',
+            bestValidationEsr: 0.0088
+          }
+        ]
+      }
+    })
 
-    expect(formatPackedSubmodelMetricLabel({
-      submodelIndex: 1,
-      submodelName: 'channels_8',
-      bestValidationEsr: 0.009,
-      epoch: 12,
-      step: 100,
-      checkpointPath: 'packed_best_submodel_1.ckpt'
-    })).toBe('A2 Full ESR')
+    expect(getBestEsrLabel(runtime)).toBe('A2 Heavy ESR')
+    expect(getPrimaryPackedSubmodel(runtime)?.submodelName).toBe('channels_12')
+  })
+
+  it('uses friendly ESR labels by packed A2 channel range', () => {
+    const expectedLabels: Array<[number, string]> = [
+      [3, 'A2 Lite ESR'],
+      [4, 'A2 Full ESR'],
+      [8, 'A2 Full ESR'],
+      [9, 'A2 Heavy ESR'],
+      [12, 'A2 Heavy ESR'],
+      [13, 'A2 Ultra ESR'],
+      [16, 'A2 Ultra ESR'],
+      [17, 'A2 Mammoth ESR'],
+      [20, 'A2 Mammoth ESR'],
+      [21, 'A2 Colossal ESR'],
+      [24, 'A2 Colossal ESR'],
+      [25, 'A2 Leviathan ESR'],
+      [28, 'A2 Leviathan ESR']
+    ]
+
+    for (const [channels, expectedLabel] of expectedLabels) {
+      expect(formatPackedSubmodelMetricLabel({
+        submodelIndex: channels,
+        submodelName: `channels_${channels}`,
+        bestValidationEsr: 0.014,
+        epoch: 12,
+        step: 100,
+        checkpointPath: `packed_best_submodel_${channels}.ckpt`
+      })).toBe(expectedLabel)
+    }
   })
 })

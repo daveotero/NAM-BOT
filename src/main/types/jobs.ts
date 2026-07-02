@@ -1,5 +1,7 @@
 export {
   A1_STANDARD_PRESET_ID,
+  A2_HEAVY_12_PRESET_ID,
+  A2_ULTRA_20_PRESET_ID,
   DEFAULT_PRESET_ID,
   LEGACY_LSTM_PRESET_ID,
   MIN_A2_NAM_VERSION,
@@ -15,6 +17,9 @@ export {
   defaultJobSpec,
   getBuiltInPreset,
   formatPresetArchitectureTag,
+  formatPackedSubmodelDisplayName,
+  getPackedSubmodelSelectionKey,
+  getPackedSubmodelsForPreset,
   getPresetArchitectureVersion,
   isA2TrainingPreset,
   normalizeJobSpec,
@@ -35,6 +40,7 @@ export type {
   JobSpec,
   JobStatus,
   JobStopMode,
+  JobPackedSubmodelSelection,
   JobTerminalProgress,
   JobTrainingOverrides,
   ModelFamily,
@@ -43,6 +49,7 @@ export type {
   NamGearType,
   NamToneType,
   PresetCategory,
+  PackedPresetSubmodel,
   TrainingPresetExpertBlocks,
   TrainingPresetFile,
   TrainingPresetValues

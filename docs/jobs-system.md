@@ -49,7 +49,8 @@ Draft jobs are editable saved jobs that have not been frozen into the queue yet.
 - Draft cards expose `Edit`, `Queue`, `Copy`, and `Delete`.
 - Draft, queue, training, and finished cards show the selected preset's architecture tag: `A2`, `A1`, or `CUSTOM`.
 - Draft cards also expose `Create Batch`, which uses that draft as a template for multiple output audio files.
-- `Queue All` enqueues every valid draft and skips drafts missing required fields.
+- Draft cards can be reordered by drag-and-drop. The lowest visible draft is the first draft used by `Queue All`.
+- `Queue All` enqueues every valid draft from bottom to top and skips drafts missing required fields.
 - While a draft is being queued, its Queue button changes to `Queueing...` and draft actions are disabled to prevent duplicate enqueue clicks.
 - Draft delete confirmation includes a `Don't show this again` option that bypasses future draft-delete confirmations on that device.
 - New jobs default to the A2 preset and remember the last-used output root mode, the last-used exported-model naming preferences, and a small set of low-risk reusable capture fields.
@@ -58,11 +59,13 @@ Drafts are where users can iterate safely before they commit a run to the queue.
 
 ### Create Batch From A Draft Template
 
-`Create Batch` creates one new editable draft per selected output audio file.
+`Create Batch` opens a batch editor after output audio files are selected, then creates one new editable draft per selected output audio file when saved.
 
 - the selected draft is the explicit template source
-- shared template fields are copied into each generated draft
+- queued and finished runtime cards can also be used as the explicit template source through `Create Batch` / `Use as Template`
+- shared template fields can be reviewed and edited once before the generated drafts are created
 - job name and NAM model name are regenerated from each output filename without its extension
+- if the batch editor's shared metadata model name is left blank, each generated model uses its output filename; if a shared metadata model name is typed, every generated draft uses that value
 - the template draft, generated drafts, and their later training/finished cards show a `Batch: <template name>` badge for traceability
 - generated drafts are still normal drafts and can be edited independently before queueing
 
@@ -89,7 +92,8 @@ The batch badge is display-only. It does not create a locked group, and editing 
 The Jobs page supports dragging output audio files directly onto the main panel.
 
 - supported file extensions include `.wav`, `.mp3`, and `.flac`
-- each dropped output file becomes its own draft
+- dropping or selecting one output file creates one draft directly
+- dropping or selecting multiple output files opens the batch editor before any drafts are created
 - the draft name defaults to the output filename without extension
 - the NAM model name defaults to the output filename without extension
 - the output root defaults to the dropped file's directory
@@ -122,6 +126,7 @@ The editor shows `Save Job` buttons at both the top and bottom of the form.
 - Save buttons turn green only when the job has unsaved changes and the current editor state is valid to save.
 - `Use Output Filename` beside Job Name and Model Name copies the selected output audio filename stem into that field.
 - Clicking `Cancel` with unsaved edits opens a confirm dialog so the user can save, keep editing, or discard changes.
+- Choosing another app section from the sidebar or app menu while the editor has unsaved edits opens a discard warning before navigation.
 
 ### Input Audio Modes
 
@@ -175,6 +180,8 @@ The final exported `.nam` filename always starts with the job name.
   - adds the selected preset name after the job name
 - `Append final ESR`
   - adds the best validation ESR after the preset segment when enabled, or directly after the job name when preset naming is off
+- `Also copy final model to output audio folder`
+  - keeps the finalized `.nam` in the training folder, then writes an additional copy beside the selected output audio file
 
 The suffix order is fixed so filenames read consistently:
 
@@ -191,9 +198,10 @@ Queued jobs appear in their own section.
 - `Unqueue All` restores waiting queue items back into drafts
 - individual queued jobs can also be unqueued one at a time
 
-The queue UI shows the queued list in reverse visual order compared to the internal logical queue so the "next up" behavior feels natural in the interface.
+The queue UI follows the same bottom-first execution model as drafts. The lowest visible queued job is the next item to move into Training, and drag-and-drop reordering preserves that logical order.
 
-- A2 jobs are preflighted before enqueue. If the selected NAM environment is missing or older than `neural-amp-modeler` `0.13.0`, enqueue is blocked with an upgrade command.
+- A2 jobs are preflighted before enqueue. If the selected NAM environment is confirmed older than `neural-amp-modeler` `0.13.0`, enqueue is blocked with an upgrade command.
+- If Diagnostics has not confirmed the selected NAM version yet, A2 jobs can be queued but pause as diagnostics-blocked queued items instead of failing. Run Diagnostics or `Re-check All` to confirm the environment; a valid NAM version resumes the queue automatically.
 - Batch enqueue preflights all selected drafts before adding any of them to the queue so partial A2 batch enqueue does not occur.
 - The A2 gate uses the NAM version already collected by Diagnostics so queueing drafts does not spawn new Python probes while another job is training.
 - The renderer shows an immediate queueing state while this preflight runs so validation does not look like a missed click.
@@ -205,6 +213,7 @@ Active jobs appear in the training section.
 - active jobs surface stop and force-stop controls
 - terminal logs can be expanded and refreshed while a job is active
 - while a run is active, elapsed time is measured from the start of the training run; remaining-time estimates are intentionally not shown because they proved unreliable across NAM training runs
+- expanded active-job details use a compact three-column layout: preset/training facts, ESR comparison, and artifact links
 
 ### Finished View
 
@@ -217,6 +226,7 @@ Completed, failed, and stopped jobs appear in the finished section.
 - terminal logs can be expanded after the run has finished
 - `Clear Finished` removes all finished runtime entries from the finished section
 - individual finished items can also be cleared from their card
+- expanded finished-job details use the same compact layout as active jobs, with artifact links instead of full path rows
 - across queue, training, and finished sections, collapsed runtime cards show status-specific quick stats:
   - queued and validating cards show preset and planned epochs
   - preparing cards show preset, detected device summary, and planned epochs
@@ -224,7 +234,11 @@ Completed, failed, and stopped jobs appear in the finished section.
   - successful cards show preset, total runtime, and best ESR
   - failed and canceled cards prioritize total runtime and failure or stop reason, with ESR when available
 
-For A2 Packed WaveNet jobs, NAM-BOT uses the highest-quality packed submodel as the primary ESR. With the built-in A2 preset, that means A2 Full ESR is used for the headline runtime card, exported filename ESR suffix, and official `metadata.training.validation_esr` value. Expanded details show all available packed submodel ESRs, including A2 Full and A2 Lite, when NAM writes `packed_best.json`. NAM's aggregate packed ESR is not surfaced because it is a sum across submodels rather than the value most users compare against A1.
+For A2 Packed WaveNet jobs, NAM-BOT uses the highest-quality packed submodel as the primary ESR. With the default built-in A2 preset, that means A2 Full ESR is used for the headline runtime card, exported filename ESR suffix, and official `metadata.training.validation_esr` value. With the bundled A2 Heavy 12 preset, the `channels_12` Heavy submodel becomes the primary ESR because it is the highest-quality packed tier. Expanded details show all available packed submodel ESRs as a compact single-column comparison list from smallest to largest tier when NAM writes `packed_best.json`. NAM's aggregate packed ESR is not surfaced because it is a sum across submodels rather than the value most users compare against A1.
+
+Expanded active and finished cards show compact text links for available artifacts, including the workspace folder, output folder, workspace terminal log, saved run log, and model file. Hovering a link shows the full path. Folder links open directly; file links reveal the file in its folder. Links are job-scoped through IPC so the renderer only asks NAM-BOT to open known artifacts for that runtime entry.
+
+While the queue runner is processing training work, NAM-BOT starts Electron's system sleep blocker. Windows uses `prevent-display-sleep`, the strongest Electron blocker, to avoid system sleep during long batches and during handoff between queued jobs. Other platforms use `prevent-app-suspension`, which keeps the system active while still allowing the display to sleep. The blocker is released as soon as the queue runner is idle and no active training job remains, or when the app exits.
 
 ## Job Schema
 
@@ -241,6 +255,7 @@ interface JobSpec {
   presetId: string | null
   appendPresetToModelFileName: boolean
   appendEsrToModelFileName: boolean
+  copyFinalModelToOutputAudioFolder: boolean
   inputAudioPath: string
   inputAudioIsDefault: boolean
   outputAudioPath: string
@@ -260,6 +275,10 @@ interface JobSpec {
     epochs?: number
     latencyMode?: 'manual' | 'auto'
     latencySamples?: number
+    packedSubmodels?: Array<{
+      submodelIndex: number
+      submodelName?: string | null
+    }>
   }
   uiNotes?: string
 }
@@ -271,15 +290,17 @@ interface JobSpec {
 - `inputAudioIsDefault` records whether the bundled default training signal is being used.
 - `outputRootDirIsDefault` tracks whether the root is following an automatic mode versus a custom folder choice.
 - `trainingOverrides` are intentionally narrow. Jobs override only the fields that need run-specific flexibility.
+- `trainingOverrides.packedSubmodels` is optional. When omitted, A2 Packed WaveNet jobs train every submodel declared by the selected preset. When present, NAM-BOT filters `model.net.config.submodels` by submodel index and name before writing `model.json`.
 - `metadata` is for NAM artifact tagging, not for configuring the core training recipe.
 - After a successful export, NAM-BOT also writes back metadata it can derive reliably. It updates `metadata.date`, writes the final validation ESR to `metadata.training.validation_esr`, and writes NAM-BOT-specific traceability under `metadata.nam_bot`.
-- For packed A2 exports, `metadata.training.validation_esr` uses the A2 Full ESR when packed submodel metrics are available. Per-submodel ESRs are written under `metadata.nam_bot.packed_submodels` because NAM's official training metadata schema currently exposes only one `validation_esr` field.
+- For packed A2 exports, `metadata.training.validation_esr` uses the highest-quality packed submodel ESR when packed submodel metrics are available. With the default built-in A2 preset this is A2 Full; with the bundled A2 Heavy 12 preset this is A2 Heavy. Per-submodel ESRs are written under `metadata.nam_bot.packed_submodels` because NAM's official training metadata schema currently exposes only one `validation_esr` field.
 - `metadata.nam_bot` is intentionally outside the official NAM `metadata.training` object so custom fields do not interfere with plugin parsers that expect the NAM Trainer schema. Current NAM-BOT fields are `trained_epochs`, `preset_name`, `manual_latency_samples`, and `auto_latency_samples`.
 - Older models that still contain NAM-BOT traceability under `metadata.training.nam_bot` are treated as legacy-compatible input if NAM-BOT rewrites metadata again; those values are migrated into `metadata.nam_bot` rather than preserved inside `metadata.training`.
 - `appendPresetToModelFileName` controls whether the exported `.nam` file includes the selected preset name after the job name.
 - `appendEsrToModelFileName` controls whether the exported `.nam` file includes the best validation ESR after training finishes.
+- `copyFinalModelToOutputAudioFolder` keeps the normal training-folder model and publishes an additional finalized copy into the directory containing `outputAudioPath`.
 - `batchId` and `batchSourceName` are optional display-only traceability fields for drafts and runtime cards created from the same batch/template flow.
-- New jobs seed both filename options from the user's most recent checkbox choices in the job editor.
+- New jobs seed filename and final-copy options from the user's most recent checkbox choices in the job editor.
 
 ## Runtime State
 
@@ -357,6 +378,10 @@ NAM-BOT's auto-align path intentionally reuses the latency analyzer from the off
 
 This is a preflight step because `nam-full` expects a concrete `data.common.delay` value. NAM-BOT calculates that value first, then launches `nam-full` with ordinary config files.
 
+When changing presets, the job editor adopts the next preset's epoch default only if the current epoch value still matches the previous preset default. Manually customized epoch values are preserved across preset changes.
+
+For Packed WaveNet presets with three or more submodels, the job editor shows an advanced packed-submodel checklist next to the preset selector. Every tier is selected by default. Deselecting tiers stores a job-level `packedSubmodels` override, which lets experimental presets such as Heavy or Ultra packs train only a subset of their declared submodels without creating another preset.
+
 ## Queue Lifecycle
 
 The normal job lifecycle is:
@@ -420,8 +445,8 @@ This is handled by the queue manager and represents queued, active, and historic
 
 The open job editor session is renderer-memory only.
 
-- switching to another section does not discard the open editor session
-- returning to Jobs restores the in-progress editor state
+- switching to another section with unsaved edits prompts before discarding the open editor session
+- canceling that prompt keeps the user on the editor with the in-progress state intact
 - the renderer session includes form values, selected preset, input mode, output-root mode, and validation visibility
 - closing the app still discards an unsaved editor session that was never saved as a draft
 
@@ -450,6 +475,7 @@ Important IPC handlers include:
 - `jobs:saveDraft`
 - `jobs:deleteDraft`
 - `jobs:listDrafts`
+- `jobs:reorderDrafts`
 - `jobs:enqueue`
 - `jobs:enqueueMany`
 - `jobs:unqueue`
