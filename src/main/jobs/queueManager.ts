@@ -242,9 +242,16 @@ function deriveTrainedEpochs(runtime: JobRuntimeState): number | null {
 
 function readConfirmedTrainingMetadata(runtime: JobRuntimeState): ConfirmedNamTrainingMetadata {
   const trainingMetadata: ConfirmedNamTrainingMetadata = {}
-  const bestValidationEsr = runtime.checkpointSummary?.bestValidationEsr
-  if (bestValidationEsr != null) {
-    trainingMetadata.validationEsr = bestValidationEsr
+  const checkpointSummary = runtime.checkpointSummary
+  const validationEsr =
+    checkpointSummary?.bestValidationEsrKind === 'aggregate'
+      ? checkpointSummary.packedSubmodels?.find(
+          (submodel) => submodel.submodelName === 'channels_8'
+        )?.bestValidationMetric
+      : checkpointSummary?.bestValidationEsr
+
+  if (validationEsr != null) {
+    trainingMetadata.validationEsr = validationEsr
   }
 
   const packedSubmodels = runtime.checkpointSummary?.packedSubmodels
