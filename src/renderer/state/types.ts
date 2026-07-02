@@ -34,6 +34,7 @@ export type {
   JobCheckpointSummary,
   JobDeviceSummary,
   JobLogSummary,
+  JobLatencyMode,
   JobPackedSubmodelCheckpointSummary,
   JobRuntimeState,
   JobSpec,

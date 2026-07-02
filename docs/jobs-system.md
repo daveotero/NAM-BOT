@@ -273,6 +273,7 @@ interface JobSpec {
   }
   trainingOverrides: {
     epochs?: number
+    latencyMode?: 'manual' | 'auto'
     latencySamples?: number
     packedSubmodels?: Array<{
       submodelIndex: number
@@ -293,7 +294,7 @@ interface JobSpec {
 - `metadata` is for NAM artifact tagging, not for configuring the core training recipe.
 - After a successful export, NAM-BOT also writes back metadata it can derive reliably. It updates `metadata.date`, writes the final validation ESR to `metadata.training.validation_esr`, and writes NAM-BOT-specific traceability under `metadata.nam_bot`.
 - For packed A2 exports, `metadata.training.validation_esr` uses the highest-quality packed submodel ESR when packed submodel metrics are available. With the default built-in A2 preset this is A2 Full; with the bundled A2 Heavy 12 preset this is A2 Heavy. Per-submodel ESRs are written under `metadata.nam_bot.packed_submodels` because NAM's official training metadata schema currently exposes only one `validation_esr` field.
-- `metadata.nam_bot` is intentionally outside the official NAM `metadata.training` object so custom fields do not interfere with plugin parsers that expect the NAM Trainer schema. Current NAM-BOT fields are `trained_epochs`, `preset_name`, and `manual_latency_samples`.
+- `metadata.nam_bot` is intentionally outside the official NAM `metadata.training` object so custom fields do not interfere with plugin parsers that expect the NAM Trainer schema. Current NAM-BOT fields are `trained_epochs`, `preset_name`, `manual_latency_samples`, and `auto_latency_samples`.
 - Older models that still contain NAM-BOT traceability under `metadata.training.nam_bot` are treated as legacy-compatible input if NAM-BOT rewrites metadata again; those values are migrated into `metadata.nam_bot` rather than preserved inside `metadata.training`.
 - `appendPresetToModelFileName` controls whether the exported `.nam` file includes the selected preset name after the job name.
 - `appendEsrToModelFileName` controls whether the exported `.nam` file includes the best validation ESR after training finishes.
@@ -356,11 +357,26 @@ The friendly job editor fields map to concrete training behavior.
 - `Epochs`
   - overrides the preset default unless the preset locks that field
 - `Latency / Delay`
-  - writes to `data.common.delay` for `nam-full`
+  - supports `Manual` and `Auto-align`
+  - `Manual` writes the entered value to `data.common.delay` for `nam-full`
+  - manual `0` means no latency correction and no auto calculation
+  - `Auto-align` runs NAM's standard-input latency analyzer before training, then writes the calculated value to `data.common.delay`
 - `NAM Metadata`
   - is written back into the final `.nam` file after a successful run
 
 If a selected preset locks epochs or latency through expert config, the job editor shows those fields as read-only.
+
+### Latency Auto-Alignment
+
+NAM-BOT's auto-align path intentionally reuses the latency analyzer from the official NAM GUI trainer rather than maintaining a separate DSP implementation.
+
+- auto-align detects the standard NAM input version through NAM itself
+- recognized NAM training DIs with built-in ticks, including v2 and v3, can be analyzed because NAM stores separate tick-location data for each version
+- custom or unrecognized input files may fail auto-align and should use manual latency instead
+- if NAM cannot calculate a recommended delay, the job fails before training starts so the user can switch to `Manual` and enter a known value
+- when auto-align succeeds, the queue log shows the calculated sample delay before `nam-full` starts
+
+This is a preflight step because `nam-full` expects a concrete `data.common.delay` value. NAM-BOT calculates that value first, then launches `nam-full` with ordinary config files.
 
 When changing presets, the job editor adopts the next preset's epoch default only if the current epoch value still matches the previous preset default. Manually customized epoch values are preserved across preset changes.
 
@@ -514,6 +530,7 @@ This separation keeps:
   },
   "trainingOverrides": {
     "epochs": 100,
+    "latencyMode": "auto",
     "latencySamples": 0
   }
 }
@@ -527,11 +544,13 @@ Current built-in job defaults are aligned with the default A2 Packed WaveNet pre
 - preset defaults to `a2-packed-wavenet`
 - input audio defaults to the bundled NAM v3 training signal
 - epochs default to the preset epoch default
-- latency defaults to `0` until the user saves a different value
+- latency mode defaults to `Auto-align` for the first new job
+- after saving a job, future new drafts reuse the last saved `Manual` or `Auto-align` latency mode
+- manual latency samples reuse the most recently saved manual value
 - output root defaults to `Settings Default` when `Default Model Output Root` is configured
 - otherwise output root defaults to the training output file folder
 - once the user saves a different output-root mode, future new drafts reuse that preference
-- custom input audio mode/path, latency, modeled by, send level, and return level reuse the most recently saved job values
+- custom input audio mode/path, latency mode, manual latency, modeled by, send level, and return level reuse the most recently saved job values
 - broader NAM metadata is not silently copied from the previous job unless the user explicitly uses a draft as a batch template
 
 ## Future Extensions

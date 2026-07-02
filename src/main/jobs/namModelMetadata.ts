@@ -10,6 +10,7 @@ export interface ConfirmedNamTrainingMetadata {
   validationEsr?: number
   packedSubmodels?: ConfirmedPackedSubmodelTrainingMetadata[]
   manualLatency?: number | null
+  autoLatency?: number | null
   trainedEpochs?: number
   presetName?: string
 }
@@ -38,6 +39,12 @@ function hasManualLatency(
   value: ConfirmedNamTrainingMetadata
 ): value is ConfirmedNamTrainingMetadata & { manualLatency: number | null | undefined } {
   return Object.prototype.hasOwnProperty.call(value, 'manualLatency')
+}
+
+function hasAutoLatency(
+  value: ConfirmedNamTrainingMetadata
+): value is ConfirmedNamTrainingMetadata & { autoLatency: number | null | undefined } {
+  return Object.prototype.hasOwnProperty.call(value, 'autoLatency')
 }
 
 function isPositiveInteger(value: unknown): value is number {
@@ -120,6 +127,10 @@ function buildNamBotMetadata(
     nextNamBotMetadata.manual_latency_samples = confirmedTrainingMetadata.manualLatency ?? null
   }
 
+  if (hasAutoLatency(confirmedTrainingMetadata)) {
+    nextNamBotMetadata.auto_latency_samples = confirmedTrainingMetadata.autoLatency ?? null
+  }
+
   if (confirmedTrainingMetadata.packedSubmodels && confirmedTrainingMetadata.packedSubmodels.length > 0) {
     nextNamBotMetadata.packed_submodels = confirmedTrainingMetadata.packedSubmodels.map((submodel) => ({
       submodel_index: submodel.submodelIndex,
@@ -141,6 +152,7 @@ export function hasNamModelMetadataUpdates(
     || confirmedTrainingMetadata.validationEsr != null
     || (confirmedTrainingMetadata.packedSubmodels != null && confirmedTrainingMetadata.packedSubmodels.length > 0)
     || hasManualLatency(confirmedTrainingMetadata)
+    || hasAutoLatency(confirmedTrainingMetadata)
     || isPositiveInteger(confirmedTrainingMetadata.trainedEpochs)
     || isNonEmptyString(confirmedTrainingMetadata.presetName)
 }

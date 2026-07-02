@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Jobs now support a `Manual` or `Auto-align` latency mode, defaulting new jobs to auto-align while remembering the user's last saved mode.
+- Auto-align jobs now run NAM's standard input latency analyzer before training and pass the calculated delay into `nam-full`.
+
+### Changed
+
+- Manual latency `0` now explicitly means no correction and no auto-calculation, preserving manually aligned capture workflows.
+
 ## [0.6.1] - 2026-07-02
 
 ### Added

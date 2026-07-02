@@ -103,10 +103,25 @@ describe('validateJobSpec', () => {
     expect(result.errors).toContain('Latency must be a valid number')
   })
 
+  it('rejects invalid latency modes', () => {
+    const job = buildJobSpec({
+      trainingOverrides: {
+        latencyMode: 'manual'
+      }
+    })
+    job.trainingOverrides.latencyMode = 'automatic' as JobSpec['trainingOverrides']['latencyMode']
+
+    const result = validateJobSpec(job)
+
+    expect(result.valid).toBe(false)
+    expect(result.errors).toContain('Latency mode must be manual or auto')
+  })
+
   it('accepts minimum epochs and zero latency', () => {
     expect(validateJobSpec(buildJobSpec({
       trainingOverrides: {
         epochs: 1,
+        latencyMode: 'manual',
         latencySamples: 0
       }
     }))).toEqual({
@@ -117,6 +132,22 @@ describe('validateJobSpec', () => {
 })
 
 describe('buildJobConfigs', () => {
+  it('preserves manual zero latency in data.common.delay', () => {
+    const tempDir = createTempDir()
+    const preset = getBuiltInPreset(DEFAULT_PRESET_ID)
+    const paths = buildJobConfigs(buildJobSpec({
+      trainingOverrides: {
+        latencyMode: 'manual',
+        latencySamples: 0
+      }
+    }), tempDir, preset)
+    const dataConfig = JSON.parse(readFileSync(paths.dataConfig, 'utf-8')) as {
+      common?: { delay?: number }
+    }
+
+    expect(dataConfig.common?.delay).toBe(0)
+  })
+
   it('keeps the strict final 9 second validation split for default input audio', () => {
     const tempDir = createTempDir()
     const preset = getBuiltInPreset(DEFAULT_PRESET_ID)

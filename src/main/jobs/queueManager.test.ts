@@ -17,6 +17,7 @@ vi.mock('electron', () => ({
 
 const runNamFullMock = vi.hoisted(() => vi.fn())
 const inspectTorchRuntimeMock = vi.hoisted(() => vi.fn())
+const analyzeNamLatencyMock = vi.hoisted(() => vi.fn())
 
 vi.mock('../backend/adapter', () => {
   function compareVersions(left: string, right: string): number {
@@ -36,6 +37,7 @@ vi.mock('../backend/adapter', () => {
   }
 
   return {
+    analyzeNamLatency: analyzeNamLatencyMock,
     compareVersions,
     inspectTorchRuntime: inspectTorchRuntimeMock,
     runNamFull: runNamFullMock
@@ -58,7 +60,8 @@ function buildJobSpec(overrides: Partial<JobSpec> = {}): JobSpec {
     outputAudioPath: `${mockPaths.userDataPath}/output.wav`,
     outputRootDir: `${mockPaths.userDataPath}/models`,
     trainingOverrides: {
-      ...defaultJobSpec.trainingOverrides
+      ...defaultJobSpec.trainingOverrides,
+      latencyMode: 'manual'
     }
   }
 
@@ -83,6 +86,7 @@ beforeEach(() => {
   mkdirSync(mockPaths.userDataPath, { recursive: true })
   runNamFullMock.mockReset()
   inspectTorchRuntimeMock.mockReset()
+  analyzeNamLatencyMock.mockReset()
   inspectTorchRuntimeMock.mockResolvedValue(null)
 })
 

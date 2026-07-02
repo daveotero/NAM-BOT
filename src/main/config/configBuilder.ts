@@ -297,6 +297,11 @@ export function validateJobSpec(job: JobSpec): { valid: boolean; errors: string[
     errors.push('Epochs must be at least 1')
   }
 
+  const latencyMode = job.trainingOverrides.latencyMode ?? 'manual'
+  if (latencyMode !== 'manual' && latencyMode !== 'auto') {
+    errors.push('Latency mode must be manual or auto')
+  }
+
   if (!Number.isFinite(job.trainingOverrides.latencySamples ?? 0)) {
     errors.push('Latency must be a valid number')
   }

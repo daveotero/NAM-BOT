@@ -3,15 +3,19 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   A1_STANDARD_PRESET_ID,
   DEFAULT_PRESET_ID,
+  defaultJobSpec,
   createTrainingPreset
 } from '../../state/types'
 import {
   LAST_COPY_FINAL_MODEL_TO_OUTPUT_AUDIO_FOLDER_STORAGE_KEY,
+  LAST_LATENCY_MODE_STORAGE_KEY,
+  LAST_LATENCY_SAMPLES_STORAGE_KEY,
   LAST_USED_PRESET_STORAGE_KEY,
+  applyStoredReusableDefaults,
   createNewJobDraft
 } from './jobEditorSession'
 
-function stubLocalStorage(initialValues: Record<string, string> = {}): void {
+function stubLocalStorage(initialValues: Record<string, string> = {}): Map<string, string> {
   const values = new Map(Object.entries(initialValues))
 
   vi.stubGlobal('window', {
@@ -21,6 +25,8 @@ function stubLocalStorage(initialValues: Record<string, string> = {}): void {
       removeItem: (key: string) => values.delete(key)
     }
   })
+
+  return values
 }
 
 afterEach(() => {
@@ -66,6 +72,18 @@ describe('createNewJobDraft', () => {
     expect(draft.presetId).toBe(DEFAULT_PRESET_ID)
   })
 
+  it('defaults new drafts to auto latency mode when no user preference is stored', () => {
+    stubLocalStorage()
+
+    const draft = createNewJobDraft({
+      settings: null,
+      presets: [createTrainingPreset({ id: DEFAULT_PRESET_ID, name: 'A2 Packed WaveNet', visible: true })]
+    })
+
+    expect(draft.trainingOverrides.latencyMode).toBe('auto')
+    expect(draft.trainingOverrides.latencySamples).toBe(0)
+  })
+
   it('applies the remembered final model copy preference to new drafts', () => {
     stubLocalStorage({
       [LAST_COPY_FINAL_MODEL_TO_OUTPUT_AUDIO_FOLDER_STORAGE_KEY]: 'true'
@@ -83,5 +101,31 @@ describe('createNewJobDraft', () => {
     })
 
     expect(draft.copyFinalModelToOutputAudioFolder).toBe(true)
+  })
+})
+
+describe('applyStoredReusableDefaults', () => {
+  it('reuses manual latency mode and samples after the user saves manual latency', () => {
+    stubLocalStorage({
+      [LAST_LATENCY_MODE_STORAGE_KEY]: 'manual',
+      [LAST_LATENCY_SAMPLES_STORAGE_KEY]: '128'
+    })
+
+    const job = applyStoredReusableDefaults({ ...defaultJobSpec }, null)
+
+    expect(job.trainingOverrides.latencyMode).toBe('manual')
+    expect(job.trainingOverrides.latencySamples).toBe(128)
+  })
+
+  it('reuses auto latency mode without applying stale manual samples', () => {
+    stubLocalStorage({
+      [LAST_LATENCY_MODE_STORAGE_KEY]: 'auto',
+      [LAST_LATENCY_SAMPLES_STORAGE_KEY]: '256'
+    })
+
+    const job = applyStoredReusableDefaults({ ...defaultJobSpec }, null)
+
+    expect(job.trainingOverrides.latencyMode).toBe('auto')
+    expect(job.trainingOverrides.latencySamples).toBe(0)
   })
 })

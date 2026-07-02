@@ -31,6 +31,7 @@ import {
   JobRuntimeState,
   JobStatus,
   JobStopMode,
+  JobLatencyMode,
   NAM_GEAR_TYPE_OPTIONS,
   NAM_TONE_TYPE_OPTIONS,
   NamEmbeddedMetadata,
@@ -1211,6 +1212,8 @@ function JobEditor({
     ?? visiblePresets[0]
   const epochsLocked = selectedPreset?.lockedJobFields.includes('epochs') ?? false
   const latencyLocked = selectedPreset?.lockedJobFields.includes('latencySamples') ?? false
+  const latencyMode = editedJob.trainingOverrides?.latencyMode ?? 'manual'
+  const latencyInputDisabled = latencyLocked || latencyMode === 'auto'
   const packedSubmodelOptions = useMemo(
     () => selectedPreset ? getPackedSubmodelsForPreset(selectedPreset) : [],
     [selectedPreset]
@@ -1383,6 +1386,20 @@ function JobEditor({
       job: {
         ...editedJob,
         trainingOverrides: withPackedSubmodelSelection(editedJob.trainingOverrides, packedOverride)
+      }
+    })
+  }
+
+  const updateLatencyMode = (nextMode: JobLatencyMode): void => {
+    onSessionChange({
+      ...session,
+      job: {
+        ...editedJob,
+        trainingOverrides: {
+          ...editedJob.trainingOverrides,
+          latencyMode: nextMode,
+          latencySamples: editedJob.trainingOverrides?.latencySamples ?? 0
+        }
       }
     })
   }
@@ -1813,12 +1830,30 @@ function JobEditor({
 
               <div className="form-group">
                 <label className="form-label" htmlFor="latency-samples">Latency / Delay (samples)</label>
+                <div className="toggle-group" style={{ marginBottom: '10px' }}>
+                  <button
+                    type="button"
+                    className={`btn btn-sm ${latencyMode === 'manual' ? 'btn-blue' : 'btn-secondary'}`}
+                    disabled={latencyLocked}
+                    onClick={() => updateLatencyMode('manual')}
+                  >
+                    Manual
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn btn-sm ${latencyMode === 'auto' ? 'btn-green' : 'btn-secondary'}`}
+                    disabled={latencyLocked}
+                    onClick={() => updateLatencyMode('auto')}
+                  >
+                    Auto-align
+                  </button>
+                </div>
                 <input
                   id="latency-samples"
                   type="number"
                   className="form-input"
                   value={editedJob.trainingOverrides?.latencySamples ?? 0}
-                  disabled={latencyLocked}
+                  disabled={latencyInputDisabled}
                   onChange={(e) => onSessionChange({
                     ...session,
                     job: {
@@ -1831,11 +1866,11 @@ function JobEditor({
                   })}
                 />
                 <p style={{ color: 'var(--text-steel)', fontSize: '12px', marginTop: '6px' }}>
-                  This writes to `data.common.delay` for `nam-full`. Use `0` only if the files are already aligned.
+                  Manual writes this exact value to `data.common.delay`; `0` means no latency correction. Auto-align runs NAM's standard-input analyzer before training and fills in the calculated delay.
                 </p>
                 {latencyLocked && (
                   <p style={{ color: 'var(--text-steel)', fontSize: '12px', marginTop: '6px' }}>
-                    This preset locks delay through its expert data config.
+                    This preset locks delay through its expert data config, so NAM-BOT will not run auto-align for this job.
                   </p>
                 )}
               </div>

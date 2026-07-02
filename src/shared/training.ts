@@ -17,6 +17,7 @@ export type ModelFamily = 'WaveNet' | 'PackedWaveNet' | 'LSTM'
 export type ArchitectureSize = 'standard' | 'lite' | 'feather' | 'nano' | 'packed' | 'custom'
 export type NamGearType = 'amp' | 'pedal' | 'pedal_amp' | 'amp_cab' | 'amp_pedal_cab' | 'preamp' | 'studio'
 export type NamToneType = 'clean' | 'overdrive' | 'crunch' | 'hi_gain' | 'fuzz'
+export type JobLatencyMode = 'manual' | 'auto'
 
 export interface JobLogSummary {
   latestTerminalLine?: string | null
@@ -76,6 +77,7 @@ export interface NamEmbeddedMetadata {
 
 export interface JobTrainingOverrides {
   epochs?: number
+  latencyMode?: JobLatencyMode
   latencySamples?: number
   packedSubmodels?: JobPackedSubmodelSelection[]
 }
@@ -271,6 +273,7 @@ export const defaultJobSpec: Omit<JobSpec, 'id' | 'createdAt' | 'updatedAt'> = {
   },
   trainingOverrides: {
     epochs: 200,
+    latencyMode: 'auto',
     latencySamples: 0
   },
   uiNotes: ''
@@ -305,6 +308,10 @@ function asNullableFiniteNumber(value: unknown, fallback: number | null): number
 
 function asString(value: unknown, fallback: string): string {
   return typeof value === 'string' ? value : fallback
+}
+
+function normalizeLatencyMode(value: unknown, fallback: JobLatencyMode): JobLatencyMode {
+  return value === 'manual' || value === 'auto' ? value : fallback
 }
 
 function asOptionalTrimmedString(value: unknown): string | undefined {
@@ -1049,8 +1056,13 @@ export function normalizeJobSpec(value: unknown): JobSpec {
 
   const legacyLearningSettings = isRecord(value.learningSettings) ? value.learningSettings : {}
   const legacyModelSettings = isRecord(value.modelSettings) ? value.modelSettings : {}
-  const trainingOverrides = isRecord(value.trainingOverrides) ? value.trainingOverrides : {}
+  const hasTrainingOverrides = isRecord(value.trainingOverrides)
+  const trainingOverrides = hasTrainingOverrides ? value.trainingOverrides : {}
   const legacyModelType = asString(legacyModelSettings.modelType, '')
+  const hasLegacyLatencySamples = Object.prototype.hasOwnProperty.call(trainingOverrides, 'latencySamples')
+  const latencyModeFallback: JobLatencyMode = Object.prototype.hasOwnProperty.call(trainingOverrides, 'latencyMode')
+    ? defaultJobSpec.trainingOverrides.latencyMode ?? 'auto'
+    : hasLegacyLatencySamples ? 'manual' : defaultJobSpec.trainingOverrides.latencyMode ?? 'auto'
 
   let presetId = typeof value.presetId === 'string' ? value.presetId : base.presetId
   if (!presetId) {
@@ -1082,6 +1094,7 @@ export function normalizeJobSpec(value: unknown): JobSpec {
     metadata: normalizeNamMetadata(value.metadata),
     trainingOverrides: {
       epochs: asPositiveInt(trainingOverrides.epochs, asPositiveInt(legacyLearningSettings.epochs, defaultJobSpec.trainingOverrides.epochs ?? 100)),
+      latencyMode: normalizeLatencyMode(trainingOverrides.latencyMode, latencyModeFallback),
       latencySamples: Math.round(
         asFiniteNumber(
           trainingOverrides.latencySamples,
