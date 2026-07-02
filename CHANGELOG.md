@@ -7,23 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-07-02
+
 ### Added
 
 - Bundled `A2 Packed WaveNet Heavy 12`, an experimental built-in A2 quality preset with the official 3-channel Lite and 8-channel Full tiers plus a 12-channel Heavy tier and a 400-epoch default.
 - Bundled `A2 Packed WaveNet Ultra 20`, an experimental five-tier A2 preset with Lite, Full, Heavy, Ultra, and Mammoth submodels and a 666-epoch default.
-- Standard `A2 Packed WaveNet` jobs now default to `200` epochs.
-- Preset cards now show declared Packed WaveNet submodel tiers in expanded details, including imported custom packs such as larger Ultra-style experiments.
 - Jobs using Packed WaveNet presets with three or more submodels now expose an advanced per-run submodel checklist, defaulting to all tiers while allowing smaller experimental runs without creating another preset.
 - Multi-file output audio drops and selections now open a batch training editor so shared settings can be reviewed once before drafts are created.
 - Queued job cards now expose `Create Batch` so waiting jobs can be reused as batch templates.
 - Draft jobs can now be reordered by drag-and-drop, matching the queued job ordering workflow.
-- NAM-BOT now keeps the power-save blocker active across queued training handoffs, and Windows training runs use Electron's stronger `prevent-display-sleep` blocker to avoid system sleep during long batches.
+- Finished and active job details now include compact artifact links for workspace folders, output folders, run logs, and model files.
 
 ### Changed
 
-- Packed A2 ESR labeling now identifies the 12-channel tier as `A2 Heavy ESR`, the 16-channel tier as `A2 Ultra ESR`, and the 20-channel tier as `A2 Mammoth ESR`; packed exports continue to use the highest-quality selected tier as the headline ESR.
+- Standard `A2 Packed WaveNet` jobs now default to `200` epochs.
+- Packed A2 tier labeling is now range-based, extending beyond Mammoth with Colossal and Leviathan names for custom larger packs.
 - Changing a job's preset now adopts the next preset's epoch default only when the current value still matches the previous preset default, preserving manually customized epoch counts.
-- The job editor now places advanced packed-submodel selection beside the preset picker in a vertical checklist, and expanded preset cards show packed bundles as itemized tiers.
+- The job editor now places advanced packed-submodel selection beside the preset picker in a vertical checklist, and the final model copy option now sits with the output-root controls.
+- Expanded job and preset cards now use compact column layouts for easier scanning of packed ESRs, artifact links, preset values, and packed tiers.
+- Preset cards now use the same non-button click-to-expand behavior as runtime cards and organize actions into compact right-side rows.
 - The sidebar Diagnostics item now shows a small rotating work indicator while diagnostics checks are running.
 - Jobs can now also copy the finalized `.nam` model into the output audio file's folder while keeping logs, checkpoints, and the original finalized model in the training folder.
 - Draft and queue lists now use a consistent bottom-first execution model: the lowest visible draft queues first, and the lowest visible queued job trains next.
@@ -31,6 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - A2 jobs with an unconfirmed NAM version now stay queued with a diagnostics-required notice instead of moving straight to failed before training starts.
+- NAM-BOT now keeps the power-save blocker active across queued training handoffs, and Windows training runs use Electron's stronger `prevent-display-sleep` blocker to avoid system sleep during long batches.
+- Closing the app no longer hits a stale active-training helper reference.
+- Navigating away from unsaved job or preset editor changes now prompts before discarding the in-memory edits.
 
 ## [0.6.0] - 2026-06-29
 
