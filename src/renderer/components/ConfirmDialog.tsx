@@ -5,6 +5,8 @@ interface ConfirmDialogProps {
   title: string
   message: string
   confirmLabel: string
+  confirmClassName?: string
+  confirmDisabled?: boolean
   cancelLabel?: string
   alternateLabel?: string
   alternateClassName?: string
@@ -21,6 +23,8 @@ export default function ConfirmDialog({
   title,
   message,
   confirmLabel,
+  confirmClassName = 'btn btn-orange',
+  confirmDisabled = false,
   cancelLabel = 'Cancel',
   alternateLabel,
   alternateClassName = 'btn btn-secondary',
@@ -102,7 +106,7 @@ export default function ConfirmDialog({
               {alternateLabel}
             </button>
           )}
-          <button type="button" className="btn btn-orange" onClick={onConfirm}>
+          <button type="button" className={confirmClassName} disabled={confirmDisabled} onClick={onConfirm}>
             {confirmLabel}
           </button>
         </div>

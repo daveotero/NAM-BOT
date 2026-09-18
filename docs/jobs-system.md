@@ -320,13 +320,29 @@ Expanded training and finished job cards include an **ESR over time** chart. Eac
 - The horizontal axis shows one-based epochs. The vertical axis shows validation ESR in decimal notation; lower is better.
 - Curves show actual validation results, including regressions, rather than the running best checkpoint value shown in the ESR summary.
 - Hover over the chart or use the keyboard-accessible epoch slider to inspect exact values. Click a model in the legend to hide/show its curve, or `Latest epoch` to follow the newest result.
-- Linear scale starts at zero. Optional Log scale spreads out smaller ESR values to make late-stage improvements visible, while retaining ordinary decimal labels. Zero ESR requires Linear scale.
+- The chart always uses a logarithmic ESR scale with ordinary decimal labels. `All`, `100 epochs`, and `30 epochs` select the visible epoch window; recent windows follow training live and rescale the ESR axis to their visible values. The full history is retained. A true zero ESR is placed at the bottom of the log plot, with an explicit note and its exact value in the legend.
 - Updates arrive after validation completes, normally once per epoch, on the existing two-second artifact poll. If an expert preset validates multiple times per epoch, the latest validation step represents that epoch. Epochs without validation have no measurement.
 - History stays with completed, failed, and stopped runs and survives app restarts. Older runs without recorded history show an explicit empty state; a retry starts a fresh history.
 
-NAM-BOT launches the installed `nam-full` entry point through a workspace-local Python wrapper. It adds a read-only Lightning `on_validation_end` callback to NAM's existing callbacks and records `ESR_packed_<index>` (or `ESR` for non-packed models) into `esr-history.jsonl` in that run's workspace. Names come from the generated model config, so a selected subset of embedded models is labeled correctly. Initial sanity-check validation and non-primary distributed workers are excluded. A metrics-capture error disables collection with a terminal message while allowing training to continue.
+NAM-BOT launches the installed `nam-full` entry point through a workspace-local Python wrapper. It adds a Lightning callback to NAM's existing callbacks and records `ESR_packed_<index>` (or `ESR` for non-packed models) at `on_validation_end` into `esr-history.jsonl` in that run's workspace. Names come from the generated model config, so a selected subset of embedded models is labeled correctly. Initial sanity-check validation and non-primary distributed workers are excluded. A metrics-capture error disables collection with a terminal message while allowing training to continue.
 
 The queue tails complete JSONL records incrementally and persists validated `esrHistory` entries with the runtime. This captures every validation epoch rather than reconstructing history from best-checkpoint files, which may be overwritten or removed during training.
+
+### Export During Training And Stop Choices
+
+Active jobs expose `Save Snapshot` after a validated checkpoint is available. Choose a `.nam` destination in the save dialog; NAM-BOT exports the best validated checkpoint for each embedded model, which may come from different epochs. Training briefly waits at a safe batch boundary while a separate CPU-loaded snapshot is exported, then continues automatically. The live model, optimizer state, and training RNG remain intact, and dataset normalization compensation is preserved. `Latest exported snapshot` in Artifacts opens the most recently saved snapshot.
+
+`Stop` opens a dialog with three choices:
+
+- **Save & stop:** save the best validated model to the chosen destination first, then ask the trainer to finish cleanly. The run completes successfully with a `Finished early · model saved` status and its normal final export. Canceling the save picker or an export failure leaves training running.
+- **Discard & stop:** stop the process immediately without requesting a new export. Previously exported snapshots, saved checkpoints, logs, and ESR history remain on disk.
+- **Keep training:** dismiss the dialog and continue.
+
+Export and Save & stop require a new run started with the control-capable wrapper, and are unavailable before the first best checkpoint or while another export is pending. A waiting finish can be force-stopped using the existing emergency action. Expert `min_epochs`/`min_steps` settings can delay a normal finish request until the trainer's minimum is satisfied.
+
+The wrapper handles workspace-local requests under `training-controls/` on the training thread, avoiding checkpoint read/write races. Export commands load a separate CPU model and copy its existing normalization export hooks. Once a complete model is returned, the main process adds user metadata and attribution from the run's frozen preset, then atomically saves the requested file. Editing or deleting the library preset cannot change snapshot attribution or prevent export. Snapshot paths are tracked in `modelExports` and excluded from final-model discovery so a snapshot cannot falsely make an incomplete run appear successful.
+
+Automatic convergence-based stopping remains future work. These manual controls provide the export and clean-finish mechanisms; a future policy still needs agreed minimum epochs, improvement thresholds, patience, and treatment of multiple submodels.
 
 ### Runtime Fields
 
@@ -349,7 +365,7 @@ For queued runs that share the same output root:
 - root-level fallback is only used when fresh training artifacts exist directly in the output root itself
 - NAM-BOT snapshots pre-existing artifacts before launch and ignores unchanged files from that baseline, including recent root-level models
 - this keeps each queued job's log, ESR tracking, and final `.nam` artifact bound to the correct training run even when previous run folders are touched during finalization
-- failed and canceled runs may retain logs and checkpoint diagnostics, but only a successful run with a final `.nam` file can rename, enrich, copy, or publish that model
+- failed and canceled runs may retain logs, checkpoints, and explicitly exported snapshots, but only a successful run with a final `.nam` file can automatically rename, enrich, copy, or publish the trainer's final model
 
 ### Job Status Values
 
@@ -375,7 +391,7 @@ Stop and application-quit requests cover the complete run lifecycle. During `pre
 
 Force Stop always moves the job to a terminal state after the operating-system kill attempt. A confirmed process-tree termination becomes `canceled`; if termination cannot be confirmed, the job becomes `failed` and the queue pauses until the user confirms recovery. Late events from a finished process cannot affect a newer active job.
 
-A zero trainer exit code first enters `finalizing`. NAM-BOT verifies that a final model exists and completes naming, metadata, and optional copying before reporting success or sending a completion notification. Nonfatal result-processing failures show **Completed with warnings**.
+A zero trainer exit code first enters `finalizing`, including after Save & stop. NAM-BOT verifies that a final model exists and completes naming, metadata, and optional copying before reporting success or sending a completion notification. Nonfatal result-processing failures show **Completed with warnings**.
 
 Each run also captures one immutable backend-settings snapshot before preparation. Settings changes made while a job is preparing or running apply to later jobs, not the active run.
 

@@ -45,7 +45,7 @@ export function isFinishedTraining(runtime: JobRuntimeState): boolean {
 }
 
 export function formatEsr(value: number | null | undefined): string {
-  if (value == null || !Number.isFinite(value)) return 'Not yet available'
+  if (value == null || !Number.isFinite(value)) return 'N/A'
   return value.toLocaleString('en-US', {
     notation: 'standard',
     useGrouping: false,
@@ -53,6 +53,11 @@ export function formatEsr(value: number | null | undefined): string {
       ? { maximumSignificantDigits: 3 }
       : { minimumFractionDigits: 4, maximumFractionDigits: 4 })
   })
+}
+
+export function canExportTrainingModel(runtime: JobRuntimeState): boolean {
+  return runtime.status === 'running' && runtime.trainingControlReady === true
+    && !runtime.modelExportPending && Boolean(runtime.checkpointSummary?.bestCheckpointPath)
 }
 
 function getSubmodelChannelCount(submodel: JobPackedSubmodelCheckpointSummary): number | null {
@@ -415,6 +420,7 @@ export function getCollapsedSummaryItems(
 }
 
 export function getStatusSentence(runtime: JobRuntimeState): string {
+  if (runtime.finishedEarly && runtime.status === 'stopping') return 'Model saved. Finishing training...'
   if (runtime.status === 'queued') {
     if (runtime.errorCategory === 'a2_diagnostics_pending') {
       return 'Run Diagnostics to confirm NAM 0.13.0+ before this A2 job can start.'
@@ -432,7 +438,8 @@ export function getStatusSentence(runtime: JobRuntimeState): string {
   }
 
   if (runtime.status === 'succeeded') {
-    return runtime.completionWarnings?.length ? 'Completed with warnings — review details' : 'Training complete'
+    if (runtime.completionWarnings?.length) return 'Completed with warnings — review details'
+    return runtime.finishedEarly ? 'Finished early · model saved' : 'Training complete'
   }
 
   if (runtime.status === 'canceled') {

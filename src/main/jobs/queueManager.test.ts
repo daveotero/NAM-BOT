@@ -19,6 +19,9 @@ vi.mock('electron', () => ({
 const runNamFullMock = vi.hoisted(() => vi.fn<typeof import('../backend/adapter').runNamFull>())
 const inspectTorchRuntimeMock = vi.hoisted(() => vi.fn())
 const analyzeNamLatencyMock = vi.hoisted(() => vi.fn())
+const requestTrainingControlMock = vi.hoisted(() => vi.fn<typeof import('./training-control').requestTrainingControl>())
+
+vi.mock('./training-control', () => ({ requestTrainingControl: requestTrainingControlMock }))
 
 vi.mock('../backend/adapter', () => {
   function compareVersions(left: string, right: string): number {
@@ -105,6 +108,7 @@ beforeEach(() => {
   runNamFullMock.mockReset()
   inspectTorchRuntimeMock.mockReset()
   analyzeNamLatencyMock.mockReset()
+  requestTrainingControlMock.mockReset()
   inspectTorchRuntimeMock.mockResolvedValue(null)
 })
 
@@ -246,6 +250,153 @@ describe('QueueManager A2 diagnostics gate', () => {
     await manager.startQueue()
     expect(terminalEvents).toEqual(['succeeded'])
     expect(readFileSync(manager.getQueue()[0].terminalLogPath!, 'utf-8')).toContain('metadata failed')
+  })
+
+  it('exports a best-checkpoint snapshot without stopping and never treats it as the final model', async () => {
+    const queueManager = createQueueManager()
+    queueManager.setKnownNamVersion(defaultSettings, '0.13.0')
+    const job = buildJobSpec()
+    queueManager.addToQueue(job)
+    let exit: (code: number) => void = () => undefined
+    runNamFullMock.mockImplementation(async (_settings, args, hooks) => {
+      if (!args.cwd) throw new Error('Missing run workspace')
+      mkdirSync(args.outputRootDir, { recursive: true })
+      writeFileSync(join(args.outputRootDir, '0000_10_1.000e-3_1.000e-6.ckpt'), 'checkpoint')
+      mkdirSync(join(args.cwd, 'training-controls'))
+      writeFileSync(join(args.cwd, 'training-controls', 'ready.json'), '{}')
+      exit = hooks.onExit
+      hooks.onStarted(1234)
+      return { cancel: vi.fn(), forceKill: vi.fn(async () => true), forceKillSync: vi.fn() }
+    })
+    requestTrainingControlMock.mockImplementation(async (workspace: string) => {
+      const modelPath = join(workspace, 'snapshot.nam')
+      writeNamModel(modelPath)
+      return { modelPath, epoch: 10 }
+    })
+    const running = queueManager.startQueue()
+    await vi.waitFor(() => expect(queueManager.getQueue()[0].status).toBe('running'))
+    const destination = join(job.outputRootDir, 'user-snapshot.nam')
+    await queueManager.exportTrainingModel(job.id, destination)
+    expect(existsSync(destination)).toBe(true)
+    expect(queueManager.getQueue()[0].status).toBe('running')
+    expect(queueManager.getQueue()[0].modelExports?.[0].path).toBe(destination)
+    expect(requestTrainingControlMock.mock.calls.map((call) => call[1])).toEqual(['export'])
+    exit(0)
+    await running
+    expect(queueManager.getQueue()[0].status).toBe('failed')
+    expect(queueManager.getQueue()[0].errorCategory).toBe('missing_model_artifact')
+    expect(queueManager.getQueue()[0].publishedModelPath).toBeNull()
+    expect(createQueueManager().getQueue()[0].modelExports?.[0].path).toBe(destination)
+  })
+
+  it('only finishes training after saving a model, and keeps training if export fails', async () => {
+    const queueManager = createQueueManager()
+    queueManager.setKnownNamVersion(defaultSettings, '0.13.0')
+    const job = buildJobSpec()
+    queueManager.addToQueue(job)
+    const states: string[] = []
+    queueManager.on('jobUpdated', (runtime: JobRuntimeState) => states.push(runtime.status))
+    let exit: (code: number) => void = () => undefined
+    runNamFullMock.mockImplementation(async (_settings, args, hooks) => {
+      if (!args.cwd) throw new Error('Missing run workspace')
+      mkdirSync(args.outputRootDir, { recursive: true })
+      writeFileSync(join(args.outputRootDir, '0000_10_1.000e-3_1.000e-6.ckpt'), 'checkpoint')
+      mkdirSync(join(args.cwd, 'training-controls'))
+      writeFileSync(join(args.cwd, 'training-controls', 'ready.json'), '{}')
+      exit = hooks.onExit
+      hooks.onStarted(1234)
+      return { cancel: vi.fn(), forceKill: vi.fn(async () => true), forceKillSync: vi.fn() }
+    })
+    const running = queueManager.startQueue()
+    await vi.waitFor(() => expect(queueManager.getQueue()[0].status).toBe('running'))
+    const destination = join(job.outputRootDir, 'saved-snapshot.nam')
+    requestTrainingControlMock.mockRejectedValueOnce(new Error('Checkpoint export failed'))
+    await expect(queueManager.exportTrainingModel(job.id, destination, true)).rejects.toThrow('Checkpoint export failed')
+    expect(queueManager.getQueue()[0].status).toBe('running')
+    expect(queueManager.getQueue()[0].modelExportPending).toBe(false)
+    expect(existsSync(destination)).toBe(false)
+    requestTrainingControlMock.mockImplementation(async (workspace: string, action: string) => {
+      const modelPath = join(workspace, 'snapshot.nam')
+      if (action === 'export') writeNamModel(modelPath)
+      else {
+        expect(existsSync(destination)).toBe(true)
+        writeNamModel(join(job.outputRootDir, 'model.nam'))
+        exit(0)
+        expect(queueManager.getQueue()[0].status).toBe('finalizing')
+        expect(states).not.toContain('succeeded')
+      }
+      return { modelPath, epoch: 10 }
+    })
+    await queueManager.exportTrainingModel(job.id, destination, true)
+    await running
+    expect(requestTrainingControlMock.mock.calls.map((call) => call[1])).toEqual(['export', 'export', 'finish'])
+    expect(queueManager.getQueue()[0].status).toBe('succeeded')
+    expect(queueManager.getQueue()[0].finishedEarly).toBe(true)
+    expect(queueManager.getQueue()[0].publishedModelPath).not.toBe(destination)
+    expect(states).toContain('finalizing')
+    expect(queueManager.getQueue()[0].userMessages.at(-1)).toBe('Training finished early. Best validated model saved.')
+  })
+
+  it.each([false, true])('preserves frozen preset attribution in live exports after preset edits and deletion (finish=%s)', async (finishAfterExport: boolean) => {
+    const original = saveTrainingPreset(createTrainingPreset({ id: 'snapshot-recipe', name: 'Original Snapshot Recipe' }))
+    const manager = createQueueManager()
+    manager.setKnownNamVersion(defaultSettings, '0.13.0')
+    const job = buildJobSpec({ presetId: original.id, appendPresetToModelFileName: true })
+    manager.addToQueue(job)
+    let exit: (code: number) => void = () => undefined
+    runNamFullMock.mockImplementation(async (_settings, args, hooks) => {
+      if (!args.cwd) throw new Error('Missing run workspace')
+      mkdirSync(args.outputRootDir, { recursive: true })
+      writeFileSync(join(args.outputRootDir, '0000_10_1.000e-3_1.000e-6.ckpt'), 'checkpoint')
+      mkdirSync(join(args.cwd, 'training-controls'))
+      writeFileSync(join(args.cwd, 'training-controls', 'ready.json'), '{}')
+      exit = hooks.onExit
+      hooks.onStarted(1234)
+      return { cancel: vi.fn(), forceKill: vi.fn(async () => true), forceKillSync: vi.fn() }
+    })
+    requestTrainingControlMock.mockImplementation(async (workspace, action) => {
+      const modelPath = join(workspace, 'snapshot.nam')
+      if (action === 'export') {
+        writeNamModel(modelPath)
+      } else {
+        writeNamModel(join(job.outputRootDir, 'model.nam'))
+        exit(0)
+      }
+      return { modelPath, epoch: 10 }
+    })
+    const running = manager.startQueue()
+    try {
+      await vi.waitFor(() => expect(manager.getCurrentJob()?.trainingControlReady).toBe(true))
+      saveTrainingPreset({ ...original, name: 'Edited Snapshot Recipe' })
+      const firstDestination = join(job.outputRootDir, 'snapshot-after-edit.nam')
+      await manager.exportTrainingModel(job.id, firstDestination)
+      expect(JSON.parse(readFileSync(firstDestination, 'utf8'))).toMatchObject({
+        metadata: { nam_bot: { preset_name: 'Original Snapshot Recipe' } }
+      })
+      deleteTrainingPreset(original.id)
+      const secondDestination = join(job.outputRootDir, 'snapshot-after-delete.nam')
+      await manager.exportTrainingModel(job.id, secondDestination, finishAfterExport)
+      expect(JSON.parse(readFileSync(secondDestination, 'utf8'))).toMatchObject({
+        metadata: { nam_bot: { preset_name: 'Original Snapshot Recipe' } }
+      })
+      if (!finishAfterExport) {
+        expect(manager.getCurrentJob()?.status).toBe('running')
+        writeNamModel(join(job.outputRootDir, 'model.nam'))
+        exit(0)
+      }
+      await running
+      const runtime = manager.getQueue()[0]
+      expect(runtime.status).toBe('succeeded')
+      expect(runtime.finishedEarly).toBe(finishAfterExport)
+      expect(runtime.modelExports).toHaveLength(2)
+      expect(runtime.publishedModelPath).toContain('Original Snapshot Recipe.nam')
+      expect(JSON.parse(readFileSync(runtime.publishedModelPath!, 'utf8'))).toMatchObject({
+        metadata: { nam_bot: { preset_name: 'Original Snapshot Recipe' } }
+      })
+    } finally {
+      if (manager.getCurrentJob()) exit(1)
+      await running
+    }
   })
 
   it('captures live per-model ESR and persists the final epoch even on a failed exit', async () => {

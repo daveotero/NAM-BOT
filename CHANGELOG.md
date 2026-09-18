@@ -7,23 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.6] - 2026-09-18
+
+### Added
+
+- Save Snapshot exports each embedded model's best validated weights while training continues, with a save-location picker and a link to the latest snapshot.
+- Save & Stop saves the best model before finishing training cleanly; the stop dialog also offers Discard & Stop and Keep Training.
+
 ### Changed
 
-- Queued runs now retain their complete preset recipe and attribution, so later preset edits or deletion cannot change waiting jobs.
-- Restored queues expose a Resume Queue action, and diagnostics-blocked jobs show their reason with a direct link to Diagnostics.
+- ESR charts use a logarithmic scale with All, 100-epoch, and 30-epoch viewing windows that follow training live.
+- Queued runs retain their preset recipe and attribution, so later preset edits or deletion cannot change training or exported snapshots.
+- Restored queues offer Resume Queue, and diagnostics-blocked jobs link directly to the checks they need.
 
 ### Fixed
 
-- Window close and menu quit now confirm before stopping training. Unconfirmed force-stops pause the queue, and late process events cannot interfere with another run.
-- A second application launch now focuses the existing instance instead of opening a competing queue.
-- Unqueue operations recover interrupted draft transfers; failed draft saves avoid hidden duplicates; template-batch retries and preset backup recovery work correctly.
-- Batch navigation protects unsaved edits, audio paths remain editable, and preset creator names retain spaces while typing.
-- Diagnostics displays complete repair instructions and accurate status labels, and rejects results from previously selected environments.
-- Expert device settings are preserved, and locked epochs and latency display the values actually used for training.
-- Completion is reported after model finalization, result-processing warnings and operation errors are visible, and open logs refresh their final output.
-- Failed update checks preserve the last successful check date and report the failed attempt.
-- Expanded job charts fit the minimum window size; audio filters are consistent across entry points; confirmation dialogs support keyboard focus management and reduced-motion preferences are respected.
-- Setup documentation now accurately describes supported Conda environment modes.
+- Closing or quitting confirms before stopping training; unconfirmed force-stops pause the queue, and late process events cannot affect another run. Launching NAM-BOT again focuses the existing window.
+- Interrupted queue-to-draft transfers, failed draft saves, batch retries, and preset backups recover without losing jobs or creating hidden duplicates.
+- Completion is reported only after model finalization, including Save & Stop. Completion warnings remain visible, and open logs refresh their final output.
+- Settings and diagnostics reject stale environment results, show clearer errors and repair instructions, and preserve expert device settings and effective epoch/latency values.
+- Batch navigation protects unsaved edits; audio paths and preset attribution remain editable. Charts fit smaller windows, audio filters are consistent, and dialogs respect keyboard focus and reduced-motion preferences.
+- Failed update checks preserve the last successful check date. Setup documentation now accurately describes supported Conda environment modes.
 
 ## [0.6.5] - 2026-09-17
 

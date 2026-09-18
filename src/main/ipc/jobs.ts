@@ -37,7 +37,7 @@ interface DraftBatchRequest {
   source: DraftBatchSource | null
 }
 
-type JobArtifactTarget = 'workspace' | 'output' | 'workspace-log' | 'run-log' | 'model'
+type JobArtifactTarget = 'workspace' | 'output' | 'workspace-log' | 'run-log' | 'model' | 'snapshot'
 
 function isJobArtifactTarget(value: unknown): value is JobArtifactTarget {
   return value === 'workspace'
@@ -45,9 +45,11 @@ function isJobArtifactTarget(value: unknown): value is JobArtifactTarget {
     || value === 'workspace-log'
     || value === 'run-log'
     || value === 'model'
+    || value === 'snapshot'
 }
 
 function getJobArtifactPath(job: JobRuntimeState, target: JobArtifactTarget): string | null {
+  if (target === 'snapshot') return job.modelExports?.at(-1)?.path ?? null
   if (target === 'workspace') {
     return job.workspaceDirectory ?? null
   }
@@ -473,6 +475,29 @@ export function setupJobIpcHandlers(): void {
 
   ipcMain.handle('jobs:forceStop', async (_event, jobId: string) => {
     await queueManager.forceStopJob(jobId)
+  })
+
+  ipcMain.handle('jobs:exportModel', async (event, jobId: unknown, finishAfterExport: unknown = false) => {
+    if (typeof jobId !== 'string' || typeof finishAfterExport !== 'boolean') throw new Error('Invalid model export request.')
+    try {
+      const runtime = queueManager.getCurrentJob()
+      if (!runtime || runtime.jobId !== jobId || runtime.status !== 'running') throw new Error('This job is no longer training.')
+      const name = runtime.jobName.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').trim() || 'Model'
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+      const options = {
+        title: finishAfterExport ? 'Save best model and finish training' : 'Save snapshot and keep training',
+        defaultPath: join(runtime.resolvedRunDirectory ?? runtime.outputRootDir ?? app.getPath('documents'), `${name} - snapshot ${stamp}.nam`),
+        filters: [{ name: 'Neural Amp Modeler', extensions: ['nam'] }]
+      }
+      const owner = BrowserWindow.fromWebContents(event.sender)
+      const result = owner ? await dialog.showSaveDialog(owner, options) : await dialog.showSaveDialog(options)
+      if (result.canceled || !result.filePath) return null
+      const destination = result.filePath.toLowerCase().endsWith('.nam') ? result.filePath : `${result.filePath}.nam`
+      return await queueManager.exportTrainingModel(jobId, destination, finishAfterExport)
+    } catch (error) {
+      log.error('Failed to export training model:', error)
+      throw error
+    }
   })
 
   ipcMain.handle('jobs:retry', async (_event, jobId: string) => {

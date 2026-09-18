@@ -22,10 +22,11 @@ import {
   formatEsr,
   formatPackedSubmodelMetricLabel,
   getBestEsrLabel,
+  canExportTrainingModel,
   QueueDisplayState
 } from './job-helpers'
 
-export type RuntimeArtifactTarget = 'workspace' | 'output' | 'workspace-log' | 'run-log' | 'model'
+export type RuntimeArtifactTarget = 'workspace' | 'output' | 'workspace-log' | 'run-log' | 'model' | 'snapshot'
 
 interface RuntimeArtifactLink {
   target: RuntimeArtifactTarget
@@ -52,6 +53,8 @@ interface RuntimeCardProps {
   onUnqueue?: (jobId: string) => Promise<void>
   onCancel: (jobId: string) => Promise<void>
   onForceStop: (jobId: string) => Promise<void>
+  onExportModel?: (jobId: string) => Promise<void>
+  isExporting?: boolean
   onCreateDraftFromRuntime?: (runtime: JobRuntimeState) => Promise<void>
   onUseRuntimeAsTemplate?: (runtime: JobRuntimeState) => void
   onOpenFolder: (jobId: string) => Promise<void>
@@ -116,7 +119,8 @@ function buildArtifactLinks(runtime: JobRuntimeState, outputPath: string): Runti
     { target: 'output', label: 'Output folder', path: cleanArtifactPath(outputPath) },
     { target: 'workspace-log', label: 'Workspace log', path: cleanArtifactPath(runtime.terminalLogPath) },
     { target: 'run-log', label: 'Saved run log', path: cleanArtifactPath(runtime.publishedTerminalLogPath) },
-    { target: 'model', label: 'Model file', path: cleanArtifactPath(runtime.publishedModelPath) }
+    { target: 'model', label: 'Model file', path: cleanArtifactPath(runtime.publishedModelPath) },
+    { target: 'snapshot', label: 'Latest exported snapshot', path: cleanArtifactPath(runtime.modelExports?.at(-1)?.path) }
   ]
 
   return candidates.flatMap((candidate) => candidate.path
@@ -184,6 +188,8 @@ export default function RuntimeCard({
   onUnqueue,
   onCancel,
   onForceStop,
+  onExportModel,
+  isExporting = false,
   onCreateDraftFromRuntime,
   onUseRuntimeAsTemplate,
   onOpenFolder,
@@ -282,6 +288,16 @@ export default function RuntimeCard({
         <div className="job-actions queue-card-actions">
           {hasPrimaryActions && (
             <div className="queue-card-action-row queue-card-action-row-primary">
+              {runtime.status === 'running' && onExportModel && (
+                <button type="button" className="btn btn-sm btn-green"
+                  disabled={isExporting || !canExportTrainingModel(runtime)}
+                  title={canExportTrainingModel(runtime)
+                    ? 'Save the best validated model so far and keep training.'
+                    : 'Available after a validated checkpoint in a new training run'}
+                  onClick={() => void onExportModel(runtime.jobId)}>
+                  {isExporting || runtime.modelExportPending ? 'Saving...' : 'Save Snapshot'}
+                </button>
+              )}
               {displayState === 'Queued' && onUnqueue && (
                 <button
                   className="btn btn-sm btn-secondary"

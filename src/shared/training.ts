@@ -87,6 +87,12 @@ export interface JobEsrEpoch {
   models: JobEsrMeasurement[]
 }
 
+export interface JobModelExport {
+  path: string
+  epoch: number
+  exportedAt: string
+}
+
 export interface NamEmbeddedMetadata {
   name?: string
   modeledBy?: string
@@ -217,6 +223,10 @@ export interface JobRuntimeState {
   latencyAlignment?: JobLatencyAlignmentSummary
   checkpointSummary?: JobCheckpointSummary
   esrHistory?: JobEsrEpoch[]
+  trainingControlReady?: boolean
+  modelExportPending?: boolean
+  modelExports?: JobModelExport[]
+  finishedEarly?: boolean
   stopRequestedAt?: string
   stopMode?: JobStopMode | null
   userMessages: string[]

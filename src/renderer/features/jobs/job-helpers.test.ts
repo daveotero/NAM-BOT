@@ -7,6 +7,7 @@ import {
   getCollapsedSummaryItems,
   getElapsedLabel,
   getStatusSentence,
+  getStopActionState,
   getPrimaryPackedSubmodel
 } from './job-helpers'
 
@@ -126,6 +127,20 @@ describe('getCollapsedSummaryItems', () => {
       { label: 'Preset', value: 'A2 Packed WaveNet' },
       { label: 'Epochs', value: '100' }
     ])
+  })
+})
+
+describe('save-and-stop status', () => {
+  it('keeps finalization and completion warnings visible for a saved early finish', () => {
+    const runtime = buildRuntime({ finishedEarly: true, status: 'stopping' })
+    expect(getStatusSentence(runtime)).toBe('Model saved. Finishing training...')
+    runtime.status = 'finalizing'
+    expect(getStatusSentence(runtime)).toBe('Finalizing model and metadata...')
+    expect(getStopActionState(runtime, nowMs)).toBeNull()
+    runtime.status = 'succeeded'
+    expect(getStatusSentence(runtime)).toBe('Finished early · model saved')
+    runtime.completionWarnings = ['Could not copy the final model beside the output audio.']
+    expect(getStatusSentence(runtime)).toBe('Completed with warnings — review details')
   })
 })
 
