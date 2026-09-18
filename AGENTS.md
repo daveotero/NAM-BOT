@@ -1,4 +1,4 @@
-# AGENTS.md - NAM-BOT Development Guide (v0.6.2)
+# AGENTS.md - NAM-BOT Development Guide (v0.6.5)
 
 This document provides guidance for AI agents working on the NAM-BOT project.
 
@@ -14,6 +14,8 @@ This document provides guidance for AI agents working on the NAM-BOT project.
 - Project-local agent workflow files live under `.agents/`.
 - Prefix repo-scoped skill names with `nam-` so they stay easy to distinguish from global skills.
 - Use `.agents/skills/nam-release-workflow/SKILL.md` when the user asks to update the changelog, choose a version bump, clean generated release trash, commit, or push.
+- Ask the user to approve the exact version before changing release metadata. A request to commit or push does not itself approve a version bump. This approval requirement overrides automatic version-bump defaults in the release workflow; small feature additions may still be patch updates.
+- Do not commit or push until the user explicitly requests that action. Approval of a feature, version number, or correction is not commit authorization. A completed commit/push request does not authorize later commits; leave subsequent changes uncommitted until asked again. This rule overrides automatic commit/push steps in the release workflow.
 
 ### 0.2 Documentation Discipline
 
@@ -237,11 +239,17 @@ export const useAppStore = create<AppState>((set) => ({
 
 ## 7. Testing
 
-No test framework currently. To add:
+NAM-BOT uses Vitest for unit and integration-style tests.
 
 ```bash
-npm install -D vitest @testing-library/react jsdom
-npx vitest
+# Run the complete Vitest suite once
+npm test
+
+# Type-check main, preload, renderer, shared code, and test files
+npm run typecheck
+
+# Run type-checking, tests, and the production build in sequence
+npm run check
 ```
 
 ---

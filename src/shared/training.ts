@@ -73,6 +73,25 @@ export interface JobCheckpointSummary {
   comparisonPlotPath?: string | null
 }
 
+export interface JobEsrMeasurement {
+  submodelIndex: number | null
+  submodelName?: string | null
+  esr: number
+}
+
+export interface JobEsrEpoch {
+  /** One-based training epoch, excluding the initial validation sanity check. */
+  epoch: number
+  step: number
+  models: JobEsrMeasurement[]
+}
+
+export interface JobModelExport {
+  path: string
+  epoch: number
+  exportedAt: string
+}
+
 export interface NamEmbeddedMetadata {
   name?: string
   modeledBy?: string
@@ -199,6 +218,11 @@ export interface JobRuntimeState {
   deviceSummary?: JobDeviceSummary
   latencyAlignment?: JobLatencyAlignmentSummary
   checkpointSummary?: JobCheckpointSummary
+  esrHistory?: JobEsrEpoch[]
+  trainingControlReady?: boolean
+  modelExportPending?: boolean
+  modelExports?: JobModelExport[]
+  finishedEarly?: boolean
   stopRequestedAt?: string
   stopMode?: JobStopMode | null
   userMessages: string[]
@@ -875,7 +899,11 @@ function computeLockedJobFields(expert: TrainingPresetExpertBlocks): Array<'epoc
   return lockedFields
 }
 
-export function createTrainingPreset(partial?: Partial<TrainingPresetFile>): TrainingPresetFile {
+type TrainingPresetInput = Omit<Partial<TrainingPresetFile>, 'values'> & {
+  values?: Partial<TrainingPresetValues>
+}
+
+export function createTrainingPreset(partial?: TrainingPresetInput): TrainingPresetFile {
   const now = new Date().toISOString()
   const values = {
     ...DEFAULT_TRAINING_PRESET_VALUES,
@@ -1066,8 +1094,7 @@ export function normalizeJobSpec(value: unknown): JobSpec {
 
   const legacyLearningSettings = isRecord(value.learningSettings) ? value.learningSettings : {}
   const legacyModelSettings = isRecord(value.modelSettings) ? value.modelSettings : {}
-  const hasTrainingOverrides = isRecord(value.trainingOverrides)
-  const trainingOverrides = hasTrainingOverrides ? value.trainingOverrides : {}
+  const trainingOverrides = isRecord(value.trainingOverrides) ? value.trainingOverrides : {}
   const legacyModelType = asString(legacyModelSettings.modelType, '')
   const hasLegacyLatencySamples = Object.prototype.hasOwnProperty.call(trainingOverrides, 'latencySamples')
   const latencyModeFallback: JobLatencyMode = Object.prototype.hasOwnProperty.call(trainingOverrides, 'latencyMode')

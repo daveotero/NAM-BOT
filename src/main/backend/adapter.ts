@@ -7,6 +7,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, wri
 import { spawn as spawnPty, IPty } from 'node-pty'
 import { tmpdir } from 'os'
 import { join, dirname } from 'path'
+import { compareAppVersions } from '../../shared/version'
+import { buildTrainingMetricsScript } from './training-metrics-script'
 import {
   AcceleratorDiagnosticsSummary,
   AppSettings,
@@ -119,7 +121,7 @@ export interface NamLatencyAnalysisResult {
 
 export interface TrainingProcessController {
   cancel: () => void
-  forceKill: () => Promise<void>
+  forceKill: () => Promise<boolean>
   forceKillSync: () => void
 }
 
@@ -176,6 +178,7 @@ function createAcceleratorDiagnosticsSummary(
     torchImportOk: extras?.torchImportOk ?? null,
     torchVersion: extras?.torchVersion ?? null,
     torchCudaVersion: extras?.torchCudaVersion ?? null,
+    hipVersion: extras?.hipVersion ?? null,
     namVersion: extras?.namVersion ?? null,
     lightningPackage: extras?.lightningPackage ?? null,
     lightningVersion: extras?.lightningVersion ?? null,
@@ -761,7 +764,7 @@ function runCondaPtyCommand(
   })
 }
 
-function taskkill(pid: number, force: boolean): Promise<void> {
+function taskkill(pid: number, force: boolean): Promise<boolean> {
   return new Promise((resolve) => {
     const args = ['/PID', String(pid), '/T']
     if (force) {
@@ -775,53 +778,56 @@ function taskkill(pid: number, force: boolean): Promise<void> {
 
     killer.on('error', (error) => {
       log.warn('taskkill failed:', error)
-      resolve()
+      resolve(false)
     })
 
-    killer.on('close', () => resolve())
+    killer.on('close', (code) => resolve(code === 0))
   })
 }
 
-async function forceKillProcessTree(proc: ChildProcess): Promise<void> {
+async function forceKillProcessTree(proc: ChildProcess): Promise<boolean> {
   if (!proc.pid) {
-    return
+    return true
   }
 
   if (process.platform === 'win32') {
-    await taskkill(proc.pid, true)
-    return
+    return await taskkill(proc.pid, true)
   }
 
   try {
     process.kill(-proc.pid, 'SIGKILL')
+    return true
   } catch (error) {
     log.warn('Failed to SIGKILL process group, falling back to child.kill():', error)
     try {
-      proc.kill('SIGKILL')
+      return proc.kill('SIGKILL')
     } catch (innerError) {
       log.warn('Failed to SIGKILL child process:', innerError)
+      return false
     }
   }
 }
 
-async function forceKillPtyProcessTree(pty: IPty): Promise<void> {
+async function forceKillPtyProcessTree(pty: IPty): Promise<boolean> {
   if (!pty.pid) {
-    return
+    return true
   }
 
   if (process.platform === 'win32') {
-    await taskkill(pty.pid, true)
-    return
+    return await taskkill(pty.pid, true)
   }
 
   try {
     process.kill(-pty.pid, 'SIGKILL')
+    return true
   } catch (error) {
     log.warn('Failed to SIGKILL PTY process group, falling back to pty.kill():', error)
     try {
       pty.kill()
+      return true
     } catch (innerError) {
       log.warn('Failed to kill PTY process:', innerError)
+      return false
     }
   }
 }
@@ -1094,9 +1100,15 @@ export async function validateBackend(settings: AppSettings): Promise<BackendVal
 
 async function runCondaCommand(
   settings: AppSettings,
-  args: string[]
+  args: string[],
+  signal?: AbortSignal
 ): Promise<{ ok: boolean; output: string }> {
   return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve({ ok: false, output: 'Command canceled' })
+      return
+    }
+
     let proc: ChildProcess
     try {
       proc = spawnCondaProcess(settings, args)
@@ -1110,14 +1122,29 @@ async function runCondaCommand(
     let output = ''
     let errorOutput = ''
     let settled = false
+    let timeout: NodeJS.Timeout | null = null
 
     const settle = (result: { ok: boolean; output: string }): void => {
       if (settled) {
         return
       }
       settled = true
+      if (timeout) {
+        clearTimeout(timeout)
+      }
+      signal?.removeEventListener('abort', handleAbort)
       resolve(result)
     }
+
+    const handleAbort = (): void => {
+      if (settled) {
+        return
+      }
+      forceKillProcessTreeSync(proc)
+      settle({ ok: false, output: 'Command canceled' })
+    }
+
+    signal?.addEventListener('abort', handleAbort, { once: true })
 
     proc.stdout?.on('data', (data: Buffer | string) => {
       output += data.toString()
@@ -1138,7 +1165,7 @@ async function runCondaCommand(
       settle({ ok: false, output: err.message })
     })
 
-    setTimeout(async () => {
+    timeout = setTimeout(async () => {
       if (settled) {
         return
       }
@@ -1151,14 +1178,15 @@ async function runCondaCommand(
 async function runPythonScriptInEnvironment(
   settings: AppSettings,
   script: string,
-  scriptName: string
+  scriptName: string,
+  signal?: AbortSignal
 ): Promise<{ ok: boolean; output: string }> {
   const tempDir = mkdtempSync(join(tmpdir(), 'nam-bot-probe-'))
   const scriptPath = join(tempDir, scriptName)
 
   try {
     writeFileSync(scriptPath, script, 'utf8')
-    return await runCondaCommand(settings, ['python', scriptPath])
+    return await runCondaCommand(settings, ['python', scriptPath], signal)
   } finally {
     rmSync(tempDir, { recursive: true, force: true })
   }
@@ -1169,12 +1197,14 @@ function getLightningSecurityCacheKey(settings: AppSettings): string {
     backendMode: settings.backendMode,
     condaExecutablePath: settings.condaExecutablePath ?? null,
     environmentName: settings.environmentName ?? null,
-    environmentPrefixPath: settings.environmentPrefixPath ?? null,
-    pythonExecutablePath: settings.pythonExecutablePath ?? null
+    environmentPrefixPath: settings.environmentPrefixPath ?? null
   })
 }
 
-async function runLightningPackageSecurityProbe(settings: AppSettings): Promise<LightningSecuritySummary> {
+async function runLightningPackageSecurityProbe(
+  settings: AppSettings,
+  signal?: AbortSignal
+): Promise<LightningSecuritySummary> {
   const script = [
     'import json',
     'from importlib.metadata import PackageNotFoundError, version',
@@ -1195,7 +1225,7 @@ async function runLightningPackageSecurityProbe(settings: AppSettings): Promise<
     `print('${LIGHTNING_SECURITY_PREFIX}' + json.dumps({'packages': packages}))`
   ].join('\n')
 
-  const result = await runPythonScriptInEnvironment(settings, script, 'lightning-security-probe.py')
+  const result = await runPythonScriptInEnvironment(settings, script, 'lightning-security-probe.py', signal)
   const line = result.output
     .split(/\r?\n/)
     .find((entry) => entry.trim().startsWith(LIGHTNING_SECURITY_PREFIX))
@@ -1237,7 +1267,7 @@ async function runLightningPackageSecurityProbe(settings: AppSettings): Promise<
 
 async function inspectLightningPackageSecurity(
   settings: AppSettings,
-  options?: { allowRecentResult?: boolean }
+  options?: { allowRecentResult?: boolean; signal?: AbortSignal }
 ): Promise<LightningSecuritySummary> {
   const cacheKey = getLightningSecurityCacheKey(settings)
   const allowRecentResult = options?.allowRecentResult ?? true
@@ -1245,6 +1275,14 @@ async function inspectLightningPackageSecurity(
   if (allowRecentResult && recentResult && Date.now() - recentResult.checkedAt < LIGHTNING_SECURITY_RECENT_RESULT_TTL_MS) {
     log.info('Reusing recent Lightning security probe result')
     return recentResult.summary
+  }
+
+  if (options?.signal) {
+    const summary = await runLightningPackageSecurityProbe(settings, options.signal)
+    if (!options.signal.aborted) {
+      lightningSecurityRecentResults.set(cacheKey, { checkedAt: Date.now(), summary })
+    }
+    return summary
   }
 
   const inFlight = lightningSecurityInFlight.get(cacheKey)
@@ -1265,8 +1303,13 @@ async function inspectLightningPackageSecurity(
   return probe
 }
 
-async function assertLightningPackageSafe(settings: AppSettings): Promise<void> {
-  const lightningSecurity = await inspectLightningPackageSecurity(settings, { allowRecentResult: false })
+async function assertLightningPackageSafe(settings: AppSettings, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted()
+  const lightningSecurity = await inspectLightningPackageSecurity(settings, {
+    allowRecentResult: false,
+    signal
+  })
+  signal?.throwIfAborted()
   if (!lightningSecurity.ok) {
     throw new Error('NAM-BOT could not verify Lightning package versions safely. Verify package metadata manually before running NAM commands in this environment.')
   }
@@ -1277,7 +1320,10 @@ async function assertLightningPackageSafe(settings: AppSettings): Promise<void> 
   }
 }
 
-export async function inspectTorchRuntime(settings: AppSettings): Promise<TorchRuntimeSummary | null> {
+export async function inspectTorchRuntime(
+  settings: AppSettings,
+  signal?: AbortSignal
+): Promise<TorchRuntimeSummary | null> {
   const script = [
     'import json',
     'import torch',
@@ -1293,7 +1339,8 @@ export async function inspectTorchRuntime(settings: AppSettings): Promise<TorchR
     "print('NAM_BOT_TORCH=' + json.dumps(payload))"
   ].join('\n')
 
-  const result = await runPythonScriptInEnvironment(settings, script, 'torch-runtime-probe.py')
+  const result = await runPythonScriptInEnvironment(settings, script, 'torch-runtime-probe.py', signal)
+  signal?.throwIfAborted()
   if (!result.ok && !result.output.includes('NAM_BOT_TORCH=')) {
     return null
   }
@@ -1690,34 +1737,6 @@ export async function inspectTrainingLaunchDiagnostics(
   const appLocationCheck = createMacAppLocationCheck()
   if (appLocationCheck) {
     checks.push(appLocationCheck)
-  }
-
-  if (settings.backendMode === 'direct-python') {
-    checks.push(
-      createTrainingLaunchCheck(
-        'fail',
-        'direct_python_unsupported',
-        'Training launch mode',
-        'Direct Python mode is not supported by the current training launch path.',
-        {
-          detail: settings.pythonExecutablePath ?? 'No Python executable configured',
-          suggestion: 'Use Conda environment name or Conda prefix mode for training launch readiness.'
-        }
-      ),
-      createTrainingLaunchCheck('skip', 'pty_python_skipped', 'PTY Python launch', 'Skipped because direct Python launch is not wired to the trainer yet.'),
-      createTrainingLaunchCheck('skip', 'nam_full_pty_skipped', 'nam-full PTY launch', 'Skipped because direct Python launch is not wired to the trainer yet.')
-    )
-
-    return createTrainingLaunchDiagnosticsSummary(
-      'error',
-      'direct_python_unsupported',
-      'Training launch is not ready',
-      'NAM-BOT currently launches training through Conda, but Settings is using Direct Python mode.',
-      {
-        checks,
-        suggestion: 'Switch Settings to a Conda environment name or prefix before training.'
-      }
-    )
   }
 
   const condaExecutablePath = settings.condaExecutablePath?.trim() ?? ''
@@ -2228,17 +2247,21 @@ function buildNamLatencyAnalysisScript(inputPath: string, outputPath: string): s
 export async function analyzeNamLatency(
   settings: AppSettings,
   inputPath: string,
-  outputPath: string
+  outputPath: string,
+  signal?: AbortSignal
 ): Promise<NamLatencyAnalysisResult> {
   try {
-    await assertLightningPackageSafe(settings)
+    await assertLightningPackageSafe(settings, signal)
   } catch (error) {
+    signal?.throwIfAborted()
     const message = error instanceof Error ? error.message : 'Lightning package security check failed'
     return createFailedLatencyAnalysis('', message)
   }
 
   const script = buildNamLatencyAnalysisScript(inputPath, outputPath)
-  const result = await runPythonScriptInEnvironment(settings, script, 'latency-analysis.py')
+  signal?.throwIfAborted()
+  const result = await runPythonScriptInEnvironment(settings, script, 'latency-analysis.py', signal)
+  signal?.throwIfAborted()
   const parsed = parseNamLatencyAnalysisOutput(result.output)
 
   if (!result.ok && !parsed.errorMessage) {
@@ -2259,9 +2282,11 @@ export async function runNamFull(
     noPlots?: boolean
     cwd?: string
   },
-  hooks: RunHooks
+  hooks: RunHooks,
+  signal?: AbortSignal
 ): Promise<TrainingProcessController> {
-  await assertLightningPackageSafe(settings)
+  await assertLightningPackageSafe(settings, signal)
+  signal?.throwIfAborted()
 
   return new Promise((resolve, reject) => {
     const namArgs = [
@@ -2282,6 +2307,11 @@ export async function runNamFull(
 
     let pty: IPty
     try {
+      if (args.cwd) {
+        const launcherPath = join(args.cwd, 'train-with-metrics.py')
+        writeFileSync(launcherPath, buildTrainingMetricsScript(), 'utf-8')
+        namArgs.splice(0, 1, 'python', launcherPath)
+      }
       pty = spawnCondaPty(settings, namArgs, {
         cwd: args.cwd
       })
@@ -2300,8 +2330,15 @@ export async function runNamFull(
     })
 
     pty.onExit(({ exitCode }) => {
+      signal?.removeEventListener('abort', handleAbort)
       hooks.onExit(exitCode)
     })
+
+    const handleAbort = (): void => {
+      forceKillPtyProcessTreeSync(pty)
+    }
+
+    signal?.addEventListener('abort', handleAbort, { once: true })
 
     resolve({
       cancel: () => {
@@ -2310,7 +2347,7 @@ export async function runNamFull(
       },
       forceKill: async () => {
         log.info('Force-killing nam-full PTY process tree')
-        await forceKillPtyProcessTree(pty)
+        return await forceKillPtyProcessTree(pty)
       },
       forceKillSync: () => {
         log.info('Synchronously force-killing nam-full PTY process tree')
@@ -2561,16 +2598,25 @@ export async function getNamVersionInfo(settings: AppSettings): Promise<NamVersi
 }
 
 export function compareVersions(a: string, b: string): number {
-  const aParts = a.split('.').map((part) => parseInt(part.replace(/[^0-9]/g, ''), 10) || 0)
-  const bParts = b.split('.').map((part) => parseInt(part.replace(/[^0-9]/g, ''), 10) || 0)
-  
-  for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
-    const aPart = aParts[i] ?? 0
-    const bPart = bParts[i] ?? 0
-    if (aPart !== bPart) {
-      return aPart - bPart
-    }
+  return compareAppVersions(normalizeNamVersion(a), normalizeNamVersion(b))
+}
+
+function normalizeNamVersion(version: string): string {
+  const normalized = version.trim().replace(/^v/i, '')
+  const compactPrerelease = /^(\d+(?:\.\d+){0,2})-?(a|alpha|b|beta|rc|pre|preview|dev)[.-]?(\d*)(\+.*)?$/i.exec(normalized)
+  if (!compactPrerelease) {
+    return normalized
   }
-  
-  return 0
+
+  const label = compactPrerelease[2].toLowerCase()
+  const canonicalLabel = label === 'a'
+    ? 'alpha'
+    : label === 'b'
+      ? 'beta'
+      : label === 'pre' || label === 'preview'
+        ? 'rc'
+        : label
+  const revision = compactPrerelease[3] || '0'
+  const buildMetadata = compactPrerelease[4] ?? ''
+  return `${compactPrerelease[1]}-${canonicalLabel}.${revision}${buildMetadata}`
 }

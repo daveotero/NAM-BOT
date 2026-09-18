@@ -68,6 +68,7 @@ Drafts are where users can iterate safely before they commit a run to the queue.
 - if the batch editor's shared metadata model name is left blank, each generated model uses its output filename; if a shared metadata model name is typed, every generated draft uses that value
 - the template draft, generated drafts, and their later training/finished cards show a `Batch: <template name>` badge for traceability
 - generated drafts are still normal drafts and can be edited independently before queueing
+- all generated drafts are created through one idempotent `jobs:createDraftBatch` operation, so double submission or retry after an interrupted response does not create a partial or duplicate batch
 
 Shared fields copied from the template include:
 
@@ -211,7 +212,7 @@ The queue UI follows the same bottom-first execution model as drafts. The lowest
 Active jobs appear in the training section.
 
 - active jobs surface stop and force-stop controls
-- terminal logs can be expanded and refreshed while a job is active
+- terminal logs can be expanded and refresh incrementally while a job is active; the renderer keeps a bounded tail instead of repeatedly loading the entire file
 - while a run is active, elapsed time is measured from the start of the training run; remaining-time estimates are intentionally not shown because they proved unreliable across NAM training runs
 - expanded active-job details use a compact three-column layout: preset/training facts, ESR comparison, and artifact links
 
@@ -304,6 +305,39 @@ interface JobSpec {
 
 ## Runtime State
 
+### Live ESR History
+
+Expanded training and finished job cards include an **ESR over time** chart. Each embedded model has its own neon-colored curve and friendly tier label, with matching colors in the ESR summary. The chart uses NAM-BOT's dark panels, pixel typography, thin grid, and square controls; non-packed models have a single curve.
+
+- The horizontal axis shows one-based epochs. The vertical axis shows validation ESR in decimal notation; lower is better.
+- Curves show actual validation results, including regressions, rather than the running best checkpoint value shown in the ESR summary.
+- Hover over the chart or use the keyboard-accessible epoch slider to inspect exact values. Click a model in the legend to hide/show its curve, or `Latest epoch` to follow the newest result.
+- The chart always uses a logarithmic ESR scale with ordinary decimal labels. `All`, `100 epochs`, and `30 epochs` select the visible epoch window; recent windows follow training live and rescale the ESR axis to their visible values. The full history is retained. A true zero ESR is placed at the bottom of the log plot, with an explicit note and its exact value in the legend.
+- Updates arrive after validation completes, normally once per epoch, on the existing two-second artifact poll. If an expert preset validates multiple times per epoch, the latest validation step represents that epoch. Epochs without validation have no measurement.
+- History stays with completed, failed, and stopped runs and survives app restarts. Older runs without recorded history show an explicit empty state; a retry starts a fresh history.
+
+NAM-BOT launches the installed `nam-full` entry point through a workspace-local Python wrapper. It adds a Lightning callback to NAM's existing callbacks and records `ESR_packed_<index>` (or `ESR` for non-packed models) at `on_validation_end` into `esr-history.jsonl` in that run's workspace. Names come from the generated model config, so a selected subset of embedded models is labeled correctly. Initial sanity-check validation and non-primary distributed workers are excluded. A metrics-capture error disables collection with a terminal message while allowing training to continue.
+
+The queue tails complete JSONL records incrementally and persists validated `esrHistory` entries with the runtime. This captures every validation epoch rather than reconstructing history from best-checkpoint files, which may be overwritten or removed during training.
+
+### Export During Training And Stop Choices
+
+Active jobs expose `Save Snapshot` after a validated checkpoint is available. Choose a `.nam` destination in the save dialog; NAM-BOT exports the best validated checkpoint for each embedded model, which may come from different epochs. Training briefly waits at a safe batch boundary while a separate CPU-loaded snapshot is exported, then continues automatically. The live model, optimizer state, and training RNG remain intact, and dataset normalization compensation is preserved. `Latest exported snapshot` in Artifacts opens the most recently saved snapshot.
+
+`Stop` opens a dialog with three choices:
+
+- **Save & stop:** save the best validated model to the chosen destination first, then ask the trainer to finish cleanly. The run completes successfully with a `Finished early · model saved` status and its normal final export. Canceling the save picker or an export failure leaves training running.
+- **Discard & stop:** stop the process immediately without requesting a new export. Previously exported snapshots, saved checkpoints, logs, and ESR history remain on disk.
+- **Keep training:** dismiss the dialog and continue.
+
+Export and Save & stop require a new run started with the control-capable wrapper, and are unavailable before the first best checkpoint or while another export is pending. A waiting finish can be force-stopped using the existing emergency action. Expert `min_epochs`/`min_steps` settings can delay a normal finish request until the trainer's minimum is satisfied.
+
+The wrapper handles workspace-local requests under `training-controls/` on the training thread, avoiding checkpoint read/write races. Export commands load a separate CPU model and copy its existing normalization export hooks. Once a complete model is returned, the main process adds user metadata and atomically saves the requested file. Snapshot paths are tracked in `modelExports` and excluded from final-model discovery so a snapshot cannot falsely make an incomplete run appear successful.
+
+Automatic convergence-based stopping remains future work. These manual controls provide the export and clean-finish mechanisms; a future policy still needs agreed minimum epochs, improvement thresholds, patience, and treatment of multiple submodels.
+
+### Runtime Fields
+
 Queued and finished runs use a separate runtime object, `JobRuntimeState`.
 
 Important runtime fields include:
@@ -319,7 +353,9 @@ For queued runs that share the same output root:
 
 - NAM-BOT binds each active run to the timestamped output folder whose folder name time matches that run's start window
 - root-level fallback is only used when fresh training artifacts exist directly in the output root itself
+- NAM-BOT snapshots pre-existing artifacts before launch and ignores unchanged files from that baseline, including recent root-level models
 - this keeps each queued job's log, ESR tracking, and final `.nam` artifact bound to the correct training run even when previous run folders are touched during finalization
+- failed and canceled runs may retain logs, checkpoints, and explicitly exported snapshots, but only a successful run with a final `.nam` file can automatically rename, enrich, copy, or publish the trainer's final model
 
 ### Job Status Values
 
@@ -339,6 +375,12 @@ Stop requests use two modes:
 
 - `graceful`
 - `force`
+
+Stop and application-quit requests cover the complete run lifecycle. During `preparing`, NAM-BOT cancels latency, Lightning, Torch, and other environment subprocesses; after the training PTY starts, the same request controls the full training process tree.
+
+Force Stop always moves the job to a terminal state after the operating-system kill attempt. A confirmed process-tree termination becomes `canceled`; if termination cannot be confirmed, the job becomes `failed` with a message directing the user to check Task Manager instead of remaining stuck in `stopping`.
+
+Each run also captures one immutable backend-settings snapshot before preparation. Settings changes made while a job is preparing or running apply to later jobs, not the active run.
 
 ## What The Editor Fields Drive
 
@@ -406,6 +448,8 @@ When a draft is enqueued:
 
 This prevents a user from accidentally changing the meaning of an already queued run.
 
+Queue persistence completes before the draft is removed. A small recovery marker bridges the queue and draft files so a crash between those writes cannot delete the only durable copy of a job.
+
 ### A2 Version Gate
 
 NAM-BOT now defaults to local A2 training through the `a2-packed-wavenet` preset. A2 requires `neural-amp-modeler>=0.13.0` because earlier local `nam-full` installs do not include the required PackedWaveNet training path.
@@ -433,6 +477,8 @@ Saved draft jobs are persisted in the Electron user data folder:
 
 This file stores the editable draft list, not the currently open unsaved editor session.
 
+Draft and queue JSON files use atomic replacement and retain a `.bak` recovery copy. Preset, Settings, and update-status persistence use the same storage primitive.
+
 ### Queue Storage
 
 Queue runtime state is persisted separately:
@@ -440,6 +486,8 @@ Queue runtime state is persisted separately:
 - Windows: `%APPDATA%\\NAM-BOT\\queue.json`
 
 This is handled by the queue manager and represents queued, active, and historical runtime items rather than editable drafts.
+
+High-volume terminal progress is coalesced before queue state is written or sent to the renderer. Job progress events are emitted at most four times per second and queue persistence is limited to once per second, while terminal states and explicit queue operations are still persisted immediately.
 
 ### Editor Session Persistence
 

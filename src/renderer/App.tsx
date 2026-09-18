@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { HashRouter, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 
 import type { AppCommand } from '../shared/appShell'
@@ -9,6 +9,7 @@ import {
   type JobEditorSession,
   type PresetEditorSession,
   TrainingLaunchDiagnosticsSummary,
+  shouldAutoLoadResource,
   useAppStore
 } from './state/store'
 import type { UpdateStatus } from '../shared/update'
@@ -23,6 +24,7 @@ import RuntimeCard from './features/jobs/RuntimeCard'
 import { buildJobEditorSession, createNewJobDraft } from './features/jobs/jobEditorSession'
 import { buildNewPresetDraft, buildPresetEditorSession } from './features/presets/presetEditorSession'
 import ConfirmDialog from './components/ConfirmDialog'
+import { useTerminalLogs } from './hooks/useTerminalLogs'
 import log from 'electron-log/renderer'
 
 type PendingAppAction =
@@ -246,9 +248,14 @@ function Dashboard() {
     trainingLaunchDiagnostics,
     namVersionInfo,
     isLoading,
+    isBackendValidationLoading,
     isAcceleratorDiagnosticsLoading,
     isTrainingLaunchDiagnosticsLoading,
     isNamVersionInfoLoading,
+    validationError,
+    acceleratorDiagnosticsError,
+    trainingLaunchDiagnosticsError,
+    namVersionInfoError,
     validateBackend,
     loadAcceleratorDiagnostics, 
     loadTrainingLaunchDiagnostics,
@@ -261,8 +268,7 @@ function Dashboard() {
   
   const [expandedJobIds, setExpandedJobIds] = useState<Set<string>>(new Set())
   const [visibleLogJobIds, setVisibleLogJobIds] = useState<Set<string>>(new Set())
-  const [logContents, setLogContents] = useState<Record<string, string>>({})
-  const [loadingLogs, setLoadingLogs] = useState<Set<string>>(new Set())
+  const { logContents, loadingLogIds, loadTerminalLog } = useTerminalLogs()
   const [nowMs, setNowMs] = useState<number>(() => Date.now())
 
   const diagnosticsCards = getDashboardDiagnosticsCards(
@@ -290,16 +296,16 @@ function Dashboard() {
   }, [trainingJobs.length])
 
   useEffect(() => {
-    if (!validation && !isLoading) {
+    if (shouldAutoLoadResource(validation, isBackendValidationLoading, validationError)) {
       void validateBackend()
     }
-    if (!acceleratorDiagnostics && !isAcceleratorDiagnosticsLoading) {
+    if (shouldAutoLoadResource(acceleratorDiagnostics, isAcceleratorDiagnosticsLoading, acceleratorDiagnosticsError)) {
       void loadAcceleratorDiagnostics()
     }
-    if (!trainingLaunchDiagnostics && !isTrainingLaunchDiagnosticsLoading) {
+    if (shouldAutoLoadResource(trainingLaunchDiagnostics, isTrainingLaunchDiagnosticsLoading, trainingLaunchDiagnosticsError)) {
       void loadTrainingLaunchDiagnostics()
     }
-    if (!namVersionInfo && !isNamVersionInfoLoading) {
+    if (shouldAutoLoadResource(namVersionInfo, isNamVersionInfoLoading, namVersionInfoError)) {
       void loadNamVersionInfo()
     }
     if (presets.length === 0) {
@@ -307,7 +313,9 @@ function Dashboard() {
     }
   }, [
     acceleratorDiagnostics,
+    acceleratorDiagnosticsError,
     isAcceleratorDiagnosticsLoading,
+    isBackendValidationLoading,
     isLoading,
     isNamVersionInfoLoading,
     isTrainingLaunchDiagnosticsLoading,
@@ -316,9 +324,12 @@ function Dashboard() {
     loadPresets,
     loadTrainingLaunchDiagnostics,
     namVersionInfo,
+    namVersionInfoError,
     presets.length,
     trainingLaunchDiagnostics,
+    trainingLaunchDiagnosticsError,
     validation,
+    validationError,
     validateBackend
   ])
 
@@ -350,14 +361,8 @@ function Dashboard() {
       return
     }
 
-    setLoadingLogs(prev => {
-      const next = new Set(prev)
-      next.add(jobId)
-      return next
-    })
     try {
-      const logContent = await window.namBot.logs.getTerminal(jobId)
-      setLogContents(prev => ({ ...prev, [jobId]: logContent }))
+      await loadTerminalLog(jobId)
       setVisibleLogJobIds(prev => {
         const next = new Set(prev)
         next.add(jobId)
@@ -365,14 +370,28 @@ function Dashboard() {
       })
     } catch (err) {
       log.error('Failed to load log for dashboard:', err)
-    } finally {
-      setLoadingLogs(prev => {
-        const next = new Set(prev)
-        next.delete(jobId)
-        return next
-      })
     }
   }
+
+  const queueRef = useRef(queue)
+  queueRef.current = queue
+
+  useEffect(() => {
+    if (visibleLogJobIds.size === 0) {
+      return
+    }
+
+    const interval = window.setInterval(() => {
+      for (const runtime of queueRef.current) {
+        if (visibleLogJobIds.has(runtime.jobId)
+          && (runtime.status === 'preparing' || runtime.status === 'running' || runtime.status === 'stopping')) {
+          void loadTerminalLog(runtime.jobId)
+        }
+      }
+    }, 1500)
+
+    return () => window.clearInterval(interval)
+  }, [loadTerminalLog, visibleLogJobIds])
 
   return (
     <div className="layout-main">
@@ -430,7 +449,7 @@ function Dashboard() {
                  isExpanded={expandedJobIds.has(job.jobId)}
                  isLogsVisible={visibleLogJobIds.has(job.jobId)}
                  terminalLog={logContents[job.jobId] || ''}
-                 isLoadingLog={loadingLogs.has(job.jobId)}
+                 isLoadingLog={loadingLogIds.has(job.jobId)}
                  onToggleExpanded={toggleExpanded}
                   onToggleLogs={toggleLogs}
                   onCancel={async (id: string) => { await window.namBot.jobs.cancel(id) }}
@@ -478,6 +497,7 @@ function AppShell() {
   const [pendingAction, setPendingAction] = useState<PendingAppAction | null>(null)
   const { isTraining } = useAppStore()
   const isLoading = useAppStore((state) => state.isLoading)
+  const isBackendValidationLoading = useAppStore((state) => state.isBackendValidationLoading)
   const isAcceleratorDiagnosticsLoading = useAppStore((state) => state.isAcceleratorDiagnosticsLoading)
   const isTrainingLaunchDiagnosticsLoading = useAppStore((state) => state.isTrainingLaunchDiagnosticsLoading)
   const isNamVersionInfoLoading = useAppStore((state) => state.isNamVersionInfoLoading)
@@ -499,6 +519,7 @@ function AppShell() {
   const subscribeToJobEvents = useAppStore((state) => state.subscribeToJobEvents)
   const hasUpdateAvailable = updateStatus.state === 'update-available'
   const isDiagnosticsChecking = isLoading
+    || isBackendValidationLoading
     || isAcceleratorDiagnosticsLoading
     || isTrainingLaunchDiagnosticsLoading
     || isNamVersionInfoLoading

@@ -18,6 +18,9 @@ vi.mock('electron', () => ({
 const runNamFullMock = vi.hoisted(() => vi.fn())
 const inspectTorchRuntimeMock = vi.hoisted(() => vi.fn())
 const analyzeNamLatencyMock = vi.hoisted(() => vi.fn())
+const requestTrainingControlMock = vi.hoisted(() => vi.fn())
+
+vi.mock('./training-control', () => ({ requestTrainingControl: requestTrainingControlMock }))
 
 vi.mock('../backend/adapter', () => {
   function compareVersions(left: string, right: string): number {
@@ -75,6 +78,20 @@ function buildJobSpec(overrides: Partial<JobSpec> = {}): JobSpec {
   }
 }
 
+function writeNamModel(filePath: string): void {
+  writeFileSync(
+    filePath,
+    JSON.stringify({
+      version: '0.0.0',
+      architecture: 'WaveNet',
+      config: {},
+      weights: [],
+      metadata: {}
+    }),
+    'utf-8'
+  )
+}
+
 function createQueueManager(): QueueManager {
   const queueManager = new QueueManager()
   queueManager.setSettings(defaultSettings)
@@ -87,6 +104,7 @@ beforeEach(() => {
   runNamFullMock.mockReset()
   inspectTorchRuntimeMock.mockReset()
   analyzeNamLatencyMock.mockReset()
+  requestTrainingControlMock.mockReset()
   inspectTorchRuntimeMock.mockResolvedValue(null)
 })
 
@@ -95,6 +113,105 @@ afterEach(() => {
 })
 
 describe('QueueManager A2 diagnostics gate', () => {
+  it('exports a best-checkpoint snapshot without stopping and never treats it as the final model', async () => {
+    const queueManager = createQueueManager()
+    queueManager.setKnownNamVersion(defaultSettings, '0.13.0')
+    const job = buildJobSpec()
+    queueManager.addToQueue(job)
+    let exit: (code: number) => void = () => undefined
+    runNamFullMock.mockImplementation(async (_settings, args, hooks) => {
+      mkdirSync(args.outputRootDir, { recursive: true })
+      writeFileSync(join(args.outputRootDir, '0000_10_1.000e-3_1.000e-6.ckpt'), 'checkpoint')
+      mkdirSync(join(args.cwd, 'training-controls'))
+      writeFileSync(join(args.cwd, 'training-controls', 'ready.json'), '{}')
+      exit = hooks.onExit
+      hooks.onStarted(1234)
+      return { cancel: vi.fn(), forceKill: vi.fn(async () => true), forceKillSync: vi.fn() }
+    })
+    requestTrainingControlMock.mockImplementation(async (workspace: string) => {
+      const modelPath = join(workspace, 'snapshot.nam')
+      writeNamModel(modelPath)
+      return { modelPath, epoch: 10 }
+    })
+    const running = queueManager.startQueue()
+    await vi.waitFor(() => expect(queueManager.getQueue()[0].status).toBe('running'))
+    const destination = join(job.outputRootDir, 'user-snapshot.nam')
+    await queueManager.exportTrainingModel(job.id, destination)
+    expect(existsSync(destination)).toBe(true)
+    expect(queueManager.getQueue()[0].status).toBe('running')
+    expect(queueManager.getQueue()[0].modelExports?.[0].path).toBe(destination)
+    expect(requestTrainingControlMock.mock.calls.map((call) => call[1])).toEqual(['export'])
+    exit(0)
+    await running
+    expect(queueManager.getQueue()[0].status).toBe('failed')
+    expect(queueManager.getQueue()[0].errorCategory).toBe('missing_model_artifact')
+    expect(queueManager.getQueue()[0].publishedModelPath).toBeNull()
+    expect(createQueueManager().getQueue()[0].modelExports?.[0].path).toBe(destination)
+  })
+
+  it('only finishes training after saving a model, and keeps training if export fails', async () => {
+    const queueManager = createQueueManager()
+    queueManager.setKnownNamVersion(defaultSettings, '0.13.0')
+    const job = buildJobSpec()
+    queueManager.addToQueue(job)
+    let exit: (code: number) => void = () => undefined
+    runNamFullMock.mockImplementation(async (_settings, args, hooks) => {
+      mkdirSync(args.outputRootDir, { recursive: true })
+      writeFileSync(join(args.outputRootDir, '0000_10_1.000e-3_1.000e-6.ckpt'), 'checkpoint')
+      mkdirSync(join(args.cwd, 'training-controls'))
+      writeFileSync(join(args.cwd, 'training-controls', 'ready.json'), '{}')
+      exit = hooks.onExit
+      hooks.onStarted(1234)
+      return { cancel: vi.fn(), forceKill: vi.fn(async () => true), forceKillSync: vi.fn() }
+    })
+    const running = queueManager.startQueue()
+    await vi.waitFor(() => expect(queueManager.getQueue()[0].status).toBe('running'))
+    const destination = join(job.outputRootDir, 'saved-snapshot.nam')
+    requestTrainingControlMock.mockRejectedValueOnce(new Error('Checkpoint export failed'))
+    await expect(queueManager.exportTrainingModel(job.id, destination, true)).rejects.toThrow('Checkpoint export failed')
+    expect(queueManager.getQueue()[0].status).toBe('running')
+    expect(queueManager.getQueue()[0].modelExportPending).toBe(false)
+    expect(existsSync(destination)).toBe(false)
+    requestTrainingControlMock.mockImplementation(async (workspace: string, action: string) => {
+      const modelPath = join(workspace, 'snapshot.nam')
+      if (action === 'export') writeNamModel(modelPath)
+      else {
+        expect(existsSync(destination)).toBe(true)
+        writeNamModel(join(job.outputRootDir, 'model.nam'))
+        exit(0)
+      }
+      return { modelPath, epoch: 10 }
+    })
+    await queueManager.exportTrainingModel(job.id, destination, true)
+    await running
+    expect(requestTrainingControlMock.mock.calls.map((call) => call[1])).toEqual(['export', 'export', 'finish'])
+    expect(queueManager.getQueue()[0].status).toBe('succeeded')
+    expect(queueManager.getQueue()[0].finishedEarly).toBe(true)
+    expect(queueManager.getQueue()[0].publishedModelPath).not.toBe(destination)
+  })
+
+  it('captures live per-model ESR and persists the final epoch even on a failed exit', async () => {
+    const queueManager = createQueueManager()
+    queueManager.setKnownNamVersion(defaultSettings, '0.13.0')
+    queueManager.addToQueue(buildJobSpec())
+    const first = { epoch: 1, step: 10, models: [{ submodelIndex: 0, submodelName: 'channels_3', esr: 0.001 }] }
+    const second = { epoch: 2, step: 20, models: [{ submodelIndex: 0, submodelName: 'channels_3', esr: 0.002 }] }
+    runNamFullMock.mockImplementation(async (_settings, args, hooks) => {
+      const historyPath = join(args.cwd, 'esr-history.jsonl')
+      writeFileSync(historyPath, `${JSON.stringify(first)}\n`)
+      hooks.onStarted(1234)
+      expect(queueManager.getQueue()[0].esrHistory).toEqual([first])
+      writeFileSync(historyPath, `${JSON.stringify(first)}\n${JSON.stringify(second)}\n`)
+      hooks.onExit(1)
+      return { cancel: vi.fn(), forceKill: vi.fn(async () => true), forceKillSync: vi.fn() }
+    })
+    await queueManager.startQueue()
+    expect(queueManager.getQueue()[0].esrHistory).toEqual([first, second])
+    expect(createQueueManager().getQueue()[0].esrHistory).toEqual([first, second])
+    const retry = queueManager.retryJob(queueManager.getQueue()[0].jobId)
+    expect(retry?.esrHistory ?? []).toEqual([])
+  })
+
   it('allows enqueue validation while the A2 NAM version has not been confirmed', async () => {
     const queueManager = createQueueManager()
 
@@ -121,12 +238,14 @@ describe('QueueManager A2 diagnostics gate', () => {
     queueManager.addToQueue(buildJobSpec())
     await queueManager.startQueue()
 
-    runNamFullMock.mockImplementation(async (_settings, _args, hooks) => {
+    runNamFullMock.mockImplementation(async (_settings, args, hooks) => {
+      mkdirSync(args.outputRootDir, { recursive: true })
+      writeNamModel(join(args.outputRootDir, 'model.nam'))
       hooks.onStarted(1234)
       hooks.onExit(0)
       return {
         cancel: vi.fn(),
-        forceKill: vi.fn(async () => undefined),
+        forceKill: vi.fn(async () => true),
         forceKillSync: vi.fn()
       }
     })
@@ -180,13 +299,15 @@ describe('QueueManager A2 diagnostics gate', () => {
       errorMessage: null,
       output: 'NAM_BOT_LATENCY_ANALYSIS={"ok":true}'
     })
-    runNamFullMock.mockImplementation(async (_settings, _args, hooks) => {
+    runNamFullMock.mockImplementation(async (_settings, args, hooks) => {
+      mkdirSync(args.outputRootDir, { recursive: true })
+      writeNamModel(join(args.outputRootDir, 'model.nam'))
       hooks.onStarted(1234)
       hooks.onTerminalData('training started\n')
       hooks.onExit(0)
       return {
         cancel: vi.fn(),
-        forceKill: vi.fn(async () => undefined),
+        forceKill: vi.fn(async () => true),
         forceKillSync: vi.fn()
       }
     })
@@ -212,6 +333,42 @@ describe('QueueManager A2 diagnostics gate', () => {
     expect(terminalLog).toContain('[NAM-BOT] Auto-aligning input/output latency with the NAM analyzer...')
     expect(terminalLog).toContain('[NAM-BOT] Auto-aligned latency using NAM input 3.0.0: 42 samples.')
     expect(terminalLog).toContain('training started')
+  })
+
+  it('coalesces bursts of terminal progress into bounded renderer updates', async () => {
+    const queueManager = createQueueManager()
+    queueManager.setKnownNamVersion(defaultSettings, '0.13.0')
+    queueManager.addToQueue(buildJobSpec())
+    let captureBurstUpdates = false
+    let burstUpdateCount = 0
+    queueManager.on('jobUpdated', () => {
+      if (captureBurstUpdates) {
+        burstUpdateCount += 1
+      }
+    })
+
+    runNamFullMock.mockImplementation(async (_settings, args, hooks) => {
+      hooks.onStarted(1234)
+      captureBurstUpdates = true
+      for (let index = 0; index < 100; index += 1) {
+        hooks.onTerminalData(`progress update ${index}\n`)
+      }
+      await new Promise((resolve) => setTimeout(resolve, 350))
+      captureBurstUpdates = false
+      mkdirSync(args.outputRootDir, { recursive: true })
+      writeNamModel(join(args.outputRootDir, 'model.nam'))
+      hooks.onExit(0)
+      return {
+        cancel: vi.fn(),
+        forceKill: vi.fn(async () => true),
+        forceKillSync: vi.fn()
+      }
+    })
+
+    await queueManager.startQueue()
+
+    expect(burstUpdateCount).toBe(1)
+    expect(queueManager.getQueue()[0]?.status).toBe('succeeded')
   })
 
   it('copies the finalized model beside the output audio when requested', async () => {
@@ -245,7 +402,7 @@ describe('QueueManager A2 diagnostics gate', () => {
       hooks.onExit(0)
       return {
         cancel: vi.fn(),
-        forceKill: vi.fn(async () => undefined),
+        forceKill: vi.fn(async () => true),
         forceKillSync: vi.fn()
       }
     })
@@ -259,5 +416,259 @@ describe('QueueManager A2 diagnostics gate', () => {
     expect(existsSync(copiedModelPath)).toBe(true)
     expect(readFileSync(copiedModelPath, 'utf-8')).toContain('WaveNet')
     expect(existsSync(join(outputRootDir, 'A2 Queued Diagnostics Job.nam'))).toBe(true)
+  })
+
+  it('does not publish a partial model after a failed training exit', async () => {
+    const queueManager = createQueueManager()
+    const outputAudioDirectory = join(mockPaths.userDataPath, 'captures')
+    const outputRootDir = join(mockPaths.userDataPath, 'failed-models')
+    mkdirSync(outputAudioDirectory, { recursive: true })
+    mkdirSync(outputRootDir, { recursive: true })
+    queueManager.setKnownNamVersion(defaultSettings, '0.13.0')
+    queueManager.addToQueue(buildJobSpec({
+      copyFinalModelToOutputAudioFolder: true,
+      outputAudioPath: join(outputAudioDirectory, 'output.wav'),
+      outputRootDir
+    }))
+
+    runNamFullMock.mockImplementation(async (_settings, args, hooks) => {
+      writeNamModel(join(args.outputRootDir, 'partial.nam'))
+      hooks.onStarted(1234)
+      hooks.onExit(1)
+      return {
+        cancel: vi.fn(),
+        forceKill: vi.fn(async () => true),
+        forceKillSync: vi.fn()
+      }
+    })
+
+    await queueManager.startQueue()
+
+    const [runtime] = queueManager.getQueue()
+    expect(runtime.status).toBe('failed')
+    expect(existsSync(join(outputRootDir, 'partial.nam'))).toBe(true)
+    expect(existsSync(join(outputRootDir, 'A2 Queued Diagnostics Job.nam'))).toBe(false)
+    expect(existsSync(join(outputAudioDirectory, 'A2 Queued Diagnostics Job.nam'))).toBe(false)
+  })
+
+  it('does not bind a new job to a recent artifact in an older run directory', async () => {
+    const queueManager = createQueueManager()
+    const outputRootDir = join(mockPaths.userDataPath, 'shared-models')
+    const olderRunDirectory = join(outputRootDir, '2020-01-01-00-00-00')
+    mkdirSync(olderRunDirectory, { recursive: true })
+    const olderModelPath = join(olderRunDirectory, 'older-model.nam')
+    writeNamModel(olderModelPath)
+    queueManager.setKnownNamVersion(defaultSettings, '0.13.0')
+    queueManager.addToQueue(buildJobSpec({ outputRootDir }))
+
+    runNamFullMock.mockImplementation(async (_settings, _args, hooks) => {
+      hooks.onStarted(1234)
+      hooks.onExit(0)
+      return {
+        cancel: vi.fn(),
+        forceKill: vi.fn(async () => true),
+        forceKillSync: vi.fn()
+      }
+    })
+
+    await queueManager.startQueue()
+
+    const [runtime] = queueManager.getQueue()
+    expect(runtime.status).toBe('failed')
+    expect(runtime.errorCategory).toBe('missing_model_artifact')
+    expect(runtime.resolvedRunDirectory).toBeNull()
+    expect(existsSync(olderModelPath)).toBe(true)
+    expect(existsSync(join(olderRunDirectory, 'A2 Queued Diagnostics Job.nam'))).toBe(false)
+  })
+
+  it('does not publish a pre-existing fresh model from a shared output root', async () => {
+    const queueManager = createQueueManager()
+    const outputRootDir = join(mockPaths.userDataPath, 'shared-root-models')
+    mkdirSync(outputRootDir, { recursive: true })
+    const existingModelPath = join(outputRootDir, 'existing-model.nam')
+    writeNamModel(existingModelPath)
+    queueManager.setKnownNamVersion(defaultSettings, '0.13.0')
+    queueManager.addToQueue(buildJobSpec({ outputRootDir }))
+
+    runNamFullMock.mockImplementation(async (_settings, _args, hooks) => {
+      hooks.onStarted(1234)
+      hooks.onExit(0)
+      return {
+        cancel: vi.fn(),
+        forceKill: vi.fn(async () => true),
+        forceKillSync: vi.fn()
+      }
+    })
+
+    await queueManager.startQueue()
+
+    const [runtime] = queueManager.getQueue()
+    expect(runtime.status).toBe('failed')
+    expect(runtime.errorCategory).toBe('missing_model_artifact')
+    expect(existsSync(existingModelPath)).toBe(true)
+    expect(existsSync(join(outputRootDir, 'A2 Queued Diagnostics Job.nam'))).toBe(false)
+  })
+
+  it('cancels a job while latency preparation is still running', async () => {
+    const queueManager = createQueueManager()
+    queueManager.setKnownNamVersion(defaultSettings, '0.13.0')
+    const job = buildJobSpec({
+      trainingOverrides: {
+        latencyMode: 'auto',
+        latencySamples: 0
+      }
+    })
+    queueManager.addToQueue(job)
+    analyzeNamLatencyMock.mockImplementation(
+      async (_settings, _inputPath, _outputPath, signal: AbortSignal) =>
+        await new Promise((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+        })
+    )
+
+    const queuePromise = queueManager.startQueue()
+    await vi.waitFor(() => {
+      expect(analyzeNamLatencyMock).toHaveBeenCalledTimes(1)
+    })
+    await queueManager.cancelJob(job.id)
+    await queuePromise
+
+    const [runtime] = queueManager.getQueue()
+    expect(runtime.status).toBe('canceled')
+    expect(runtime.errorCategory).toBe('stopped_by_user')
+    expect(runNamFullMock).not.toHaveBeenCalled()
+    expect(queueManager.getCurrentJob()).toBeNull()
+  })
+
+  it('finalizes a force-stopped job even when the PTY never emits an exit event', async () => {
+    const queueManager = createQueueManager()
+    queueManager.setKnownNamVersion(defaultSettings, '0.13.0')
+    const job = buildJobSpec()
+    const forceKill = vi.fn(async () => true)
+    queueManager.addToQueue(job)
+    runNamFullMock.mockImplementation(async (_settings, _args, hooks) => {
+      hooks.onStarted(1234)
+      return {
+        cancel: vi.fn(),
+        forceKill,
+        forceKillSync: vi.fn()
+      }
+    })
+
+    const queuePromise = queueManager.startQueue()
+    await vi.waitFor(() => {
+      expect(queueManager.getCurrentJob()?.status).toBe('running')
+    })
+    await queueManager.forceStopJob(job.id)
+    await queuePromise
+
+    const [runtime] = queueManager.getQueue()
+    expect(forceKill).toHaveBeenCalledTimes(1)
+    expect(runtime.status).toBe('canceled')
+    expect(runtime.errorCategory).toBe('force_stopped')
+    expect(runtime.pid).toBeNull()
+    expect(queueManager.getCurrentJob()).toBeNull()
+  })
+
+  it('reports a terminal failure when process-tree termination cannot be confirmed', async () => {
+    const queueManager = createQueueManager()
+    queueManager.setKnownNamVersion(defaultSettings, '0.13.0')
+    const job = buildJobSpec()
+    queueManager.addToQueue(job)
+    runNamFullMock.mockImplementation(async (_settings, _args, hooks) => {
+      hooks.onStarted(1234)
+      return {
+        cancel: vi.fn(),
+        forceKill: vi.fn(async () => false),
+        forceKillSync: vi.fn()
+      }
+    })
+
+    const queuePromise = queueManager.startQueue()
+    await vi.waitFor(() => {
+      expect(queueManager.getCurrentJob()?.status).toBe('running')
+    })
+    await queueManager.forceStopJob(job.id)
+    await queuePromise
+
+    const [runtime] = queueManager.getQueue()
+    expect(runtime.status).toBe('failed')
+    expect(runtime.errorCategory).toBe('force_stop_failed')
+    expect(runtime.userMessages.at(-1)).toContain('Task Manager')
+    expect(queueManager.getCurrentJob()).toBeNull()
+  })
+
+  it('uses one immutable backend settings snapshot for the complete run', async () => {
+    const queueManager = createQueueManager()
+    queueManager.setKnownNamVersion(defaultSettings, '0.13.0')
+    const job = buildJobSpec({
+      outputRootDir: join(mockPaths.userDataPath, 'snapshot-models'),
+      trainingOverrides: {
+        latencyMode: 'auto',
+        latencySamples: 0
+      }
+    })
+    queueManager.addToQueue(job)
+
+    let releaseLatencyAnalysis: () => void = () => undefined
+    analyzeNamLatencyMock.mockImplementation(async () => {
+      await new Promise<void>((resolve) => {
+        releaseLatencyAnalysis = resolve
+      })
+      return {
+        ok: true,
+        recommendedLatency: 12,
+        inputVersion: '3.0.0',
+        strongInputMatch: true,
+        warnings: null,
+        delays: [12],
+        errorMessage: null,
+        output: 'NAM_BOT_LATENCY_ANALYSIS={"ok":true}'
+      }
+    })
+    runNamFullMock.mockImplementation(async (settings, args, hooks) => {
+      expect(settings.environmentName).toBe(defaultSettings.environmentName)
+      mkdirSync(args.outputRootDir, { recursive: true })
+      writeNamModel(join(args.outputRootDir, 'model.nam'))
+      hooks.onStarted(1234)
+      hooks.onExit(0)
+      return {
+        cancel: vi.fn(),
+        forceKill: vi.fn(async () => true),
+        forceKillSync: vi.fn()
+      }
+    })
+
+    const queuePromise = queueManager.startQueue()
+    await vi.waitFor(() => {
+      expect(analyzeNamLatencyMock).toHaveBeenCalledTimes(1)
+    })
+    queueManager.setSettings({
+      ...defaultSettings,
+      environmentName: 'different-environment'
+    })
+    releaseLatencyAnalysis()
+    await queuePromise
+
+    expect(runNamFullMock).toHaveBeenCalledTimes(1)
+    expect(queueManager.getQueue()[0]?.status).toBe('succeeded')
+  })
+
+  it('marks workspace setup errors failed and clears the active job', async () => {
+    const invalidWorkspaceRoot = join(mockPaths.userDataPath, 'workspace-file')
+    writeFileSync(invalidWorkspaceRoot, 'not a directory', 'utf-8')
+    const queueManager = new QueueManager()
+    queueManager.setSettings({
+      ...defaultSettings,
+      defaultWorkspaceRoot: invalidWorkspaceRoot
+    })
+    queueManager.addToQueue(buildJobSpec())
+
+    await queueManager.startQueue()
+
+    const [runtime] = queueManager.getQueue()
+    expect(runtime.status).toBe('failed')
+    expect(queueManager.getCurrentJob()).toBeNull()
+    expect(queueManager.isQueueProcessing()).toBe(false)
   })
 })

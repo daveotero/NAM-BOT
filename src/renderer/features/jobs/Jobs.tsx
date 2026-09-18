@@ -24,6 +24,7 @@ import {
   type JobOutputRootMode
 } from '../../state/store'
 import ConfirmDialog from '../../components/ConfirmDialog'
+import { useTerminalLogs } from '../../hooks/useTerminalLogs'
 import {
   DEFAULT_PRESET_ID,
   JobSpec,
@@ -53,7 +54,8 @@ import {
   getBasename,
   getDirname,
   getDisplayState,
-  getPlannedEpochsLabel
+  getPlannedEpochsLabel,
+  canExportTrainingModel
 } from './job-helpers'
 import RuntimeCard, { renderDisplayBadge } from './RuntimeCard'
 import { handleCardToggleKeyDown, shouldIgnoreCardToggle } from '../../utils/card-toggle'
@@ -356,7 +358,6 @@ export default function Jobs() {
   const queue = useAppStore((state) => state.queue)
   const setQueue = useAppStore((state) => state.setQueue)
   const loadJobs = useAppStore((state) => state.loadJobs)
-  const subscribeToJobEvents = useAppStore((state) => state.subscribeToJobEvents)
 
   useEffect(() => {
     const active = queue.some(r => r.status === 'preparing' || r.status === 'running' || r.status === 'stopping')
@@ -366,10 +367,12 @@ export default function Jobs() {
   const [queueError, setQueueError] = useState<string | null>(null)
   const [expandedJobs, setExpandedJobs] = useState<Record<string, boolean>>({})
   const [openLogs, setOpenLogs] = useState<Record<string, boolean>>({})
-  const [logContents, setLogContents] = useState<Record<string, string>>({})
-  const [loadingLogJobId, setLoadingLogJobId] = useState<string | null>(null)
+  const { logContents, loadingLogIds, loadTerminalLog, clearTerminalLog } = useTerminalLogs()
   const [nowMs, setNowMs] = useState<number>(() => Date.now())
   const [pendingDeleteJob, setPendingDeleteJob] = useState<JobSpec | null>(null)
+  const [pendingStopJobId, setPendingStopJobId] = useState<string | null>(null)
+  const [exportingJobId, setExportingJobId] = useState<string | null>(null)
+  const pendingStopJob = queue.find((runtime) => runtime.jobId === pendingStopJobId && isActiveRuntime(runtime.status))
   const [skipDraftDeleteConfirm, setSkipDraftDeleteConfirm] = useState(false)
   const [queueingDraftIds, setQueueingDraftIds] = useState<Set<string>>(() => new Set())
   const [batchEditorState, setBatchEditorState] = useState<BatchEditorState | null>(null)
@@ -460,15 +463,12 @@ export default function Jobs() {
   useEffect(() => {
     void loadPresets()
     void loadData()
+  }, [loadPresets, loadJobs])
 
-    const unsub = subscribeToJobEvents()
-    return unsub
-  }, [loadPresets, loadJobs, subscribeToJobEvents])
-
+  const hasActiveRuntimeClock = queue.some(
+    (runtime) => runtime.status === 'preparing' || runtime.status === 'running' || runtime.status === 'stopping'
+  )
   useEffect(() => {
-    const hasActiveRuntimeClock = queue.some(
-      (runtime) => runtime.status === 'preparing' || runtime.status === 'running' || runtime.status === 'stopping'
-    )
     if (!hasActiveRuntimeClock) {
       return
     }
@@ -478,24 +478,7 @@ export default function Jobs() {
     }, 1000)
 
     return () => window.clearInterval(interval)
-  }, [queue])
-
-  const loadTerminalLog = async (jobId: string, backgroundRefresh: boolean = false) => {
-    if (!backgroundRefresh) {
-      setLoadingLogJobId(jobId)
-    }
-    try {
-      const content = await window.namBot.logs.getTerminal(jobId)
-      setLogContents((current) => ({
-        ...current,
-        [jobId]: String(content || '')
-      }))
-    } finally {
-      if (!backgroundRefresh) {
-        setLoadingLogJobId((current) => (current === jobId ? null : current))
-      }
-    }
-  }
+  }, [hasActiveRuntimeClock])
 
   const queueRef = useRef(queue)
   queueRef.current = queue
@@ -513,12 +496,12 @@ export default function Jobs() {
         .map((runtime: JobRuntimeState) => runtime.jobId)
 
       activeVisibleLogIds.forEach((jobId: string) => {
-        void loadTerminalLog(jobId, true)
+        void loadTerminalLog(jobId)
       })
     }, 1500)
 
     return () => window.clearInterval(interval)
-  }, [openLogs])
+  }, [loadTerminalLog, openLogs])
 
   const handleCreateJob = () => {
     setJobEditorSession(buildJobEditorSession('New Job', createNewJobDraft({ presets, settings }), settings))
@@ -657,8 +640,8 @@ export default function Jobs() {
       }
     }
 
-    for (const outputFile of batchEditorState.outputFiles) {
-      const draftInput = buildDraftFromTemplateForOutput({
+    const draftInputs = batchEditorState.outputFiles.map((outputFile) => (
+      buildDraftFromTemplateForOutput({
         template,
         outputAudioPath: outputFile.outputAudioPath,
         outputFileName: outputFile.outputFileName,
@@ -666,18 +649,18 @@ export default function Jobs() {
         batchSourceName,
         useSharedMetadataName: sharedMetadataName.length > 0
       })
-      await window.namBot.jobs.createDraft(draftInput)
-    }
+    ))
 
-    if (batchEditorState.source?.kind === 'draft') {
-      await window.namBot.jobs.saveDraft({
-        ...batchEditorState.source.template,
-        batchId,
-        batchSourceName
-      })
-    } else if (batchEditorState.source?.kind === 'runtime') {
-      await window.namBot.jobs.tagBatchSource(batchEditorState.source.runtimeId, batchId, batchSourceName)
-    }
+    await window.namBot.jobs.createDraftBatch({
+      batchId,
+      batchSourceName,
+      drafts: draftInputs,
+      source: batchEditorState.source?.kind === 'draft'
+        ? { kind: 'draft', id: batchEditorState.source.template.id }
+        : batchEditorState.source?.kind === 'runtime'
+          ? { kind: 'runtime', id: batchEditorState.source.runtimeId }
+          : null
+    })
 
     setBatchEditorState(null)
     await loadData()
@@ -821,12 +804,28 @@ export default function Jobs() {
     await loadData()
   }
 
-  const handleCancel = async (jobId: string) => {
-    await window.namBot.jobs.cancel(jobId)
+  const handleCancel = async (jobId: string): Promise<void> => {
+    setPendingStopJobId(jobId)
   }
 
-  const handleForceStop = async (jobId: string) => {
-    await window.namBot.jobs.forceStop(jobId)
+  const handleForceStop = async (jobId: string): Promise<void> => {
+    try {
+      await window.namBot.jobs.forceStop(jobId)
+    } catch (error) {
+      setQueueError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  const handleExportModel = async (jobId: string, finishAfterExport = false): Promise<void> => {
+    setExportingJobId(jobId)
+    setQueueError(null)
+    try {
+      await window.namBot.jobs.exportModel(jobId, finishAfterExport)
+    } catch (error) {
+      setQueueError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setExportingJobId(null)
+    }
   }
 
   const handleDuplicate = async (jobId: string) => {
@@ -853,11 +852,7 @@ export default function Jobs() {
       delete next[jobId]
       return next
     })
-    setLogContents((current) => {
-      const next = { ...current }
-      delete next[jobId]
-      return next
-    })
+    clearTerminalLog(jobId)
     await loadData()
   }
 
@@ -1085,10 +1080,12 @@ export default function Jobs() {
                       isExpanded={expandedJobs[runtime.jobId] === true}
                       isLogsVisible={openLogs[runtime.jobId] === true}
                       terminalLog={logContents[runtime.jobId] || ''}
-                      isLoadingLog={loadingLogJobId === runtime.jobId}
+                      isLoadingLog={loadingLogIds.has(runtime.jobId)}
                       onToggleExpanded={toggleExpanded}
                       onToggleLogs={(entry) => toggleLogs(entry.jobId)}
                       onCancel={handleCancel}
+                      onExportModel={handleExportModel}
+                      isExporting={exportingJobId === runtime.jobId}
                       onForceStop={handleForceStop}
                       onCreateDraftFromRuntime={handleCreateDraftFromRuntime}
                       onUseRuntimeAsTemplate={handleUseRuntimeAsTemplate}
@@ -1121,10 +1118,12 @@ export default function Jobs() {
                       isExpanded={expandedJobs[runtime.jobId] === true}
                       isLogsVisible={openLogs[runtime.jobId] === true}
                       terminalLog={logContents[runtime.jobId] || ''}
-                      isLoadingLog={loadingLogJobId === runtime.jobId}
+                      isLoadingLog={loadingLogIds.has(runtime.jobId)}
                       onToggleExpanded={toggleExpanded}
                       onToggleLogs={(entry) => toggleLogs(entry.jobId)}
                       onCancel={handleCancel}
+                      onExportModel={handleExportModel}
+                      isExporting={exportingJobId === runtime.jobId}
                       onForceStop={handleForceStop}
                       onCreateDraftFromRuntime={handleCreateDraftFromRuntime}
                       onUseRuntimeAsTemplate={handleUseRuntimeAsTemplate}
@@ -1164,6 +1163,32 @@ export default function Jobs() {
           void handleDeleteJob(pendingDeleteJob.id)
         }}
       />
+      <ConfirmDialog
+        isOpen={Boolean(pendingStopJob)}
+        title="Stop training?"
+        message={pendingStopJob && canExportTrainingModel(pendingStopJob)
+          ? 'Save & stop exports the best validated weights for every embedded model, then finishes training cleanly. Discard & stop ends training immediately without a new export. Existing exports and checkpoints are kept.'
+          : 'There is no exportable checkpoint yet, or an export is already in progress. You can keep training or stop immediately without a new export. Existing exports and checkpoints are kept.'}
+        confirmLabel="Save & stop"
+        confirmClassName="btn btn-green"
+        confirmDisabled={!pendingStopJob || !canExportTrainingModel(pendingStopJob) || exportingJobId !== null}
+        alternateLabel="Discard & stop"
+        alternateClassName="btn btn-orange"
+        cancelLabel="Keep training"
+        onCancel={() => setPendingStopJobId(null)}
+        onConfirm={() => {
+          if (!pendingStopJob) return
+          const id = pendingStopJob.jobId
+          setPendingStopJobId(null)
+          void handleExportModel(id, true)
+        }}
+        onAlternate={() => {
+          if (!pendingStopJob) return
+          const id = pendingStopJob.jobId
+          setPendingStopJobId(null)
+          void handleForceStop(id)
+        }}
+      />
     </div>
   )
 }
@@ -1195,6 +1220,8 @@ function JobEditor({
   const [defaultAudioPath, setDefaultAudioPath] = useState<string | null>(null)
   const [savingDefault, setSavingDefault] = useState(false)
   const [isUnsavedConfirmOpen, setIsUnsavedConfirmOpen] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const saveInFlightRef = useRef(false)
   const settingsDefaultOutputRoot = settings?.defaultOutputRoot?.trim() || null
   const visiblePresets = useMemo(
     () => presets.filter((preset) => preset.visible || preset.id === editedJob.presetId),
@@ -1313,6 +1340,9 @@ function JobEditor({
   const canSave = (allowSaveWithoutChanges || isDirty) && isValid
 
   const performSave = async (): Promise<void> => {
+    if (saveInFlightRef.current) {
+      return
+    }
     if (!isValid) {
       onSessionChange({
         ...session,
@@ -1320,24 +1350,31 @@ function JobEditor({
       })
       return Promise.resolve()
     }
-    if (editedJob.presetId) {
-      window.localStorage.setItem(LAST_USED_PRESET_STORAGE_KEY, editedJob.presetId)
+    saveInFlightRef.current = true
+    setIsSaving(true)
+    try {
+      if (editedJob.presetId) {
+        window.localStorage.setItem(LAST_USED_PRESET_STORAGE_KEY, editedJob.presetId)
+      }
+      window.localStorage.setItem(
+        LAST_APPEND_PRESET_NAME_STORAGE_KEY,
+        editedJob.appendPresetToModelFileName ? 'true' : 'false'
+      )
+      window.localStorage.setItem(
+        LAST_APPEND_ESR_STORAGE_KEY,
+        editedJob.appendEsrToModelFileName ? 'true' : 'false'
+      )
+      window.localStorage.setItem(
+        LAST_COPY_FINAL_MODEL_TO_OUTPUT_AUDIO_FOLDER_STORAGE_KEY,
+        editedJob.copyFinalModelToOutputAudioFolder ? 'true' : 'false'
+      )
+      persistOutputRootPreference(outputRootMode, editedJob.outputRootDir)
+      persistReusableJobDefaults(editedJob, inputMode)
+      await Promise.resolve(onSave(editedJob))
+    } finally {
+      saveInFlightRef.current = false
+      setIsSaving(false)
     }
-    window.localStorage.setItem(
-      LAST_APPEND_PRESET_NAME_STORAGE_KEY,
-      editedJob.appendPresetToModelFileName ? 'true' : 'false'
-    )
-    window.localStorage.setItem(
-      LAST_APPEND_ESR_STORAGE_KEY,
-      editedJob.appendEsrToModelFileName ? 'true' : 'false'
-    )
-    window.localStorage.setItem(
-      LAST_COPY_FINAL_MODEL_TO_OUTPUT_AUDIO_FOLDER_STORAGE_KEY,
-      editedJob.copyFinalModelToOutputAudioFolder ? 'true' : 'false'
-    )
-    persistOutputRootPreference(outputRootMode, editedJob.outputRootDir)
-    persistReusableJobDefaults(editedJob, inputMode)
-    await Promise.resolve(onSave(editedJob))
   }
 
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
@@ -1425,11 +1462,11 @@ function JobEditor({
               type="submit"
               form={JOB_EDITOR_FORM_ID}
               className={`btn btn-sm ${canSave ? 'btn-green' : 'btn-secondary'}`}
-              disabled={!canSave}
+              disabled={!canSave || isSaving}
             >
-              {saveLabel}
+              {isSaving ? 'Saving...' : saveLabel}
             </button>
-            <button type="button" className="btn btn-sm btn-secondary" onClick={handleAttemptExit}>
+            <button type="button" className="btn btn-sm btn-secondary" onClick={handleAttemptExit} disabled={isSaving}>
               Cancel
             </button>
           </div>
@@ -2012,11 +2049,11 @@ function JobEditor({
             <button
               type="submit"
               className={`btn ${canSave ? 'btn-green' : 'btn-secondary'}`}
-              disabled={!canSave}
+              disabled={!canSave || isSaving}
             >
-              {saveLabel}
+              {isSaving ? 'Saving...' : saveLabel}
             </button>
-            <button type="button" className="btn btn-secondary" onClick={handleAttemptExit}>
+            <button type="button" className="btn btn-secondary" onClick={handleAttemptExit} disabled={isSaving}>
               Cancel
             </button>
             {showValidationErrors && !isValid && (

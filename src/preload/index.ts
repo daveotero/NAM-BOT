@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
 import type { AppCommand } from '../shared/appShell'
+import type { LogChunk } from '../shared/logs'
 import type { UpdateStatus } from '../shared/update'
 
 export interface NamBotApi {
@@ -15,10 +16,10 @@ export interface NamBotApi {
     getNamVersionInfo: () => Promise<unknown>
     chooseCondaPath: () => Promise<string | null>
     chooseDirectory: () => Promise<string | null>
-    choosePythonPath: () => Promise<string | null>
   }
   jobs: {
     createDraft: (input?: unknown) => Promise<unknown>
+    createDraftBatch: (input: unknown) => Promise<unknown[]>
     saveDraft: (job: unknown) => Promise<unknown>
     deleteDraft: (jobId: string) => Promise<void>
     listDrafts: () => Promise<unknown[]>
@@ -30,6 +31,7 @@ export interface NamBotApi {
     unqueueAll: () => Promise<unknown[]>
     cancel: (jobId: string) => Promise<void>
     forceStop: (jobId: string) => Promise<void>
+    exportModel: (jobId: string, finishAfterExport?: boolean) => Promise<string | null>
     retry: (jobId: string) => Promise<unknown>
     clearFinished: () => Promise<void>
     clearItem: (jobId: string) => Promise<void>
@@ -53,6 +55,7 @@ export interface NamBotApi {
   }
   logs: {
     getTerminal: (jobId: string) => Promise<string>
+    getTerminalChunk: (jobId: string, offset: number | null) => Promise<LogChunk>
     getDiagnostics: () => Promise<string>
   }
   updates: {
@@ -80,11 +83,11 @@ const api: NamBotApi = {
     getTrainingLaunchDiagnostics: () => ipcRenderer.invoke('settings:getTrainingLaunchDiagnostics'),
     getNamVersionInfo: () => ipcRenderer.invoke('settings:getNamVersionInfo'),
     chooseCondaPath: () => ipcRenderer.invoke('settings:chooseCondaPath'),
-    chooseDirectory: () => ipcRenderer.invoke('settings:chooseDirectory'),
-    choosePythonPath: () => ipcRenderer.invoke('settings:choosePythonPath')
+    chooseDirectory: () => ipcRenderer.invoke('settings:chooseDirectory')
   },
   jobs: {
     createDraft: (input) => ipcRenderer.invoke('jobs:createDraft', input),
+    createDraftBatch: (input) => ipcRenderer.invoke('jobs:createDraftBatch', input),
     saveDraft: (job) => ipcRenderer.invoke('jobs:saveDraft', job),
     deleteDraft: (jobId) => ipcRenderer.invoke('jobs:deleteDraft', jobId),
     listDrafts: () => ipcRenderer.invoke('jobs:listDrafts'),
@@ -96,6 +99,7 @@ const api: NamBotApi = {
     unqueueAll: () => ipcRenderer.invoke('jobs:unqueueAll'),
     cancel: (jobId) => ipcRenderer.invoke('jobs:cancel', jobId),
     forceStop: (jobId) => ipcRenderer.invoke('jobs:forceStop', jobId),
+    exportModel: (jobId, finishAfterExport = false) => ipcRenderer.invoke('jobs:exportModel', jobId, finishAfterExport),
     retry: (jobId) => ipcRenderer.invoke('jobs:retry', jobId),
     clearFinished: () => ipcRenderer.invoke('jobs:clearFinished'),
     clearItem: (jobId) => ipcRenderer.invoke('jobs:clearItem', jobId),
@@ -119,6 +123,7 @@ const api: NamBotApi = {
   },
   logs: {
     getTerminal: (jobId) => ipcRenderer.invoke('logs:getTerminal', jobId),
+    getTerminalChunk: (jobId, offset) => ipcRenderer.invoke('logs:getTerminalChunk', jobId, offset),
     getDiagnostics: () => ipcRenderer.invoke('logs:getDiagnostics')
   },
   updates: {

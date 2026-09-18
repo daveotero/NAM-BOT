@@ -7,13 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Export each embedded model's best validated weights while training continues, with a save-location picker and a link to the latest snapshot.
+- Stop training with a choice to save the best model and finish cleanly, stop without a new export, or keep training.
+
+### Changed
+
+- ESR charts now use logarithmic scale exclusively, with All, 100-epoch, and 30-epoch viewing windows that follow training live.
+
+## [0.6.5] - 2026-09-17
+
+### Added
+
+- Live validation ESR charts in expanded job details, with a separate neon-colored curve for each embedded model, epoch inspection, model visibility controls, and linear or logarithmic scales.
+- Per-epoch ESR history for new training runs, retained with finished jobs across app restarts and saved as a plain-text history file in each run's workspace.
+
+### Changed
+
+- ESR values now use readable decimals instead of scientific notation, retaining precision for small values.
+- Per-submodel ESR summary values now match their chart colors.
+
+## [0.6.4] - 2026-07-17
+
+### Changed
+
+- Updated vulnerable npm dependencies and refreshed the lockfile so the full dependency audit is clean.
+- Terminal logs now load incrementally with bounded renderer history, while high-volume training progress updates and queue persistence are coalesced to reduce UI lag.
+- Removed unsupported Direct Python configuration and unused queue-retention, log-retention, and launch-mode settings; older settings files migrate to supported Conda defaults.
+- Stable releases now require matching tag, package, and changelog versions, and preview packages receive unique Semantic Versions and artifact names.
+
+### Fixed
+
+- Force Stop now always moves a job to a terminal state, including a clear failure state when process-tree termination cannot be confirmed.
+- NAM prerelease versions now compare correctly for A2 compatibility checks instead of being treated as the matching stable release.
+
+## [0.6.3] - 2026-07-13
+
+### Added
+
+- Added atomic JSON persistence with recoverable backups, transactional draft-to-queue recovery, and regression coverage for persistence and preset path safety.
+
 ### Changed
 
 - Failed and stopped training cards now prioritize `Create Draft` so users can edit settings before queueing another run.
+- Settings now expose explicit dirty, saving, saved, and error states, flush pending changes during navigation, and validate the exact saved settings snapshot.
+- CI, preview, and release builds now require TypeScript checks and the Vitest suite before platform packaging, with least-privilege workflow permissions.
+- Electron now uses renderer sandboxing, exact production navigation checks, denied permission requests, and an HTTPS host allowlist for external links.
 
 ### Fixed
 
 - Auto-align preflight feedback now appears in the same terminal log as training, and expanded job details show the latency mode and actual delay used for the run.
+- Training jobs now claim only artifacts created or changed during their own run, and failed, canceled, or zero-exit runs without a new model can no longer publish an older or partial model as successful.
+- Workspace setup failures now terminate cleanly, and Stop, Force Stop, and shutdown cancel latency analysis and other preparation subprocesses as well as active training.
+- Each training run now uses one immutable backend-settings snapshot from validation through process launch.
+- Queue and batch persistence failures no longer delete the only durable draft copy; batch draft creation is atomic, idempotent, and guarded against duplicate submissions.
+- User preset IDs can no longer traverse outside the preset directory.
+- Diagnostic failures no longer trigger unbounded automatic IPC retries, and stale results are discarded after settings changes.
+- TypeScript project boundaries and previously hidden source errors are fixed so production and test code are checked consistently.
 
 ## [0.6.2] - 2026-07-02
 

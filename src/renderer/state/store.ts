@@ -55,20 +55,28 @@ function sortPresets(presets: TrainingPresetFile[]): TrainingPresetFile[] {
   })
 }
 
-export type BackendMode = 'conda-name' | 'conda-prefix' | 'direct-python'
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+export function shouldAutoLoadResource(
+  value: unknown,
+  loading: boolean,
+  error: string | null
+): boolean {
+  return value == null && !loading && error == null
+}
+
+export type BackendMode = 'conda-name' | 'conda-prefix'
 
 export interface AppSettings {
   condaExecutablePath: string | null
   backendMode: BackendMode
   environmentName: string | null
   environmentPrefixPath: string | null
-  pythonExecutablePath: string | null
   defaultOutputRoot: string | null
   defaultWorkspaceRoot: string | null
-  preferredLaunchMode: 'nam-full' | 'python-wrapper'
   autoOpenResultsFolder: boolean
-  persistQueueOnExit: boolean
-  logRetentionDays: number
   defaultAuthorName: string
   defaultAuthorUrl: string
 }
@@ -163,7 +171,6 @@ export type TrainingLaunchDiagnosticsIssue =
   | 'conda_not_configured'
   | 'conda_unreachable'
   | 'environment_not_configured'
-  | 'direct_python_unsupported'
   | 'lightning_security_check_failed'
   | 'lightning_vulnerable'
   | 'workspace_unwritable'
@@ -263,9 +270,18 @@ interface AppState {
   presetEditorSession: PresetEditorSession | null
   jobEditorSession: JobEditorSession | null
   isLoading: boolean;
+  isSettingsSaving: boolean;
+  isBackendValidationLoading: boolean;
   isAcceleratorDiagnosticsLoading: boolean;
   isTrainingLaunchDiagnosticsLoading: boolean;
   isNamVersionInfoLoading: boolean;
+  settingsLoadError: string | null;
+  settingsSaveError: string | null;
+  validationError: string | null;
+  acceleratorDiagnosticsError: string | null;
+  trainingLaunchDiagnosticsError: string | null;
+  namVersionInfoError: string | null;
+  settingsRevision: number;
   isTraining: boolean;
   drafts: JobSpec[];
   queue: JobRuntimeState[];
@@ -314,19 +330,28 @@ export const useAppStore = create<AppState>((set, get) => ({
   presetEditorSession: null,
   jobEditorSession: null,
   isLoading: false,
+  isSettingsSaving: false,
+  isBackendValidationLoading: false,
   isAcceleratorDiagnosticsLoading: false,
   isTrainingLaunchDiagnosticsLoading: false,
   isNamVersionInfoLoading: false,
+  settingsLoadError: null,
+  settingsSaveError: null,
+  validationError: null,
+  acceleratorDiagnosticsError: null,
+  trainingLaunchDiagnosticsError: null,
+  namVersionInfoError: null,
+  settingsRevision: 0,
   isTraining: false,
   drafts: [],
   queue: [],
   
   setSettings: (settings) => set({ settings }),
-  setValidation: (validation) => set({ validation }),
-  setAcceleratorDiagnostics: (acceleratorDiagnostics) => set({ acceleratorDiagnostics }),
-  setTrainingLaunchDiagnostics: (trainingLaunchDiagnostics) => set({ trainingLaunchDiagnostics }),
+  setValidation: (validation) => set({ validation, validationError: null }),
+  setAcceleratorDiagnostics: (acceleratorDiagnostics) => set({ acceleratorDiagnostics, acceleratorDiagnosticsError: null }),
+  setTrainingLaunchDiagnostics: (trainingLaunchDiagnostics) => set({ trainingLaunchDiagnostics, trainingLaunchDiagnosticsError: null }),
   setCondaDiscovery: (condaDiscovery) => set({ condaDiscovery }),
-  setNamVersionInfo: (namVersionInfo) => set({ namVersionInfo }),
+  setNamVersionInfo: (namVersionInfo) => set({ namVersionInfo, namVersionInfoError: null }),
   setUpdateStatus: (updateStatus) => set({ updateStatus }),
   setPresets: (presets) => set({ presets: sortPresets(presets) }),
   setPresetEditorSession: (presetEditorSession) => set({ presetEditorSession }),
@@ -345,41 +370,61 @@ export const useAppStore = create<AppState>((set, get) => ({
   })),
   
   loadSettings: async () => {
-    set({ isLoading: true })
+    set({ isLoading: true, settingsLoadError: null })
     try {
       const settings = await window.namBot.settings.get() as AppSettings
       set({ settings })
     } catch (error) {
       console.error('Failed to load settings:', error)
+      set({ settingsLoadError: getErrorMessage(error) })
     } finally {
       set({ isLoading: false })
     }
   },
   
   saveSettings: async (settings) => {
-    set({ isLoading: true })
+    set({ isSettingsSaving: true, settingsSaveError: null })
     try {
       await window.namBot.settings.save(settings)
-      set({ settings })
+      set((state) => ({
+        settings,
+        settingsRevision: state.settingsRevision + 1,
+        validation: null,
+        acceleratorDiagnostics: null,
+        trainingLaunchDiagnostics: null,
+        namVersionInfo: null,
+        validationError: null,
+        acceleratorDiagnosticsError: null,
+        trainingLaunchDiagnosticsError: null,
+        namVersionInfoError: null
+      }))
     } catch (error) {
       console.error('Failed to save settings:', error)
+      set({ settingsSaveError: getErrorMessage(error) })
+      throw error
     } finally {
-      set({ isLoading: false })
+      set({ isSettingsSaving: false })
     }
   },
   
   validateBackend: async () => {
-    if (get().isLoading) {
+    if (get().isBackendValidationLoading) {
       return
     }
-    set({ isLoading: true })
+    const revision = get().settingsRevision
+    set({ isBackendValidationLoading: true, validationError: null })
     try {
       const validation = await window.namBot.settings.validate() as BackendValidationSummary
-      set({ validation })
+      if (get().settingsRevision === revision) {
+        set({ validation })
+      }
     } catch (error) {
       console.error('Failed to validate backend:', error)
+      if (get().settingsRevision === revision) {
+        set({ validationError: getErrorMessage(error) })
+      }
     } finally {
-      set({ isLoading: false })
+      set({ isBackendValidationLoading: false })
     }
   },
 
@@ -387,13 +432,19 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (get().isAcceleratorDiagnosticsLoading) {
       return
     }
-    set({ isAcceleratorDiagnosticsLoading: true })
+    const revision = get().settingsRevision
+    set({ isAcceleratorDiagnosticsLoading: true, acceleratorDiagnosticsError: null })
     try {
       const acceleratorDiagnostics =
         await window.namBot.settings.getAcceleratorDiagnostics() as AcceleratorDiagnosticsSummary
-      set({ acceleratorDiagnostics })
+      if (get().settingsRevision === revision) {
+        set({ acceleratorDiagnostics })
+      }
     } catch (error) {
       console.error('Failed to load accelerator diagnostics:', error)
+      if (get().settingsRevision === revision) {
+        set({ acceleratorDiagnosticsError: getErrorMessage(error) })
+      }
     } finally {
       set({ isAcceleratorDiagnosticsLoading: false })
     }
@@ -403,13 +454,19 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (get().isTrainingLaunchDiagnosticsLoading) {
       return
     }
-    set({ isTrainingLaunchDiagnosticsLoading: true })
+    const revision = get().settingsRevision
+    set({ isTrainingLaunchDiagnosticsLoading: true, trainingLaunchDiagnosticsError: null })
     try {
       const trainingLaunchDiagnostics =
         await window.namBot.settings.getTrainingLaunchDiagnostics() as TrainingLaunchDiagnosticsSummary
-      set({ trainingLaunchDiagnostics })
+      if (get().settingsRevision === revision) {
+        set({ trainingLaunchDiagnostics })
+      }
     } catch (error) {
       console.error('Failed to load training launch diagnostics:', error)
+      if (get().settingsRevision === revision) {
+        set({ trainingLaunchDiagnosticsError: getErrorMessage(error) })
+      }
     } finally {
       set({ isTrainingLaunchDiagnosticsLoading: false })
     }
@@ -419,13 +476,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (get().isNamVersionInfoLoading) {
       return
     }
-    set({ isNamVersionInfoLoading: true })
+    const revision = get().settingsRevision
+    set({ isNamVersionInfoLoading: true, namVersionInfoError: null })
     try {
       const namVersionInfo = await window.namBot.settings.getNamVersionInfo() as NamVersionInfo
-      set({ namVersionInfo })
+      if (get().settingsRevision === revision) {
+        set({ namVersionInfo })
+      }
     } catch (error) {
       console.error('Failed to load NAM version info:', error)
-      set({ namVersionInfo: null })
+      if (get().settingsRevision === revision) {
+        set({ namVersionInfo: null, namVersionInfoError: getErrorMessage(error) })
+      }
     } finally {
       set({ isNamVersionInfoLoading: false })
     }

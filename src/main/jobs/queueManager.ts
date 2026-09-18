@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events'
 import { app, shell } from 'electron'
-import { basename, dirname, extname, join } from 'path'
+import { basename, dirname, extname, join, resolve } from 'path'
 import {
   appendFileSync,
   copyFileSync,
@@ -43,12 +43,20 @@ import {
 } from '../types/jobs'
 import { AppSettings } from '../types'
 import {
+  atomicWriteFileSync,
+  atomicWriteJsonSync,
+  readJsonWithBackupSync
+} from '../persistence/atomicFile'
+import {
   buildUpdatedNamModelMetadata,
   hasNamModelMetadataUpdates,
   type ConfirmedNamTrainingMetadata,
   type NamExportDateMetadata
 } from './namModelMetadata'
 import { selectOutputRunDirectory } from './runDirectoryResolver'
+import { TRAINING_METRICS_FILENAME } from '../backend/training-metrics-script'
+import { EsrHistoryReader, normalizeEsrHistory } from './esr-history'
+import { requestTrainingControl } from './training-control'
 
 const userDataPath = app.getPath('userData')
 const queuePath = join(userDataPath, 'queue.json')
@@ -56,6 +64,8 @@ const workspacesPath = join(userDataPath, 'workspaces')
 const ACTIVE_JOB_STATUSES: JobStatus[] = ['preparing', 'running', 'stopping']
 const QUEUED_JOB_STATUSES: JobStatus[] = ['queued', 'validating']
 const FINISHED_JOB_STATUSES: JobStatus[] = ['succeeded', 'failed', 'canceled']
+const PROGRESS_BROADCAST_INTERVAL_MS = 250
+const PROGRESS_PERSIST_INTERVAL_MS = 1000
 const NUMERIC_TOKEN_PATTERN = '[+-]?\\d+(?:\\.\\d+)?(?:e[+-]?\\d+)?'
 const BEST_CHECKPOINT_PATTERN = new RegExp(
   `^(\\d{4})_(\\d+)_(${NUMERIC_TOKEN_PATTERN})_(${NUMERIC_TOKEN_PATTERN})\\.ckpt$`,
@@ -74,6 +84,14 @@ const OSC_PATTERN = /\u001b\][^\u0007]*(?:\u0007|\u001b\\)/g
 const CONTROL_PATTERN = /[\u0000-\u0008\u000b\u000c\u000e-\u001a\u007f]/g
 const LATENCY_ALIGNMENT_STATUSES: JobLatencyAlignmentStatus[] = ['manual', 'auto_pending', 'auto_applied', 'auto_skipped', 'auto_failed']
 type RunJobResult = 'completed' | 'blocked'
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError'
+}
+
+function getRuntimeModelFilePath(runtime: JobRuntimeState): string | null {
+  return runtime.checkpointSummary?.modelFilePath ?? null
+}
 
 interface KnownNamVersion {
   settingsKey: string
@@ -150,8 +168,7 @@ function buildBackendSettingsKey(settings: AppSettings): string {
     condaExecutablePath: settings.condaExecutablePath,
     backendMode: settings.backendMode,
     environmentName: settings.environmentName,
-    environmentPrefixPath: settings.environmentPrefixPath,
-    pythonExecutablePath: settings.pythonExecutablePath
+    environmentPrefixPath: settings.environmentPrefixPath
   })
 }
 
@@ -490,13 +507,48 @@ function parseCheckpointFile(
   return null
 }
 
-function readPackedBestSubmodels(outputRunDirectory: string): JobPackedSubmodelCheckpointSummary[] {
+function getArtifactFingerprint(filePath: string): string {
+  const stats = statSync(filePath)
+  return `${stats.mtimeMs}:${stats.size}`
+}
+
+function isTrainingArtifactPath(filePath: string): boolean {
+  const normalized = filePath.toLowerCase()
+  return normalized.endsWith('.nam')
+    || normalized.endsWith('.ckpt')
+    || normalized.endsWith('comparison.png')
+    || normalized.endsWith('packed_best.json')
+}
+
+function snapshotTrainingArtifacts(outputRootDirectory: string): Map<string, string> {
+  const snapshot = new Map<string, string>()
+  for (const filePath of walkTrainingArtifacts(outputRootDirectory, 4)) {
+    if (!isTrainingArtifactPath(filePath)) {
+      continue
+    }
+    try {
+      snapshot.set(filePath, getArtifactFingerprint(filePath))
+    } catch (error) {
+      log.warn('Failed to snapshot pre-existing training artifact:', filePath, error)
+    }
+  }
+  return snapshot
+}
+
+function readPackedBestSubmodels(
+  outputRunDirectory: string,
+  artifactBaseline?: Map<string, string>
+): JobPackedSubmodelCheckpointSummary[] {
   const metadataPath = join(outputRunDirectory, 'packed_best.json')
   if (!existsSync(metadataPath)) {
     return []
   }
 
   try {
+    if (artifactBaseline?.get(metadataPath) === getArtifactFingerprint(metadataPath)) {
+      return []
+    }
+
     const parsed = JSON.parse(readFileSync(metadataPath, 'utf-8')) as unknown
     if (!isRecord(parsed) || !Array.isArray(parsed.submodels)) {
       return []
@@ -574,6 +626,7 @@ function walkTrainingArtifacts(rootDir: string, depth: number): string[] {
   for (const entry of entries) {
     const fullPath = join(rootDir, entry.name)
     if (entry.isDirectory()) {
+      if (entry.name === 'training-controls') continue
       files.push(...walkTrainingArtifacts(fullPath, depth - 1))
       continue
     }
@@ -589,7 +642,9 @@ function getFileModifiedAt(filePath: string): number {
 function buildCheckpointSummary(
   outputRunDirectory: string,
   startedAt: string | undefined,
-  usesPackedA2: boolean
+  usesPackedA2: boolean,
+  artifactBaseline?: Map<string, string>,
+  exportedModelPaths: string[] = []
 ): JobCheckpointSummary | null {
   if (!existsSync(outputRunDirectory)) {
     return null
@@ -598,6 +653,9 @@ function buildCheckpointSummary(
   const startedAtMs = startedAt ? Date.parse(startedAt) : 0
   const files = walkTrainingArtifacts(outputRunDirectory, 4).filter((filePath) => {
     try {
+      if (artifactBaseline?.get(filePath) === getArtifactFingerprint(filePath)) {
+        return false
+      }
       return getFileModifiedAt(filePath) >= startedAtMs - 15_000
     } catch (error) {
       log.warn('Failed to stat training artifact:', filePath, error)
@@ -612,12 +670,12 @@ function buildCheckpointSummary(
   let bestCheckpointPath: string | null = null
   let modelFilePath: string | null = null
   let comparisonPlotPath: string | null = null
-  const packedSubmodels = readPackedBestSubmodels(outputRunDirectory)
+  const packedSubmodels = readPackedBestSubmodels(outputRunDirectory, artifactBaseline)
   const primaryPackedSubmodel = usesPackedA2 ? selectPrimaryPackedSubmodel(packedSubmodels) : null
 
   for (const filePath of files) {
     const normalized = filePath.toLowerCase()
-    if (normalized.endsWith('.nam')) {
+    if (normalized.endsWith('.nam') && !exportedModelPaths.some((path) => resolve(path).toLowerCase() === resolve(filePath).toLowerCase())) {
       modelFilePath = filePath
     } else if (normalized.endsWith('comparison.png')) {
       comparisonPlotPath = filePath
@@ -857,6 +915,15 @@ function normalizeRuntimeState(value: unknown): JobRuntimeState | null {
         }
       : undefined,
     latencyAlignment: normalizeLatencyAlignment(candidate.latencyAlignment),
+    esrHistory: normalizeEsrHistory(candidate.esrHistory),
+    trainingControlReady: false,
+    modelExportPending: false,
+    finishedEarly: candidate.finishedEarly === true,
+    modelExports: Array.isArray(candidate.modelExports) ? candidate.modelExports.flatMap((entry) => {
+      if (!isRecord(entry) || typeof entry.path !== 'string' || typeof entry.exportedAt !== 'string'
+        || typeof entry.epoch !== 'number' || !Number.isSafeInteger(entry.epoch) || entry.epoch < 1) return []
+      return [{ path: entry.path, epoch: entry.epoch, exportedAt: entry.exportedAt }]
+    }) : [],
     checkpointSummary: typeof candidate.checkpointSummary === 'object' && candidate.checkpointSummary !== null
       ? {
           checkpointCount:
@@ -909,7 +976,12 @@ export class QueueManager extends EventEmitter {
   private settings: AppSettings | null = null
   private isRunning: boolean = false
   private activeController: TrainingProcessController | null = null
+  private activePreparationAbortController: AbortController | null = null
+  private artifactBaselines: Map<string, Map<string, string>> = new Map()
   private outputPollTimer: NodeJS.Timeout | null = null
+  private esrHistoryReader: EsrHistoryReader | null = null
+  private progressBroadcastTimers: Map<string, NodeJS.Timeout> = new Map()
+  private progressPersistenceTimer: NodeJS.Timeout | null = null
   private knownNamVersion: KnownNamVersion | null = null
 
   private appendTerminalAnnotation(runtime: JobRuntimeState, message: string): void {
@@ -957,7 +1029,11 @@ export class QueueManager extends EventEmitter {
       return
     }
 
-    copyFileSync(runtime.terminalLogPath, runtime.publishedTerminalLogPath)
+    try {
+      copyFileSync(runtime.terminalLogPath, runtime.publishedTerminalLogPath)
+    } catch (error) {
+      log.warn('Failed to synchronize published terminal log:', error)
+    }
   }
 
   private processTerminalChunk(
@@ -1060,7 +1136,7 @@ export class QueueManager extends EventEmitter {
         confirmedTrainingMetadata,
         exportDate
       })
-      writeFileSync(modelPath, JSON.stringify(parsed), 'utf-8')
+      atomicWriteFileSync(modelPath, JSON.stringify(parsed), { backup: false })
     } catch (error) {
       this.appendUserMessage(runtime, `Training completed, but writing NAM metadata failed: ${String(error)}`)
     }
@@ -1117,7 +1193,7 @@ export class QueueManager extends EventEmitter {
       if (!existsSync(queuePath)) {
         return
       }
-      const parsed = JSON.parse(readFileSync(queuePath, 'utf-8')) as unknown
+      const parsed = readJsonWithBackupSync(queuePath)
       if (!Array.isArray(parsed)) {
         this.queue = []
         return
@@ -1152,11 +1228,7 @@ export class QueueManager extends EventEmitter {
   }
 
   private saveQueue(): void {
-    try {
-      writeFileSync(queuePath, JSON.stringify(this.queue, null, 2), 'utf-8')
-    } catch (error) {
-      log.error('Failed to save queue:', error)
-    }
+    atomicWriteJsonSync(queuePath, this.queue)
   }
 
   private stopOutputPolling(): void {
@@ -1171,7 +1243,12 @@ export class QueueManager extends EventEmitter {
       return false
     }
 
-    let changed = false
+    let changed = this.refreshEsrHistory(runtime)
+    if (!runtime.trainingControlReady && runtime.workspaceDirectory
+      && existsSync(join(runtime.workspaceDirectory, 'training-controls', 'ready.json'))) {
+      runtime.trainingControlReady = true
+      changed = true
+    }
     const previousRunDirectory = runtime.resolvedRunDirectory
     const runDirectorySelection = selectOutputRunDirectory(
       runtime.outputRootDir,
@@ -1207,10 +1284,18 @@ export class QueueManager extends EventEmitter {
       changed = true
     }
 
-    const artifactDirectory = runtime.resolvedRunDirectory ?? runtime.outputRootDir
+    const artifactDirectory = runtime.resolvedRunDirectory
     const previousSummary = runtime.checkpointSummary
     const preset = getTrainingPresetById(runtime.frozenJob.presetId)
-    const nextSummary = buildCheckpointSummary(artifactDirectory, runtime.startedAt, isA2TrainingPreset(preset)) ?? undefined
+    const nextSummary = artifactDirectory
+      ? buildCheckpointSummary(
+        artifactDirectory,
+        runtime.startedAt,
+        isA2TrainingPreset(preset),
+        this.artifactBaselines.get(runtime.jobId),
+        runtime.modelExports?.map((entry) => entry.path)
+      ) ?? undefined
+      : undefined
 
     if (!checkpointSummariesEqual(previousSummary, nextSummary)) {
       runtime.checkpointSummary = nextSummary
@@ -1245,6 +1330,18 @@ export class QueueManager extends EventEmitter {
     return changed
   }
 
+  private refreshEsrHistory(runtime: JobRuntimeState): boolean {
+    try {
+      const records = this.esrHistoryReader?.read() ?? []
+      if (records.length === 0) return false
+      runtime.esrHistory = normalizeEsrHistory([...(runtime.esrHistory ?? []), ...records])
+      return true
+    } catch (error) {
+      log.warn('Failed to read ESR history:', error)
+      return false
+    }
+  }
+
   private startOutputPolling(runtime: JobRuntimeState): void {
     this.stopOutputPolling()
 
@@ -1273,13 +1370,13 @@ export class QueueManager extends EventEmitter {
       modelConfig: string
       learningConfig: string
     },
-    runtime: JobRuntimeState
+    runtime: JobRuntimeState,
+    settings: AppSettings,
+    signal: AbortSignal
   ): Promise<void> {
-    if (!this.settings) {
-      return
-    }
-
-    const torchRuntime = await inspectTorchRuntime(this.settings)
+    signal.throwIfAborted()
+    const torchRuntime = await inspectTorchRuntime(settings, signal)
+    signal.throwIfAborted()
     const acceleratorRequested = chooseAccelerator(torchRuntime)
     runtime.deviceSummary = buildDeviceSummary(torchRuntime, acceleratorRequested)
 
@@ -1413,12 +1510,60 @@ export class QueueManager extends EventEmitter {
     return true
   }
 
+  private clearScheduledProgressUpdate(jobId: string): void {
+    const timer = this.progressBroadcastTimers.get(jobId)
+    if (timer) {
+      clearTimeout(timer)
+      this.progressBroadcastTimers.delete(jobId)
+    }
+  }
+
+  private clearAllScheduledProgressUpdates(): void {
+    for (const timer of this.progressBroadcastTimers.values()) {
+      clearTimeout(timer)
+    }
+    this.progressBroadcastTimers.clear()
+    if (this.progressPersistenceTimer) {
+      clearTimeout(this.progressPersistenceTimer)
+      this.progressPersistenceTimer = null
+    }
+  }
+
+  private scheduleProgressUpdate(runtime: JobRuntimeState): void {
+    if (!this.progressBroadcastTimers.has(runtime.jobId)) {
+      const broadcastTimer = setTimeout(() => {
+        this.progressBroadcastTimers.delete(runtime.jobId)
+        if (this.queue.includes(runtime)) {
+          this.emit('jobUpdated', runtime)
+        }
+      }, PROGRESS_BROADCAST_INTERVAL_MS)
+      this.progressBroadcastTimers.set(runtime.jobId, broadcastTimer)
+    }
+
+    if (!this.progressPersistenceTimer) {
+      this.progressPersistenceTimer = setTimeout(() => {
+        this.progressPersistenceTimer = null
+        try {
+          this.saveQueue()
+        } catch (error) {
+          log.error('Failed to persist throttled training progress:', error)
+        }
+      }, PROGRESS_PERSIST_INTERVAL_MS)
+    }
+  }
+
   private emitQueueUpdate(): void {
+    this.clearAllScheduledProgressUpdates()
     this.saveQueue()
     this.emit('queueUpdated', this.getQueue())
   }
 
   private emitJobUpdate(runtime: JobRuntimeState): void {
+    this.clearScheduledProgressUpdate(runtime.jobId)
+    if (this.progressPersistenceTimer) {
+      clearTimeout(this.progressPersistenceTimer)
+      this.progressPersistenceTimer = null
+    }
     this.saveQueue()
     this.emit('jobUpdated', runtime)
   }
@@ -1461,6 +1606,7 @@ export class QueueManager extends EventEmitter {
     runtime.deviceSummary = undefined
     runtime.latencyAlignment = undefined
     runtime.checkpointSummary = undefined
+    runtime.esrHistory = undefined
     runtime.stopRequestedAt = undefined
     runtime.stopMode = null
     runtime.errorCategory = 'a2_diagnostics_pending'
@@ -1479,17 +1625,13 @@ export class QueueManager extends EventEmitter {
     }
   }
 
-  private async assertTrainingRequirements(jobSpec: JobSpec): Promise<void> {
-    if (!this.settings) {
-      throw new Error('Cannot validate training requirements because settings are not loaded.')
-    }
-
+  private async assertTrainingRequirements(jobSpec: JobSpec, settings: AppSettings): Promise<void> {
     const preset = getTrainingPresetById(jobSpec.presetId)
     if (!isA2TrainingPreset(preset)) {
       return
     }
 
-    const settingsKey = buildBackendSettingsKey(this.settings)
+    const settingsKey = buildBackendSettingsKey(settings)
     const installedVersion = this.knownNamVersion?.settingsKey === settingsKey
       ? this.knownNamVersion.version
       : null
@@ -1505,8 +1647,12 @@ export class QueueManager extends EventEmitter {
   }
 
   async validateJobCanTrain(jobSpec: JobSpec): Promise<void> {
+    if (!this.settings) {
+      throw new Error('Cannot validate training requirements because settings are not loaded.')
+    }
+
     try {
-      await this.assertTrainingRequirements(jobSpec)
+      await this.assertTrainingRequirements(jobSpec, { ...this.settings })
     } catch (error) {
       if (isA2DiagnosticsPendingError(error)) {
         return
@@ -1527,8 +1673,8 @@ export class QueueManager extends EventEmitter {
     return this.isRunning
   }
 
-  addToQueue(jobSpec: JobSpec): JobRuntimeState {
-    const runtime: JobRuntimeState = {
+  private createQueuedRuntime(jobSpec: JobSpec): JobRuntimeState {
+    return {
       jobId: jobSpec.id,
       jobName: jobSpec.name,
       status: 'queued',
@@ -1558,10 +1704,33 @@ export class QueueManager extends EventEmitter {
         latestStructuredLine: 'Waiting in queue'
       }
     }
+  }
+
+  addToQueue(jobSpec: JobSpec): JobRuntimeState {
+    const runtime = this.createQueuedRuntime(jobSpec)
     this.queue.push(runtime)
-    this.emitQueueUpdate()
+    try {
+      this.emitQueueUpdate()
+    } catch (error) {
+      this.queue.pop()
+      throw error
+    }
     log.info('Job added to queue:', jobSpec.id)
     return runtime
+  }
+
+  addManyToQueue(jobSpecs: JobSpec[]): JobRuntimeState[] {
+    const runtimes = jobSpecs.map((jobSpec) => this.createQueuedRuntime(jobSpec))
+    const previousQueue = this.queue
+    this.queue = [...previousQueue, ...runtimes]
+    try {
+      this.emitQueueUpdate()
+    } catch (error) {
+      this.queue = previousQueue
+      throw error
+    }
+    log.info('Jobs added to queue:', runtimes.map((runtime) => runtime.jobId))
+    return runtimes
   }
 
   removeQueueItem(jobId: string): void {
@@ -1584,9 +1753,17 @@ export class QueueManager extends EventEmitter {
       return null
     }
 
+    const previousBatchId = runtime.frozenJob.batchId
+    const previousBatchSourceName = runtime.frozenJob.batchSourceName
     runtime.frozenJob.batchId = batchId
     runtime.frozenJob.batchSourceName = batchSourceName
-    this.emitQueueUpdate()
+    try {
+      this.emitQueueUpdate()
+    } catch (error) {
+      runtime.frozenJob.batchId = previousBatchId
+      runtime.frozenJob.batchSourceName = previousBatchSourceName
+      throw error
+    }
     return runtime
   }
 
@@ -1638,6 +1815,7 @@ export class QueueManager extends EventEmitter {
     runtime.deviceSummary = undefined
     runtime.latencyAlignment = undefined
     runtime.checkpointSummary = undefined
+    runtime.esrHistory = undefined
     runtime.stopRequestedAt = undefined
     runtime.stopMode = null
     runtime.errorCategory = null
@@ -1667,8 +1845,12 @@ export class QueueManager extends EventEmitter {
         runtime.plannedEpochs = jobSpec.trainingOverrides.epochs ?? null
         runtime.outputRootDir = jobSpec.outputRootDir
         this.currentJob = runtime
-        const result = await this.runJob(jobSpec, runtime)
-        this.currentJob = null
+        let result: RunJobResult
+        try {
+          result = await this.runJob(jobSpec, runtime)
+        } finally {
+          this.currentJob = null
+        }
         if (result === 'blocked') {
           break
         }
@@ -1682,10 +1864,21 @@ export class QueueManager extends EventEmitter {
   }
 
   private async runJob(jobSpec: JobSpec, runtime: JobRuntimeState): Promise<RunJobResult> {
-    const workspaceId = uuidv4()
-    const workspaceRoot = resolveWorkspaceRoot(this.settings)
-    const workspaceDir = join(workspaceRoot, workspaceId)
-    const terminalPath = join(workspaceDir, 'terminal.log')
+    this.esrHistoryReader = null
+    const runSettings = this.settings ? { ...this.settings } : null
+    const preparationAbortController = new AbortController()
+    this.activePreparationAbortController = preparationAbortController
+
+    try {
+      if (!runSettings) {
+        throw new Error('Cannot start training because settings are not loaded.')
+      }
+
+      const workspaceId = uuidv4()
+      const workspaceRoot = resolveWorkspaceRoot(runSettings)
+      const workspaceDir = join(workspaceRoot, workspaceId)
+      const terminalPath = join(workspaceDir, 'terminal.log')
+      this.artifactBaselines.set(jobSpec.id, snapshotTrainingArtifacts(jobSpec.outputRootDir))
 
     if (!existsSync(workspaceDir)) {
       mkdirSync(workspaceDir, { recursive: true })
@@ -1718,6 +1911,12 @@ export class QueueManager extends EventEmitter {
     }
     runtime.latencyAlignment = createInitialLatencyAlignment(jobSpec)
     runtime.checkpointSummary = undefined
+    runtime.esrHistory = []
+    runtime.trainingControlReady = false
+    runtime.modelExportPending = false
+    runtime.modelExports = []
+    runtime.finishedEarly = false
+    this.esrHistoryReader = new EsrHistoryReader(join(workspaceDir, TRAINING_METRICS_FILENAME))
     runtime.stopRequestedAt = undefined
     runtime.stopMode = null
     writeFileSync(terminalPath, '', 'utf-8')
@@ -1752,7 +1951,7 @@ export class QueueManager extends EventEmitter {
         log.warn('Failed to refresh final training artifacts:', error)
       }
 
-      if (runtime.status === 'succeeded' && this.settings?.autoOpenResultsFolder && runtime.resolvedRunDirectory) {
+      if (runtime.status === 'succeeded' && runSettings.autoOpenResultsFolder && runtime.resolvedRunDirectory) {
         shell.openPath(runtime.resolvedRunDirectory)
       }
     }
@@ -1765,7 +1964,7 @@ export class QueueManager extends EventEmitter {
       let controller: TrainingProcessController | null = null
 
       controller = await runNamFull(
-        this.settings!,
+        runSettings,
         {
           dataConfigPath: configPaths.dataConfig,
           modelConfigPath: configPaths.modelConfig,
@@ -1783,7 +1982,7 @@ export class QueueManager extends EventEmitter {
               changed = this.updateLatestLogLine(runtime, line) || changed
             }
             if (changed) {
-              this.emitJobUpdate(runtime)
+              this.scheduleProgressUpdate(runtime)
             }
           },
           onStarted: (pid) => {
@@ -1795,6 +1994,7 @@ export class QueueManager extends EventEmitter {
           onExit: (code) => {
             log.info(`PTY exited for job ${runtime.jobId} with code ${code}`)
             this.stopOutputPolling()
+            this.refreshEsrHistory(runtime)
             const trailingLines = this.processTerminalChunk(runtime, transcriptAccumulator, '', true)
             for (const line of trailingLines) {
               this.updateLatestLogLine(runtime, line)
@@ -1814,7 +2014,7 @@ export class QueueManager extends EventEmitter {
               )
             } else if (code === 0) {
               runtime.status = 'succeeded'
-              this.appendUserMessage(runtime, 'Training completed successfully.')
+              this.appendUserMessage(runtime, runtime.finishedEarly ? 'Training finished early. Best validated model saved.' : 'Training completed successfully.')
             } else {
               const terminalTail = existsSync(terminalPath)
                 ? readFileSync(terminalPath, 'utf-8').trim().split(/\r?\n/).slice(-8).join('\n')
@@ -1835,6 +2035,7 @@ export class QueueManager extends EventEmitter {
           },
           onError: (err) => {
             this.stopOutputPolling()
+            this.refreshEsrHistory(runtime)
             runtime.pid = null
             runtime.finishedAt = new Date().toISOString()
             runtime.status = runtime.stopMode ? 'canceled' : 'failed'
@@ -1844,15 +2045,16 @@ export class QueueManager extends EventEmitter {
             this.syncPublishedTerminalLog(runtime)
             this.emitJobUpdate(runtime)
           }
-        }
+        },
+        preparationAbortController.signal
       )
 
       this.activeController = controller
       await waitForCompletion()
     }
 
-    try {
-      await this.assertTrainingRequirements(jobSpec)
+      await this.assertTrainingRequirements(jobSpec, runSettings)
+      preparationAbortController.signal.throwIfAborted()
       const preset = getTrainingPresetById(jobSpec.presetId)
       const latencyLocked = preset.lockedJobFields.includes('latencySamples')
       let jobSpecForConfig = jobSpec
@@ -1872,7 +2074,13 @@ export class QueueManager extends EventEmitter {
         }
         this.emitJobUpdate(runtime)
 
-        const latencyAnalysis = await analyzeNamLatency(this.settings!, jobSpec.inputAudioPath, jobSpec.outputAudioPath)
+        const latencyAnalysis = await analyzeNamLatency(
+          runSettings,
+          jobSpec.inputAudioPath,
+          jobSpec.outputAudioPath,
+          preparationAbortController.signal
+        )
+        preparationAbortController.signal.throwIfAborted()
         if (!latencyAnalysis.ok || latencyAnalysis.recommendedLatency == null) {
           const failureReason = latencyAnalysis.errorMessage ?? 'NAM could not calculate a recommended delay. Switch latency to Manual and enter a value, or use a recognized NAM standard input file.'
           const failureMessage = `Auto latency alignment failed: ${failureReason}`
@@ -1931,14 +2139,36 @@ export class QueueManager extends EventEmitter {
       this.appendUserMessage(runtime, 'Generating NAM training configuration files...', { persistToTerminalLog: true })
       const configPaths = buildJobConfigs(jobSpecForConfig, workspaceDir, preset)
       runtime.generatedConfigPaths = configPaths
-      await this.prepareLearningConfigForRuntime(configPaths, runtime)
+      await this.prepareLearningConfigForRuntime(
+        configPaths,
+        runtime,
+        runSettings,
+        preparationAbortController.signal
+      )
 
       this.appendUserMessage(runtime, 'Starting NAM training...', { persistToTerminalLog: true })
       this.appendUserMessage(runtime, `Training output root: ${jobSpec.outputRootDir}`, { persistToTerminalLog: true })
       this.emitJobUpdate(runtime)
 
       await runTrainingProcess(configPaths)
-      await finalizeSuccessfulRun()
+      const trainingSucceeded = (): boolean => runtime.status === 'succeeded'
+      if (trainingSucceeded()) {
+        this.refreshTrainingArtifacts(runtime)
+        if (!getRuntimeModelFilePath(runtime)) {
+          runtime.status = 'failed'
+          runtime.errorCategory = 'missing_model_artifact'
+          this.appendUserMessage(
+            runtime,
+            'Training exited successfully, but NAM did not produce a final model file. The run has been marked failed so a checkpoint is not published as a completed model.'
+          )
+          this.emitJobUpdate(runtime)
+        } else {
+          await finalizeSuccessfulRun()
+        }
+      } else {
+        this.refreshTrainingArtifacts(runtime)
+        this.syncPublishedTerminalLog(runtime)
+      }
       return 'completed'
     } catch (error) {
       if (isA2DiagnosticsPendingError(error)) {
@@ -1947,21 +2177,30 @@ export class QueueManager extends EventEmitter {
         return 'blocked'
       }
 
-      runtime.status = 'failed'
-      runtime.errorCategory = 'unknown_error'
+      const wasCanceled = preparationAbortController.signal.aborted || isAbortError(error) || runtime.stopMode !== null
+      runtime.status = wasCanceled ? 'canceled' : 'failed'
+      runtime.errorCategory = wasCanceled ? 'stopped_by_user' : runtime.errorCategory ?? 'unknown_error'
       runtime.finishedAt = new Date().toISOString()
-      this.appendUserMessage(runtime, `Training setup failed: ${String(error)}`)
+      this.appendUserMessage(
+        runtime,
+        wasCanceled ? 'Training preparation was canceled.' : `Training setup failed: ${String(error)}`
+      )
       this.emitJobUpdate(runtime)
       return 'completed'
     } finally {
       this.activeController = null
+      if (this.activePreparationAbortController === preparationAbortController) {
+        this.activePreparationAbortController = null
+      }
+      this.artifactBaselines.delete(runtime.jobId)
+      this.clearScheduledProgressUpdate(runtime.jobId)
       this.stopOutputPolling()
       this.syncPublishedTerminalLog(runtime)
     }
   }
 
   async cancelJob(jobId: string): Promise<void> {
-    if (!this.currentJob || this.currentJob.jobId !== jobId || !this.activeController) {
+    if (!this.currentJob || this.currentJob.jobId !== jobId) {
       return
     }
 
@@ -1970,7 +2209,11 @@ export class QueueManager extends EventEmitter {
     this.currentJob.stopMode = 'graceful'
     this.appendUserMessage(this.currentJob, 'Stop requested. NAM-BOT is asking the trainer to stop cleanly.')
     this.emitJobUpdate(this.currentJob)
-    this.activeController.cancel()
+    if (this.activeController) {
+      this.activeController.cancel()
+    } else {
+      this.activePreparationAbortController?.abort()
+    }
 
     // Watchdog: escalate to force kill if the process doesn't exit within 15 seconds
     const watchdogJobId = jobId
@@ -1984,7 +2227,7 @@ export class QueueManager extends EventEmitter {
   }
 
   async forceStopJob(jobId: string): Promise<void> {
-    if (!this.currentJob || this.currentJob.jobId !== jobId || !this.activeController) {
+    if (!this.currentJob || this.currentJob.jobId !== jobId) {
       return
     }
 
@@ -1993,7 +2236,93 @@ export class QueueManager extends EventEmitter {
     this.currentJob.stopMode = 'force'
     this.appendUserMessage(this.currentJob, 'Force stop requested. NAM-BOT is killing the full training process tree.')
     this.emitJobUpdate(this.currentJob)
-    await this.activeController.forceKill()
+    let terminationConfirmed = true
+    if (this.activeController) {
+      try {
+        terminationConfirmed = await this.activeController.forceKill()
+      } catch (error) {
+        terminationConfirmed = false
+        log.error(`Force stop failed for job ${jobId}:`, error)
+      }
+    } else {
+      this.activePreparationAbortController?.abort()
+    }
+
+    if (!this.currentJob || this.currentJob.jobId !== jobId || this.currentJob.status !== 'stopping') {
+      return
+    }
+
+    this.currentJob.status = terminationConfirmed ? 'canceled' : 'failed'
+    this.currentJob.finishedAt = new Date().toISOString()
+    this.currentJob.pid = null
+    this.currentJob.errorCategory = terminationConfirmed ? 'force_stopped' : 'force_stop_failed'
+    this.appendUserMessage(
+      this.currentJob,
+      terminationConfirmed
+        ? 'The training process tree was force-stopped.'
+        : 'NAM-BOT could not confirm that the training process tree was terminated. Check Task Manager before starting another training job.'
+    )
+    this.activeController = null
+    this.stopOutputPolling()
+    this.refreshEsrHistory(this.currentJob)
+    this.emitJobUpdate(this.currentJob)
+  }
+
+  async exportTrainingModel(jobId: string, destination: string, finishAfterExport = false): Promise<string> {
+    const runtime = this.currentJob
+    if (!runtime || runtime.jobId !== jobId || runtime.status !== 'running' || !runtime.workspaceDirectory) {
+      throw new Error('This job is no longer training.')
+    }
+    if (runtime.modelExportPending) throw new Error('A model export is already in progress.')
+    if (!runtime.trainingControlReady || !runtime.checkpointSummary?.bestCheckpointPath) {
+      throw new Error('Wait for the first validated checkpoint. Live export requires a new training run.')
+    }
+    if (runtime.resolvedRunDirectory && resolve(destination).toLowerCase() === resolve(runtime.resolvedRunDirectory, 'model.nam').toLowerCase()) {
+      throw new Error('Choose a different filename so the snapshot does not overwrite the trainer’s final model.')
+    }
+    const workspace = runtime.workspaceDirectory
+    const isActive = (): boolean => this.currentJob === runtime && runtime.pid != null && ACTIVE_JOB_STATUSES.includes(runtime.status)
+    runtime.modelExportPending = true
+    this.emitJobUpdate(runtime)
+    try {
+      const result = await requestTrainingControl(workspace, 'export', isActive)
+      const model: unknown = JSON.parse(readFileSync(result.modelPath, 'utf8'))
+      if (!isRecord(model) || typeof model.architecture !== 'string' || !Array.isArray(model.weights)) {
+        throw new Error('The trainer did not produce a valid NAM model.')
+      }
+      model.metadata = buildUpdatedNamModelMetadata({
+        currentMetadata: isRecord(model.metadata) ? model.metadata : {},
+        metadataPatch: buildNamMetadataPatch(runtime.frozenJob.metadata),
+        confirmedTrainingMetadata: { presetName: getTrainingPresetById(runtime.frozenJob.presetId).name },
+        exportDate: buildNamExportDate(new Date())
+      })
+      atomicWriteFileSync(destination, JSON.stringify(model), { backup: false })
+      runtime.modelExports = [...(runtime.modelExports ?? []), { path: destination, epoch: result.epoch, exportedAt: new Date().toISOString() }]
+      this.appendUserMessage(runtime, `Best validated model exported during epoch ${result.epoch}: ${destination}`)
+      if (finishAfterExport && runtime.status === 'running' && isActive()) {
+        // Save the user's file first. A failed export never stops the training run.
+        runtime.finishedEarly = true
+        try {
+          await requestTrainingControl(workspace, 'finish', isActive)
+          if (runtime.status === 'running') {
+            runtime.status = 'stopping'
+            runtime.stopRequestedAt = new Date().toISOString()
+            runtime.stopMode = null
+            this.appendUserMessage(runtime, 'Model saved. Finishing training at a safe boundary...')
+          }
+        } catch (error) {
+          runtime.finishedEarly = false
+          throw new Error(`Model saved to ${destination}, but finishing the run failed: ${String(error)}`)
+        }
+      }
+      return destination
+    } catch (error) {
+      log.error('Training model export failed:', error)
+      throw error
+    } finally {
+      runtime.modelExportPending = false
+      this.emitJobUpdate(runtime)
+    }
   }
 
   retryJob(jobId: string): JobRuntimeState | null {
@@ -2064,7 +2393,7 @@ export class QueueManager extends EventEmitter {
   }
 
   shutdownSync(reason: string): void {
-    if (!this.currentJob || !this.activeController) {
+    if (!this.currentJob) {
       return
     }
 
@@ -2077,8 +2406,14 @@ export class QueueManager extends EventEmitter {
     this.currentJob.finishedAt = new Date().toISOString()
     this.currentJob.pid = null
     this.stopOutputPolling()
-    this.activeController.forceKillSync()
+    if (this.activeController) {
+      this.activeController.forceKillSync()
+    } else {
+      this.activePreparationAbortController?.abort()
+    }
     this.activeController = null
+    this.activePreparationAbortController = null
+    this.clearAllScheduledProgressUpdates()
     this.saveQueue()
   }
 }

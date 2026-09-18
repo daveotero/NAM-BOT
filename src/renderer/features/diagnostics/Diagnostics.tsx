@@ -8,6 +8,7 @@ import {
   NamVersionInfo,
   TrainingLaunchCheckResult,
   TrainingLaunchDiagnosticsSummary,
+  shouldAutoLoadResource,
   useAppStore
 } from '../../state/store'
 import { MIN_A2_NAM_VERSION } from '../../state/types'
@@ -38,8 +39,6 @@ interface DiagnosticsExportPayload {
     condaExecutablePath: string | null
     environmentName: string | null
     environmentPrefixPath: string | null
-    pythonExecutablePath: string | null
-    preferredLaunchMode: AppSettings['preferredLaunchMode'] | null
   }
   validation: BackendValidationSummary | null
   acceleratorDiagnostics: AcceleratorDiagnosticsSummary | null
@@ -237,10 +236,6 @@ function getEnvironmentReference(settings: AppSettings | null): string {
       return settings.environmentPrefixPath
         ? `Conda prefix "${settings.environmentPrefixPath}"`
         : 'Conda prefix not configured'
-    case 'direct-python':
-      return settings.pythonExecutablePath
-        ? `Python executable "${settings.pythonExecutablePath}"`
-        : 'Python executable not configured'
     default:
       return 'Unknown backend target'
   }
@@ -260,8 +255,6 @@ function getRuntimePrefix(settings: AppSettings | null): string | null {
       return settings.environmentPrefixPath
         ? `${quoteShell(settings.condaExecutablePath ?? (window.namBot.platform === 'win32' ? 'conda.exe' : 'conda'))} run --prefix ${quoteShell(settings.environmentPrefixPath)}`
         : null
-    case 'direct-python':
-      return settings.pythonExecutablePath ? quoteShell(settings.pythonExecutablePath) : null
     default:
       return null
   }
@@ -272,9 +265,6 @@ function buildPythonInlineCommand(settings: AppSettings | null, snippet: string)
   if (!runtimePrefix) {
     return `python -c "${snippet}"`
   }
-  if (settings?.backendMode === 'direct-python') {
-    return `${runtimePrefix} -c "${snippet}"`
-  }
   return `${runtimePrefix} python -c "${snippet}"`
 }
 
@@ -282,9 +272,6 @@ function buildPipCommand(settings: AppSettings | null, pipArgs: string): string 
   const runtimePrefix = getRuntimePrefix(settings)
   if (!runtimePrefix) {
     return `pip ${pipArgs}`
-  }
-  if (settings?.backendMode === 'direct-python') {
-    return `${runtimePrefix} -m pip ${pipArgs}`
   }
   return `${runtimePrefix} pip ${pipArgs}`
 }
@@ -328,8 +315,6 @@ function getEnvironmentActivationCommand(settings: AppSettings | null): string |
       return settings.environmentName ? `conda activate ${settings.environmentName}` : null
     case 'conda-prefix':
       return settings.environmentPrefixPath ? `conda activate "${settings.environmentPrefixPath}"` : null
-    case 'direct-python':
-      return null
     default:
       return null
   }
@@ -609,9 +594,7 @@ function buildDiagnosticsExportPayload(
       backendMode: settings?.backendMode ?? null,
       condaExecutablePath: settings?.condaExecutablePath ?? null,
       environmentName: settings?.environmentName ?? null,
-      environmentPrefixPath: settings?.environmentPrefixPath ?? null,
-      pythonExecutablePath: settings?.pythonExecutablePath ?? null,
-      preferredLaunchMode: settings?.preferredLaunchMode ?? null
+      environmentPrefixPath: settings?.environmentPrefixPath ?? null
     },
     validation,
     acceleratorDiagnostics,
@@ -714,8 +697,6 @@ function buildAiTroubleshootingPrompt(
     `- Conda executable: ${settings?.condaExecutablePath ?? 'Not configured'}`,
     `- Environment name: ${settings?.environmentName ?? 'Not configured'}`,
     `- Environment prefix: ${settings?.environmentPrefixPath ?? 'Not configured'}`,
-    `- Direct Python path: ${settings?.pythonExecutablePath ?? 'Not configured'}`,
-    `- Preferred launch mode: ${settings?.preferredLaunchMode ?? 'Not configured'}`,
     '',
     'Backend validation',
     backendLines,
@@ -1460,9 +1441,14 @@ export default function Diagnostics() {
     trainingLaunchDiagnostics,
     namVersionInfo,
     isLoading,
+    isBackendValidationLoading,
     isAcceleratorDiagnosticsLoading,
     isTrainingLaunchDiagnosticsLoading,
     isNamVersionInfoLoading,
+    validationError,
+    acceleratorDiagnosticsError,
+    trainingLaunchDiagnosticsError,
+    namVersionInfoError,
     loadSettings,
     validateBackend,
     loadAcceleratorDiagnostics,
@@ -1470,7 +1456,13 @@ export default function Diagnostics() {
     loadNamVersionInfo
   } = useAppStore()
 
-  const isChecking = isLoading || isAcceleratorDiagnosticsLoading || isTrainingLaunchDiagnosticsLoading || isNamVersionInfoLoading
+  const isChecking = isLoading || isBackendValidationLoading || isAcceleratorDiagnosticsLoading || isTrainingLaunchDiagnosticsLoading || isNamVersionInfoLoading
+  const diagnosticErrors = [
+    validationError,
+    acceleratorDiagnosticsError,
+    trainingLaunchDiagnosticsError,
+    namVersionInfoError
+  ].filter((message): message is string => Boolean(message))
   const [showAiPrompt, setShowAiPrompt] = useState(false)
   const [showRawJson, setShowRawJson] = useState(false)
   const [showAdvancedDetails, setShowAdvancedDetails] = useState(false)
@@ -1490,21 +1482,23 @@ export default function Diagnostics() {
     if (!settings && !isLoading) {
       void loadSettings()
     }
-    if (!validation && !isLoading) {
+    if (shouldAutoLoadResource(validation, isBackendValidationLoading, validationError)) {
       void validateBackend()
     }
-    if (!acceleratorDiagnostics && !isAcceleratorDiagnosticsLoading) {
+    if (shouldAutoLoadResource(acceleratorDiagnostics, isAcceleratorDiagnosticsLoading, acceleratorDiagnosticsError)) {
       void loadAcceleratorDiagnostics()
     }
-    if (!trainingLaunchDiagnostics && !isTrainingLaunchDiagnosticsLoading) {
+    if (shouldAutoLoadResource(trainingLaunchDiagnostics, isTrainingLaunchDiagnosticsLoading, trainingLaunchDiagnosticsError)) {
       void loadTrainingLaunchDiagnostics()
     }
-    if (!namVersionInfo && !isNamVersionInfoLoading) {
+    if (shouldAutoLoadResource(namVersionInfo, isNamVersionInfoLoading, namVersionInfoError)) {
       void loadNamVersionInfo()
     }
   }, [
     acceleratorDiagnostics,
+    acceleratorDiagnosticsError,
     isAcceleratorDiagnosticsLoading,
+    isBackendValidationLoading,
     isLoading,
     isNamVersionInfoLoading,
     isTrainingLaunchDiagnosticsLoading,
@@ -1513,9 +1507,12 @@ export default function Diagnostics() {
     loadSettings,
     loadTrainingLaunchDiagnostics,
     namVersionInfo,
+    namVersionInfoError,
     settings,
     trainingLaunchDiagnostics,
+    trainingLaunchDiagnosticsError,
     validation,
+    validationError,
     validateBackend
   ])
 
@@ -1547,6 +1544,11 @@ export default function Diagnostics() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
           {tiles.map((tile) => <SummaryTileCard key={tile.title} tile={tile} />)}
         </div>
+        {diagnosticErrors.length > 0 && (
+          <div style={{ marginTop: '12px', color: 'var(--neon-magenta)', fontSize: '13px' }}>
+            Diagnostics could not complete: {diagnosticErrors.join(' ')} Use Re-check All to try again.
+          </div>
+        )}
       </div>
 
       <ActionCenter actions={actions} allReady={isSetupReady(validation, acceleratorDiagnostics, trainingLaunchDiagnostics)} onOpenSettings={() => navigate('/settings')} />

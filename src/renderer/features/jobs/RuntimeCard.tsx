@@ -5,6 +5,8 @@ import {
   formatPresetArchitectureTag
 } from '../../state/types'
 import { handleCardToggleKeyDown, shouldIgnoreCardToggle } from '../../utils/card-toggle'
+import EsrHistoryChart from './EsrHistoryChart'
+import { getEsrSeriesColor } from './esr-chart-data'
 import {
   getDisplayState,
   getStatusSentence,
@@ -19,10 +21,11 @@ import {
   formatEsr,
   formatPackedSubmodelMetricLabel,
   getBestEsrLabel,
+  canExportTrainingModel,
   QueueDisplayState
 } from './job-helpers'
 
-export type RuntimeArtifactTarget = 'workspace' | 'output' | 'workspace-log' | 'run-log' | 'model'
+export type RuntimeArtifactTarget = 'workspace' | 'output' | 'workspace-log' | 'run-log' | 'model' | 'snapshot'
 
 interface RuntimeArtifactLink {
   target: RuntimeArtifactTarget
@@ -33,6 +36,7 @@ interface RuntimeArtifactLink {
 interface RuntimeEsrItem {
   label: string
   value: string
+  color: string
 }
 
 interface RuntimeCardProps {
@@ -48,6 +52,8 @@ interface RuntimeCardProps {
   onUnqueue?: (jobId: string) => Promise<void>
   onCancel: (jobId: string) => Promise<void>
   onForceStop: (jobId: string) => Promise<void>
+  onExportModel?: (jobId: string) => Promise<void>
+  isExporting?: boolean
   onCreateDraftFromRuntime?: (runtime: JobRuntimeState) => Promise<void>
   onUseRuntimeAsTemplate?: (runtime: JobRuntimeState) => void
   onOpenFolder: (jobId: string) => Promise<void>
@@ -94,13 +100,15 @@ function buildRuntimeEsrItems(runtime: JobRuntimeState): RuntimeEsrItem[] {
       })
       .map((submodel) => ({
         label: formatCompactEsrLabel(formatPackedSubmodelMetricLabel(submodel)),
-        value: formatEsr(submodel.bestValidationEsr)
+        value: formatEsr(submodel.bestValidationEsr),
+        color: getEsrSeriesColor(submodel.submodelIndex)
       }))
   }
 
   return [{
     label: formatCompactEsrLabel(getBestEsrLabel(runtime)),
-    value: formatEsr(runtime.checkpointSummary?.bestValidationEsr)
+    value: formatEsr(runtime.checkpointSummary?.bestValidationEsr),
+    color: getEsrSeriesColor(0)
   }]
 }
 
@@ -110,7 +118,8 @@ function buildArtifactLinks(runtime: JobRuntimeState, outputPath: string): Runti
     { target: 'output', label: 'Output folder', path: cleanArtifactPath(outputPath) },
     { target: 'workspace-log', label: 'Workspace log', path: cleanArtifactPath(runtime.terminalLogPath) },
     { target: 'run-log', label: 'Saved run log', path: cleanArtifactPath(runtime.publishedTerminalLogPath) },
-    { target: 'model', label: 'Model file', path: cleanArtifactPath(runtime.publishedModelPath) }
+    { target: 'model', label: 'Model file', path: cleanArtifactPath(runtime.publishedModelPath) },
+    { target: 'snapshot', label: 'Latest exported snapshot', path: cleanArtifactPath(runtime.modelExports?.at(-1)?.path) }
   ]
 
   return candidates.flatMap((candidate) => candidate.path
@@ -178,6 +187,8 @@ export default function RuntimeCard({
   onUnqueue,
   onCancel,
   onForceStop,
+  onExportModel,
+  isExporting = false,
   onCreateDraftFromRuntime,
   onUseRuntimeAsTemplate,
   onOpenFolder,
@@ -267,6 +278,16 @@ export default function RuntimeCard({
         <div className="job-actions queue-card-actions">
           {hasPrimaryActions && (
             <div className="queue-card-action-row queue-card-action-row-primary">
+              {runtime.status === 'running' && onExportModel && (
+                <button type="button" className="btn btn-sm btn-green"
+                  disabled={isExporting || !canExportTrainingModel(runtime)}
+                  title={canExportTrainingModel(runtime)
+                    ? 'Save the best validated model so far and keep training.'
+                    : 'Available after a validated checkpoint in a new training run'}
+                  onClick={() => void onExportModel(runtime.jobId)}>
+                  {isExporting || runtime.modelExportPending ? 'Saving...' : 'Save Snapshot'}
+                </button>
+              )}
               {displayState === 'Queued' && onUnqueue && (
                 <button
                   className="btn btn-sm btn-secondary"
@@ -388,7 +409,7 @@ export default function RuntimeCard({
                 {esrItems.map((item) => (
                   <div className="runtime-esr-item" key={`${runtime.jobId}-${item.label}`}>
                     <span className="runtime-esr-label">{item.label}</span>
-                    <span className="runtime-esr-value">{item.value}</span>
+                    <span className="runtime-esr-value" style={{ color: item.color }}>{item.value}</span>
                   </div>
                 ))}
               </div>
@@ -415,7 +436,8 @@ export default function RuntimeCard({
               )}
             </div>
           </div>
-          
+          <EsrHistoryChart history={runtime.esrHistory ?? []} active={isActiveRuntime(runtime.status)} />
+
           {(displayState === 'Running' || displayState === 'Error') && getLatestTerminalLine(runtime) && (
             <div className="queue-details-terminal">
               <span className="terminal-label">Latest terminal line</span>
