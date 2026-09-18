@@ -8,6 +8,7 @@ import { spawn as spawnPty, IPty } from 'node-pty'
 import { tmpdir } from 'os'
 import { join, dirname } from 'path'
 import { compareAppVersions } from '../../shared/version'
+import { buildTrainingMetricsScript } from './training-metrics-script'
 import {
   AcceleratorDiagnosticsSummary,
   AppSettings,
@@ -2306,6 +2307,11 @@ export async function runNamFull(
 
     let pty: IPty
     try {
+      if (args.cwd) {
+        const launcherPath = join(args.cwd, 'train-with-metrics.py')
+        writeFileSync(launcherPath, buildTrainingMetricsScript(), 'utf-8')
+        namArgs.splice(0, 1, 'python', launcherPath)
+      }
       pty = spawnCondaPty(settings, namArgs, {
         cwd: args.cwd
       })

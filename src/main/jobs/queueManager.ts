@@ -54,6 +54,8 @@ import {
   type NamExportDateMetadata
 } from './namModelMetadata'
 import { selectOutputRunDirectory } from './runDirectoryResolver'
+import { TRAINING_METRICS_FILENAME } from '../backend/training-metrics-script'
+import { EsrHistoryReader, normalizeEsrHistory } from './esr-history'
 
 const userDataPath = app.getPath('userData')
 const queuePath = join(userDataPath, 'queue.json')
@@ -910,6 +912,7 @@ function normalizeRuntimeState(value: unknown): JobRuntimeState | null {
         }
       : undefined,
     latencyAlignment: normalizeLatencyAlignment(candidate.latencyAlignment),
+    esrHistory: normalizeEsrHistory(candidate.esrHistory),
     checkpointSummary: typeof candidate.checkpointSummary === 'object' && candidate.checkpointSummary !== null
       ? {
           checkpointCount:
@@ -965,6 +968,7 @@ export class QueueManager extends EventEmitter {
   private activePreparationAbortController: AbortController | null = null
   private artifactBaselines: Map<string, Map<string, string>> = new Map()
   private outputPollTimer: NodeJS.Timeout | null = null
+  private esrHistoryReader: EsrHistoryReader | null = null
   private progressBroadcastTimers: Map<string, NodeJS.Timeout> = new Map()
   private progressPersistenceTimer: NodeJS.Timeout | null = null
   private knownNamVersion: KnownNamVersion | null = null
@@ -1228,7 +1232,7 @@ export class QueueManager extends EventEmitter {
       return false
     }
 
-    let changed = false
+    let changed = this.refreshEsrHistory(runtime)
     const previousRunDirectory = runtime.resolvedRunDirectory
     const runDirectorySelection = selectOutputRunDirectory(
       runtime.outputRootDir,
@@ -1307,6 +1311,18 @@ export class QueueManager extends EventEmitter {
     }
 
     return changed
+  }
+
+  private refreshEsrHistory(runtime: JobRuntimeState): boolean {
+    try {
+      const records = this.esrHistoryReader?.read() ?? []
+      if (records.length === 0) return false
+      runtime.esrHistory = normalizeEsrHistory([...(runtime.esrHistory ?? []), ...records])
+      return true
+    } catch (error) {
+      log.warn('Failed to read ESR history:', error)
+      return false
+    }
   }
 
   private startOutputPolling(runtime: JobRuntimeState): void {
@@ -1573,6 +1589,7 @@ export class QueueManager extends EventEmitter {
     runtime.deviceSummary = undefined
     runtime.latencyAlignment = undefined
     runtime.checkpointSummary = undefined
+    runtime.esrHistory = undefined
     runtime.stopRequestedAt = undefined
     runtime.stopMode = null
     runtime.errorCategory = 'a2_diagnostics_pending'
@@ -1781,6 +1798,7 @@ export class QueueManager extends EventEmitter {
     runtime.deviceSummary = undefined
     runtime.latencyAlignment = undefined
     runtime.checkpointSummary = undefined
+    runtime.esrHistory = undefined
     runtime.stopRequestedAt = undefined
     runtime.stopMode = null
     runtime.errorCategory = null
@@ -1829,6 +1847,7 @@ export class QueueManager extends EventEmitter {
   }
 
   private async runJob(jobSpec: JobSpec, runtime: JobRuntimeState): Promise<RunJobResult> {
+    this.esrHistoryReader = null
     const runSettings = this.settings ? { ...this.settings } : null
     const preparationAbortController = new AbortController()
     this.activePreparationAbortController = preparationAbortController
@@ -1875,6 +1894,8 @@ export class QueueManager extends EventEmitter {
     }
     runtime.latencyAlignment = createInitialLatencyAlignment(jobSpec)
     runtime.checkpointSummary = undefined
+    runtime.esrHistory = []
+    this.esrHistoryReader = new EsrHistoryReader(join(workspaceDir, TRAINING_METRICS_FILENAME))
     runtime.stopRequestedAt = undefined
     runtime.stopMode = null
     writeFileSync(terminalPath, '', 'utf-8')
@@ -1952,6 +1973,7 @@ export class QueueManager extends EventEmitter {
           onExit: (code) => {
             log.info(`PTY exited for job ${runtime.jobId} with code ${code}`)
             this.stopOutputPolling()
+            this.refreshEsrHistory(runtime)
             const trailingLines = this.processTerminalChunk(runtime, transcriptAccumulator, '', true)
             for (const line of trailingLines) {
               this.updateLatestLogLine(runtime, line)
@@ -1992,6 +2014,7 @@ export class QueueManager extends EventEmitter {
           },
           onError: (err) => {
             this.stopOutputPolling()
+            this.refreshEsrHistory(runtime)
             runtime.pid = null
             runtime.finishedAt = new Date().toISOString()
             runtime.status = runtime.stopMode ? 'canceled' : 'failed'
@@ -2220,6 +2243,7 @@ export class QueueManager extends EventEmitter {
     )
     this.activeController = null
     this.stopOutputPolling()
+    this.refreshEsrHistory(this.currentJob)
     this.emitJobUpdate(this.currentJob)
   }
 

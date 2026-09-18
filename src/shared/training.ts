@@ -73,6 +73,19 @@ export interface JobCheckpointSummary {
   comparisonPlotPath?: string | null
 }
 
+export interface JobEsrMeasurement {
+  submodelIndex: number | null
+  submodelName?: string | null
+  esr: number
+}
+
+export interface JobEsrEpoch {
+  /** One-based training epoch, excluding the initial validation sanity check. */
+  epoch: number
+  step: number
+  models: JobEsrMeasurement[]
+}
+
 export interface NamEmbeddedMetadata {
   name?: string
   modeledBy?: string
@@ -199,6 +212,7 @@ export interface JobRuntimeState {
   deviceSummary?: JobDeviceSummary
   latencyAlignment?: JobLatencyAlignmentSummary
   checkpointSummary?: JobCheckpointSummary
+  esrHistory?: JobEsrEpoch[]
   stopRequestedAt?: string
   stopMode?: JobStopMode | null
   userMessages: string[]

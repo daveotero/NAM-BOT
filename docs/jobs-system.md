@@ -305,6 +305,23 @@ interface JobSpec {
 
 ## Runtime State
 
+### Live ESR History
+
+Expanded training and finished job cards include an **ESR over time** chart. Each embedded model has its own neon-colored curve and friendly tier label, with matching colors in the ESR summary. The chart uses NAM-BOT's dark panels, pixel typography, thin grid, and square controls; non-packed models have a single curve.
+
+- The horizontal axis shows one-based epochs. The vertical axis shows validation ESR in decimal notation; lower is better.
+- Curves show actual validation results, including regressions, rather than the running best checkpoint value shown in the ESR summary.
+- Hover over the chart or use the keyboard-accessible epoch slider to inspect exact values. Click a model in the legend to hide/show its curve, or `Latest epoch` to follow the newest result.
+- Linear scale starts at zero. Optional Log scale spreads out smaller ESR values to make late-stage improvements visible, while retaining ordinary decimal labels. Zero ESR requires Linear scale.
+- Updates arrive after validation completes, normally once per epoch, on the existing two-second artifact poll. If an expert preset validates multiple times per epoch, the latest validation step represents that epoch. Epochs without validation have no measurement.
+- History stays with completed, failed, and stopped runs and survives app restarts. Older runs without recorded history show an explicit empty state; a retry starts a fresh history.
+
+NAM-BOT launches the installed `nam-full` entry point through a workspace-local Python wrapper. It adds a read-only Lightning `on_validation_end` callback to NAM's existing callbacks and records `ESR_packed_<index>` (or `ESR` for non-packed models) into `esr-history.jsonl` in that run's workspace. Names come from the generated model config, so a selected subset of embedded models is labeled correctly. Initial sanity-check validation and non-primary distributed workers are excluded. A metrics-capture error disables collection with a terminal message while allowing training to continue.
+
+The queue tails complete JSONL records incrementally and persists validated `esrHistory` entries with the runtime. This captures every validation epoch rather than reconstructing history from best-checkpoint files, which may be overwritten or removed during training.
+
+### Runtime Fields
+
 Queued and finished runs use a separate runtime object, `JobRuntimeState`.
 
 Important runtime fields include:

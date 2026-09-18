@@ -45,8 +45,14 @@ export function isFinishedTraining(runtime: JobRuntimeState): boolean {
 }
 
 export function formatEsr(value: number | null | undefined): string {
-  if (value == null || Number.isNaN(value)) return 'Not yet available'
-  return value < 0.001 ? value.toExponential(2) : value.toFixed(4)
+  if (value == null || !Number.isFinite(value)) return 'Not yet available'
+  return value.toLocaleString('en-US', {
+    notation: 'standard',
+    useGrouping: false,
+    ...(value !== 0 && Math.abs(value) < 0.001
+      ? { maximumSignificantDigits: 3 }
+      : { minimumFractionDigits: 4, maximumFractionDigits: 4 })
+  })
 }
 
 function getSubmodelChannelCount(submodel: JobPackedSubmodelCheckpointSummary): number | null {

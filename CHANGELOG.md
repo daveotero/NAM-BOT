@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-17
+
+### Added
+
+- Live validation ESR charts in expanded job details, with a separate neon-colored curve for each embedded model, epoch inspection, model visibility controls, and linear or logarithmic scales.
+- Per-epoch ESR history for new training runs, retained with finished jobs across app restarts and saved as a plain-text history file in each run's workspace.
+
+### Changed
+
+- ESR values now use readable decimals instead of scientific notation, retaining precision for small values.
+- Per-submodel ESR summary values now match their chart colors.
+
 ## [0.6.4] - 2026-07-17
 
 ### Changed

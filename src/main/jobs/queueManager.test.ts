@@ -109,6 +109,28 @@ afterEach(() => {
 })
 
 describe('QueueManager A2 diagnostics gate', () => {
+  it('captures live per-model ESR and persists the final epoch even on a failed exit', async () => {
+    const queueManager = createQueueManager()
+    queueManager.setKnownNamVersion(defaultSettings, '0.13.0')
+    queueManager.addToQueue(buildJobSpec())
+    const first = { epoch: 1, step: 10, models: [{ submodelIndex: 0, submodelName: 'channels_3', esr: 0.001 }] }
+    const second = { epoch: 2, step: 20, models: [{ submodelIndex: 0, submodelName: 'channels_3', esr: 0.002 }] }
+    runNamFullMock.mockImplementation(async (_settings, args, hooks) => {
+      const historyPath = join(args.cwd, 'esr-history.jsonl')
+      writeFileSync(historyPath, `${JSON.stringify(first)}\n`)
+      hooks.onStarted(1234)
+      expect(queueManager.getQueue()[0].esrHistory).toEqual([first])
+      writeFileSync(historyPath, `${JSON.stringify(first)}\n${JSON.stringify(second)}\n`)
+      hooks.onExit(1)
+      return { cancel: vi.fn(), forceKill: vi.fn(async () => true), forceKillSync: vi.fn() }
+    })
+    await queueManager.startQueue()
+    expect(queueManager.getQueue()[0].esrHistory).toEqual([first, second])
+    expect(createQueueManager().getQueue()[0].esrHistory).toEqual([first, second])
+    const retry = queueManager.retryJob(queueManager.getQueue()[0].jobId)
+    expect(retry?.esrHistory ?? []).toEqual([])
+  })
+
   it('allows enqueue validation while the A2 NAM version has not been confirmed', async () => {
     const queueManager = createQueueManager()
 

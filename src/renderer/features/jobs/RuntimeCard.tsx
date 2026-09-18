@@ -5,6 +5,8 @@ import {
   formatPresetArchitectureTag
 } from '../../state/types'
 import { handleCardToggleKeyDown, shouldIgnoreCardToggle } from '../../utils/card-toggle'
+import EsrHistoryChart from './EsrHistoryChart'
+import { getEsrSeriesColor } from './esr-chart-data'
 import {
   getDisplayState,
   getStatusSentence,
@@ -33,6 +35,7 @@ interface RuntimeArtifactLink {
 interface RuntimeEsrItem {
   label: string
   value: string
+  color: string
 }
 
 interface RuntimeCardProps {
@@ -94,13 +97,15 @@ function buildRuntimeEsrItems(runtime: JobRuntimeState): RuntimeEsrItem[] {
       })
       .map((submodel) => ({
         label: formatCompactEsrLabel(formatPackedSubmodelMetricLabel(submodel)),
-        value: formatEsr(submodel.bestValidationEsr)
+        value: formatEsr(submodel.bestValidationEsr),
+        color: getEsrSeriesColor(submodel.submodelIndex)
       }))
   }
 
   return [{
     label: formatCompactEsrLabel(getBestEsrLabel(runtime)),
-    value: formatEsr(runtime.checkpointSummary?.bestValidationEsr)
+    value: formatEsr(runtime.checkpointSummary?.bestValidationEsr),
+    color: getEsrSeriesColor(0)
   }]
 }
 
@@ -388,7 +393,7 @@ export default function RuntimeCard({
                 {esrItems.map((item) => (
                   <div className="runtime-esr-item" key={`${runtime.jobId}-${item.label}`}>
                     <span className="runtime-esr-label">{item.label}</span>
-                    <span className="runtime-esr-value">{item.value}</span>
+                    <span className="runtime-esr-value" style={{ color: item.color }}>{item.value}</span>
                   </div>
                 ))}
               </div>
@@ -415,7 +420,8 @@ export default function RuntimeCard({
               )}
             </div>
           </div>
-          
+          <EsrHistoryChart history={runtime.esrHistory ?? []} active={isActiveRuntime(runtime.status)} />
+
           {(displayState === 'Running' || displayState === 'Error') && getLatestTerminalLine(runtime) && (
             <div className="queue-details-terminal">
               <span className="terminal-label">Latest terminal line</span>
