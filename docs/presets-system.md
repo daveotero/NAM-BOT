@@ -11,6 +11,8 @@ NAM-BOT presets are the source of truth for training configuration. A preset def
 
 Jobs do not own the full training recipe. Jobs only point at a preset and optionally override a small set of run-time values such as epochs and manual/auto latency behavior.
 
+At enqueue time, the runtime captures a complete preset snapshot. Later library changes do not alter the queued recipe or its result attribution. Drafts referencing a deleted or unreadable preset require an explicit replacement.
+
 ## Goals
 
 - Keep presets understandable for musicians, producers, and tinkerers who do not want to edit raw NAM config files.
@@ -48,6 +50,7 @@ The manual editor is used when:
 The manual editor exposes friendly fields for the most common NAM training choices:
 
 - library metadata such as name, category, description, creator name, and creator link
+- creator names retain spaces while typing; surrounding whitespace is normalized when saving
 - NAM architecture version, model family, and architecture choice
 - training defaults such as epochs, batch size, learning rate, learning-rate decay, `ny`, MRSTFT loss, weight decay, and A2 output normalization
 
@@ -248,6 +251,8 @@ User presets are stored as one JSON file per preset in the Electron user data fo
 - Windows: `%APPDATA%\\NAM-BOT\\presets`
 
 Built-in presets are not stored there. They are defined in code and merged into the preset list after user presets.
+
+User presets retain `.bak` recovery copies. If a primary file is missing or invalid, NAM-BOT loads its valid backup and shows a recovery notice in Presets and Jobs. If neither copy is usable, it reports the unreadable file. Deleting a preset removes both its primary file and backup, so a deliberately deleted preset does not reappear through recovery.
 
 ### Special Preset Handling
 

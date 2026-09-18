@@ -21,8 +21,12 @@ import {
   type AppSettings,
   type JobEditorSession,
   type JobInputAudioMode,
-  type JobOutputRootMode
+  type JobOutputRootMode,
+  type BatchTemplateSource,
+  type BatchOutputFile
 } from '../../state/store'
+import { AUDIO_FILE_ACCEPT, isSupportedAudioFile } from '../../../shared/audio'
+import { getEffectiveJobEpochs, getEffectiveJobLatency } from '../../../shared/training'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import { useTerminalLogs } from '../../hooks/useTerminalLogs'
 import {
@@ -54,6 +58,7 @@ import {
   getBasename,
   getDirname,
   getDisplayState,
+  getStatusSentence,
   getPlannedEpochsLabel
 } from './job-helpers'
 import RuntimeCard, { renderDisplayBadge } from './RuntimeCard'
@@ -80,7 +85,6 @@ import {
   buildDraftFromTemplateForOutput
 } from './jobTemplateDrafts'
 
-const BATCH_AUDIO_FILE_EXTENSIONS = ['.wav', '.mp3', '.flac']
 const SKIP_DRAFT_DELETE_CONFIRM_STORAGE_KEY = 'nam-bot:skip-draft-delete-confirm'
 
 function toPackedSubmodelSelection(submodel: PackedPresetSubmodel): JobPackedSubmodelSelection {
@@ -99,8 +103,7 @@ function withPackedSubmodelSelection(
 }
 
 function isBatchAudioFile(file: File): boolean {
-  const lowerName = file.name.toLowerCase()
-  return BATCH_AUDIO_FILE_EXTENSIONS.some((extension) => lowerName.endsWith(extension))
+  return isSupportedAudioFile(file.name)
 }
 
 function createBatchId(): string {
@@ -123,9 +126,15 @@ interface FilePickerRowProps {
 }
 
 function FilePickerRow({ value, displayValue, onChange, placeholder, onBrowse, disabled, id, error }: FilePickerRowProps) {
-  const handleBrowse = async () => {
-    const picked = await onBrowse()
-    if (picked) onChange(picked)
+  const [browseError, setBrowseError] = useState<string | null>(null)
+  const handleBrowse = async (): Promise<void> => {
+    try {
+      setBrowseError(null)
+      const picked = await onBrowse()
+      if (picked) onChange(picked)
+    } catch (cause) {
+      setBrowseError(cause instanceof Error ? cause.message : String(cause))
+    }
   }
 
   return (
@@ -134,11 +143,10 @@ function FilePickerRow({ value, displayValue, onChange, placeholder, onBrowse, d
         id={id}
         type="text"
         className={`form-input${error ? ' input-error' : ''}`}
-        value={displayValue ?? value}
+        value={disabled ? displayValue ?? value : value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         disabled={disabled}
-        readOnly={!!displayValue}
         title={value}
         style={{
           ...(disabled ? { color: 'var(--text-steel)', cursor: 'not-allowed' } : {}),
@@ -154,6 +162,7 @@ function FilePickerRow({ value, displayValue, onChange, placeholder, onBrowse, d
       >
         Browse
       </button>
+      {browseError && <span role="alert" style={{ color: 'var(--neon-magenta)' }}>{browseError}</span>}
     </div>
   )
 }
@@ -217,22 +226,6 @@ function DraftCard({ job, presets, onEdit, onQueue, onDuplicate, onBatchFromTemp
 
 const JOB_EDITOR_FORM_ID = 'job-editor-form'
 
-type BatchTemplateSource =
-  | { kind: 'draft'; template: JobSpec }
-  | { kind: 'runtime'; template: JobSpec; runtimeId: string }
-
-interface BatchOutputFile {
-  outputAudioPath: string
-  outputFileName: string
-}
-
-interface BatchEditorState {
-  editorSession: JobEditorSession
-  outputFiles: BatchOutputFile[]
-  source: BatchTemplateSource | null
-  batchId: string
-}
-
 function serializeJobEditorSession(session: JobEditorSession): string {
   return JSON.stringify({
     job: session.job,
@@ -281,10 +274,11 @@ interface SortableQueueItemProps {
 }
 
 function SortableQueueItem({ runtime, queue, presets, index, onUnqueue, onBatchFromRuntime }: SortableQueueItemProps) {
-  const preset = presets.find(p => p.id === runtime.frozenJob.presetId)
+  const preset = runtime.frozenPreset ?? presets.find(p => p.id === runtime.frozenJob.presetId)
   const presetName = preset?.name || runtime.frozenJob.presetId || 'Unknown'
   const presetTag = preset ? formatPresetArchitectureTag(preset) : 'CUSTOM'
-  const headline = runtime.status === 'validating'
+  const isBlocked = runtime.errorCategory === 'a2_diagnostics_pending'
+  const headline = isBlocked ? getStatusSentence(runtime) : runtime.status === 'validating'
     ? 'Validating job before queue'
     : index === 0
       ? `Next to train - 1 of ${queue.length}`
@@ -319,7 +313,7 @@ function SortableQueueItem({ runtime, queue, presets, index, onUnqueue, onBatchF
         <div className="job-info queue-card-main">
           <h4>{runtime.jobName}</h4>
           <div className="queue-card-status-row">
-            {renderDisplayBadge('Queued')}
+            {isBlocked ? <span className="queue-status-badge error">Diagnostics needed</span> : renderDisplayBadge('Queued')}
             <div className="queue-card-headline-group">
               <p className="queue-card-headline">{headline}</p>
               <div className="queue-card-stat-row">
@@ -336,6 +330,7 @@ function SortableQueueItem({ runtime, queue, presets, index, onUnqueue, onBatchF
           </div>
         </div>
         <div className="job-actions queue-card-actions" onMouseDown={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
+          {isBlocked && <a className="btn btn-sm btn-gold" href="#/diagnostics">Run Diagnostics</a>}
           <button className="btn btn-sm btn-secondary" onClick={() => onBatchFromRuntime(runtime)}>Create Batch</button>
           <button className="btn btn-sm btn-secondary" onClick={() => void onUnqueue(runtime.jobId)}>Unqueue</button>
         </div>
@@ -357,21 +352,26 @@ export default function Jobs() {
   const queue = useAppStore((state) => state.queue)
   const setQueue = useAppStore((state) => state.setQueue)
   const loadJobs = useAppStore((state) => state.loadJobs)
+  const queueControl = useAppStore((state) => state.queueControl)
+  const jobsLoadError = useAppStore((state) => state.jobsLoadError)
+  const presetWarnings = useAppStore((state) => state.presetWarnings)
 
   useEffect(() => {
-    const active = queue.some(r => r.status === 'preparing' || r.status === 'running' || r.status === 'stopping')
+    const active = queue.some(r => isActiveRuntime(r.status))
     setIsTraining(active)
   }, [queue, setIsTraining])
   const [isDragOver, setIsDragOver] = useState(false)
   const [queueError, setQueueError] = useState<string | null>(null)
   const [expandedJobs, setExpandedJobs] = useState<Record<string, boolean>>({})
   const [openLogs, setOpenLogs] = useState<Record<string, boolean>>({})
-  const { logContents, loadingLogIds, loadTerminalLog, clearTerminalLog } = useTerminalLogs()
+  const { logContents, logErrors, loadingLogIds, loadTerminalLog, clearTerminalLog } = useTerminalLogs(queue)
   const [nowMs, setNowMs] = useState<number>(() => Date.now())
   const [pendingDeleteJob, setPendingDeleteJob] = useState<JobSpec | null>(null)
   const [skipDraftDeleteConfirm, setSkipDraftDeleteConfirm] = useState(false)
   const [queueingDraftIds, setQueueingDraftIds] = useState<Set<string>>(() => new Set())
-  const [batchEditorState, setBatchEditorState] = useState<BatchEditorState | null>(null)
+  const batchEditorState = useAppStore((state) => state.batchEditorSession)
+  const setBatchEditorState = useAppStore((state) => state.setBatchEditorSession)
+  const [confirmResume, setConfirmResume] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const batchFileInputRef = useRef<HTMLInputElement>(null)
   const batchTemplateRef = useRef<BatchTemplateSource | null>(null)
@@ -379,6 +379,27 @@ export default function Jobs() {
 
   const loadData = async () => {
     await loadJobs()
+  }
+
+  const runAction = async (label: string, action: () => Promise<void>): Promise<void> => {
+    try {
+      setQueueError(null)
+      await action()
+    } catch (error) {
+      setQueueError(`${label} failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
+  const handleResumeQueue = async (terminationConfirmed = false): Promise<void> => {
+    if (queueControl.pauseReason === 'termination_unconfirmed' && !terminationConfirmed) {
+      setConfirmResume(true)
+      return
+    }
+    await runAction('Resume queue', async () => {
+      await window.namBot.jobs.resumeQueue(terminationConfirmed)
+      setConfirmResume(false)
+      await loadData()
+    })
   }
 
   const markDraftQueueing = (jobId: string): boolean => {
@@ -462,7 +483,7 @@ export default function Jobs() {
   }, [loadPresets, loadJobs])
 
   const hasActiveRuntimeClock = queue.some(
-    (runtime) => runtime.status === 'preparing' || runtime.status === 'running' || runtime.status === 'stopping'
+    (runtime) => isActiveRuntime(runtime.status)
   )
   useEffect(() => {
     if (!hasActiveRuntimeClock) {
@@ -507,7 +528,7 @@ export default function Jobs() {
     setIsDragOver(false)
     const audioFiles = Array.from(files).filter(isBatchAudioFile)
     if (audioFiles.length === 0) {
-      return
+      throw new Error('Choose WAV, MP3, FLAC, AIFF, or AIF audio files.')
     }
 
     if (audioFiles.length > 1) {
@@ -583,10 +604,10 @@ export default function Jobs() {
     }
   }
 
-  const handleCreateDraftFromRuntime = async (runtime: JobRuntimeState): Promise<void> => {
+  const handleCreateDraftFromRuntime = async (runtime: JobRuntimeState): Promise<void> => runAction('Create draft', async () => {
     const newJob = await window.namBot.jobs.createDraft(buildDraftFromFrozenJob(runtime.frozenJob)) as JobSpec
     setDrafts((prev) => [...prev, newJob])
-  }
+  })
 
   const handleBatchFilesSelected = async (files: FileList | null): Promise<void> => {
     const source = batchTemplateRef.current
@@ -662,7 +683,7 @@ export default function Jobs() {
     await loadData()
   }
 
-  const handleDeleteJob = async (jobId: string) => {
+  const handleDeleteJob = async (jobId: string): Promise<void> => runAction('Delete draft', async () => {
     await window.namBot.jobs.deleteDraft(jobId)
     setDrafts((current) => current.filter((draft) => draft.id !== jobId))
     setPendingDeleteJob(null)
@@ -670,7 +691,7 @@ export default function Jobs() {
     if (jobEditorSession?.job.id === jobId) {
       clearJobEditorSession()
     }
-  }
+  })
 
   const handleRequestDeleteJob = (job: JobSpec): void => {
     if (window.localStorage.getItem(SKIP_DRAFT_DELETE_CONFIRM_STORAGE_KEY) === 'true') {
@@ -740,10 +761,10 @@ export default function Jobs() {
     }
   }
 
-  const handleUnqueue = async (jobId: string) => {
+  const handleUnqueue = async (jobId: string): Promise<void> => runAction('Unqueue', async () => {
     await window.namBot.jobs.unqueue(jobId)
     await loadData()
-  }
+  })
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -756,7 +777,7 @@ export default function Jobs() {
     })
   )
 
-  const handleDraftDragEnd = async (event: DragEndEvent) => {
+  const handleDraftDragEnd = async (event: DragEndEvent): Promise<void> => runAction('Reorder drafts', async () => {
     const { active, over } = event
 
     if (over && active.id !== over.id) {
@@ -768,12 +789,17 @@ export default function Jobs() {
         const updatedVisualDrafts = arrayMove(visualDrafts, oldIndex, newIndex)
         const nextLogicalDrafts = [...updatedVisualDrafts].reverse()
         setDrafts(nextLogicalDrafts)
-        await window.namBot.jobs.reorderDrafts(nextLogicalDrafts.map((draft) => draft.id))
+        try {
+          await window.namBot.jobs.reorderDrafts(nextLogicalDrafts.map((draft) => draft.id))
+        } catch (error) {
+          await loadData()
+          throw error
+        }
       }
     }
-  }
+  })
 
-  const handleQueueDragEnd = async (event: DragEndEvent) => {
+  const handleQueueDragEnd = async (event: DragEndEvent): Promise<void> => runAction('Reorder queue', async () => {
     const { active, over } = event
 
     if (over && active.id !== over.id) {
@@ -790,37 +816,42 @@ export default function Jobs() {
         const otherJobs = queue.filter((runtime) => runtime.status !== 'queued' && runtime.status !== 'validating')
         setQueue([...otherJobs.filter(j => isActiveRuntime(j.status)), ...newLogicalOrder, ...otherJobs.filter(j => isFinishedTraining(j))])
         
-        await window.namBot.jobs.reorder(newLogicalOrder.map(j => j.jobId))
+        try {
+          await window.namBot.jobs.reorder(newLogicalOrder.map(j => j.jobId))
+        } catch (error) {
+          await loadData()
+          throw error
+        }
       }
     }
-  }
+  })
 
-  const handleUnqueueAll = async () => {
+  const handleUnqueueAll = async (): Promise<void> => runAction('Unqueue all', async () => {
     await window.namBot.jobs.unqueueAll()
     await loadData()
-  }
+  })
 
-  const handleCancel = async (jobId: string) => {
+  const handleCancel = async (jobId: string): Promise<void> => runAction('Stop training', async () => {
     await window.namBot.jobs.cancel(jobId)
-  }
+  })
 
-  const handleForceStop = async (jobId: string) => {
+  const handleForceStop = async (jobId: string): Promise<void> => runAction('Force stop', async () => {
     await window.namBot.jobs.forceStop(jobId)
-  }
+  })
 
-  const handleDuplicate = async (jobId: string) => {
+  const handleDuplicate = async (jobId: string): Promise<void> => runAction('Copy draft', async () => {
     const newJob = await window.namBot.jobs.duplicate(jobId) as JobSpec | null
     if (newJob) {
       setDrafts((prev) => [...prev, newJob])
     }
-  }
+  })
 
-  const handleClearFinished = async () => {
+  const handleClearFinished = async (): Promise<void> => runAction('Clear finished jobs', async () => {
     await window.namBot.jobs.clearFinished()
     await loadData()
-  }
+  })
 
-  const handleClearItem = async (jobId: string) => {
+  const handleClearItem = async (jobId: string): Promise<void> => runAction('Clear job', async () => {
     await window.namBot.jobs.clearItem(jobId)
     setExpandedJobs((current) => {
       const next = { ...current }
@@ -834,7 +865,7 @@ export default function Jobs() {
     })
     clearTerminalLog(jobId)
     await loadData()
-  }
+  })
 
   const toggleExpanded = (jobId: string) => {
     setExpandedJobs((current) => ({
@@ -907,17 +938,17 @@ export default function Jobs() {
         }}
         onDrop={(event) => {
           event.preventDefault()
-          void handleDropFiles(event.dataTransfer.files)
+          void runAction('Import audio', () => handleDropFiles(event.dataTransfer.files))
         }}
       >
         <input
           type="file"
           ref={batchFileInputRef}
           multiple
-          accept=".wav,.mp3,.flac"
+          accept={AUDIO_FILE_ACCEPT}
           style={{ display: 'none' }}
           onChange={(event) => {
-            void handleBatchFilesSelected(event.target.files)
+            void runAction('Select batch files', () => handleBatchFilesSelected(event.target.files))
             event.target.value = ''
           }}
         />
@@ -938,8 +969,23 @@ export default function Jobs() {
           </button>
         </div>
 
+        {jobsLoadError && <p role="alert">Could not load jobs: {jobsLoadError} <button className="btn btn-sm btn-secondary" onClick={() => void loadJobs()}>Retry</button></p>}
+        {presetWarnings.map((warning) => <p role="status" key={warning} style={{ color: 'var(--neon-gold)' }}>{warning}</p>)}
+        {(queueControl.pauseReason || (queuedJobs.length > 0 && trainingJobs.length === 0)) && (
+          <div className="queue-recovery-banner" role="status">
+            <p>{queueControl.pauseReason === 'termination_unconfirmed'
+              ? 'Queue paused: the previous training process may still be running. Confirm it has stopped before resuming.'
+              : queueControl.pauseReason === 'restart'
+                ? 'Your pending jobs were restored. Resume the queue when you are ready.'
+                : queuedJobs.some((runtime) => runtime.errorCategory === 'a2_diagnostics_pending')
+                  ? 'Training is waiting for Diagnostics to confirm this environment.'
+                  : 'The queue is idle. Start the waiting jobs when you are ready.'}</p>
+            <button className="btn btn-sm btn-green" onClick={() => void handleResumeQueue()}>Resume Queue</button>
+          </div>
+        )}
+
         {queueError && (
-          <div style={{ marginBottom: '12px', padding: '10px 12px', border: '2px solid var(--neon-magenta)', color: 'var(--neon-magenta)' }}>
+          <div role="alert" style={{ marginBottom: '12px', padding: '10px 12px', border: '2px solid var(--neon-magenta)', color: 'var(--neon-magenta)' }}>
             {queueError}
           </div>
         )}
@@ -950,10 +996,11 @@ export default function Jobs() {
               type="file"
               ref={fileInputRef}
               multiple
-              accept=".wav,.mp3,.flac"
+              accept={AUDIO_FILE_ACCEPT}
               style={{ display: 'none' }}
               onChange={(e) => {
-                if (e.target.files) void handleDropFiles(e.target.files)
+                const files = e.target.files
+                if (files) void runAction('Import audio', () => handleDropFiles(files))
                 e.target.value = ''
               }}
             />
@@ -972,7 +1019,7 @@ export default function Jobs() {
             </button>
           </div>
         ) : (
-          <div style={{ display: 'grid', gap: '16px' }}>
+          <div className="job-sections">
             {drafts.length > 0 && (
               <div className="job-list">
               <div className="panel-header" style={{ marginBottom: '0px' }}>
@@ -1059,7 +1106,7 @@ export default function Jobs() {
                       nowMs={nowMs}
                       isExpanded={expandedJobs[runtime.jobId] === true}
                       isLogsVisible={openLogs[runtime.jobId] === true}
-                      terminalLog={logContents[runtime.jobId] || ''}
+                      terminalLog={logErrors[runtime.jobId] || logContents[runtime.jobId] || ''}
                       isLoadingLog={loadingLogIds.has(runtime.jobId)}
                       onToggleExpanded={toggleExpanded}
                       onToggleLogs={(entry) => toggleLogs(entry.jobId)}
@@ -1095,7 +1142,7 @@ export default function Jobs() {
                       nowMs={nowMs}
                       isExpanded={expandedJobs[runtime.jobId] === true}
                       isLogsVisible={openLogs[runtime.jobId] === true}
-                      terminalLog={logContents[runtime.jobId] || ''}
+                      terminalLog={logErrors[runtime.jobId] || logContents[runtime.jobId] || ''}
                       isLoadingLog={loadingLogIds.has(runtime.jobId)}
                       onToggleExpanded={toggleExpanded}
                       onToggleLogs={(entry) => toggleLogs(entry.jobId)}
@@ -1115,6 +1162,14 @@ export default function Jobs() {
           </div>
         )}
       </div>
+      <ConfirmDialog
+        isOpen={confirmResume}
+        title="Confirm Previous Training Stopped"
+        message="NAM-BOT could not confirm termination. Check your system's process manager and stop the previous trainer before resuming."
+        confirmLabel="Process Stopped — Resume"
+        onCancel={() => setConfirmResume(false)}
+        onConfirm={() => void handleResumeQueue(true)}
+      />
       <ConfirmDialog
         isOpen={pendingDeleteJob !== null}
         title="Delete Draft Job"
@@ -1171,6 +1226,7 @@ function JobEditor({
   const [savingDefault, setSavingDefault] = useState(false)
   const [isUnsavedConfirmOpen, setIsUnsavedConfirmOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const saveInFlightRef = useRef(false)
   const settingsDefaultOutputRoot = settings?.defaultOutputRoot?.trim() || null
   const visiblePresets = useMemo(
@@ -1178,8 +1234,8 @@ function JobEditor({
     [editedJob.presetId, presets]
   )
   const selectedPreset = visiblePresets.find((preset) => preset.id === editedJob.presetId)
-    ?? visiblePresets.find((preset) => preset.id === DEFAULT_PRESET_ID)
-    ?? visiblePresets[0]
+  const displayedEpochs = selectedPreset ? getEffectiveJobEpochs(editedJob, selectedPreset) : editedJob.trainingOverrides.epochs ?? 100
+  const displayedLatency = selectedPreset ? getEffectiveJobLatency(editedJob, selectedPreset) : editedJob.trainingOverrides.latencySamples ?? 0
   const epochsLocked = selectedPreset?.lockedJobFields.includes('epochs') ?? false
   const latencyLocked = selectedPreset?.lockedJobFields.includes('latencySamples') ?? false
   const latencyMode = editedJob.trainingOverrides?.latencyMode ?? 'manual'
@@ -1240,26 +1296,27 @@ function JobEditor({
   }, [editedJob, onSessionChange, outputRootMode, session, settingsDefaultOutputRoot])
 
   useEffect(() => {
-    window.namBot.jobs.getDefaultInputAudioPath().then((p) => {
-      const path = p as string | null
-      setDefaultAudioPath(path)
-      // If mode is default and path has been resolved, fill it in
-      if (session.inputMode === 'default' && path && editedJob.inputAudioPath !== path) {
-        onSessionChange({
-          ...session,
-          job: { ...editedJob, inputAudioPath: path, inputAudioIsDefault: true }
-        })
-      }
+    let mounted = true
+    void window.namBot.jobs.getDefaultInputAudioPath().then((path) => {
+      if (mounted) setDefaultAudioPath(path)
+    }).catch((error: unknown) => {
+      if (mounted) setSaveError(`Could not find the default training signal: ${String(error)}`)
     })
-  }, [editedJob, onSessionChange, session])
+    return () => { mounted = false }
+  }, [])
 
-  const handleInputModeChange = async (mode: JobInputAudioMode) => {
+  useEffect(() => {
+    if (inputMode === 'default' && defaultAudioPath && editedJob.inputAudioPath !== defaultAudioPath) {
+      onSessionChange({ ...session, job: { ...editedJob, inputAudioPath: defaultAudioPath, inputAudioIsDefault: true } })
+    }
+  }, [defaultAudioPath, inputMode, editedJob, onSessionChange, session])
+
+  const handleInputModeChange = (mode: JobInputAudioMode): void => {
     if (mode === 'default') {
-      const path = defaultAudioPath || (await window.namBot.jobs.getDefaultInputAudioPath() as string | null)
       onSessionChange({
         ...session,
         inputMode: mode,
-        job: { ...editedJob, inputAudioPath: path || '', inputAudioIsDefault: true }
+        job: { ...editedJob, inputAudioPath: defaultAudioPath || '', inputAudioIsDefault: true }
       })
     } else {
       onSessionChange({
@@ -1274,6 +1331,8 @@ function JobEditor({
     setSavingDefault(true)
     try {
       await window.namBot.jobs.saveDefaultAudioTo()
+    } catch (error) {
+      setSaveError(`Could not export the training signal: ${String(error)}`)
     } finally {
       setSavingDefault(false)
     }
@@ -1285,7 +1344,7 @@ function JobEditor({
   const isInputValid = editedJob.inputAudioPath.trim().length > 0
   const isOutputValid = editedJob.outputAudioPath.trim().length > 0
   const isRootDirValid = editedJob.outputRootDir.trim().length > 0
-  const isValid = isNameValid && isInputValid && isOutputValid && isRootDirValid && isPackedSubmodelSelectionValid
+  const isValid = isNameValid && isInputValid && isOutputValid && isRootDirValid && isPackedSubmodelSelectionValid && selectedPreset != null
   const isDirty = session.initialSnapshot !== serializeJobEditorSession(session)
   const canSave = (allowSaveWithoutChanges || isDirty) && isValid
 
@@ -1302,6 +1361,7 @@ function JobEditor({
     }
     saveInFlightRef.current = true
     setIsSaving(true)
+    setSaveError(null)
     try {
       if (editedJob.presetId) {
         window.localStorage.setItem(LAST_USED_PRESET_STORAGE_KEY, editedJob.presetId)
@@ -1321,6 +1381,8 @@ function JobEditor({
       persistOutputRootPreference(outputRootMode, editedJob.outputRootDir)
       persistReusableJobDefaults(editedJob, inputMode)
       await Promise.resolve(onSave(editedJob))
+    } catch (error) {
+      setSaveError(`Could not save ${isBatchMode ? 'batch' : 'job'}: ${error instanceof Error ? error.message : String(error)}. Your edits are still here; retry when the problem is resolved.`)
     } finally {
       saveInFlightRef.current = false
       setIsSaving(false)
@@ -1385,7 +1447,7 @@ function JobEditor({
   }
 
   const handleAttemptExit = (): void => {
-    if (!isDirty) {
+    if (!isDirty && !isBatchMode) {
       onCancel()
       return
     }
@@ -1422,6 +1484,8 @@ function JobEditor({
           </div>
         </div>
 
+        {saveError && <p role="alert" className="operation-error">{saveError}</p>}
+        {!selectedPreset && <p role="alert" className="operation-error">The selected preset is unavailable. Choose an available preset before saving this job.</p>}
         <form id={JOB_EDITOR_FORM_ID} onSubmit={handleSubmit}>
 
           {/* ── Job Name ── */}
@@ -1464,7 +1528,7 @@ function JobEditor({
 
           {/* ── Input Audio ── */}
           <div className="form-group">
-            <label className="form-label">
+            <label className="form-label" htmlFor="input-audio-path">
               Input Audio (Training Signal) {showValidationErrors && !isInputValid && <span style={{ color: 'var(--neon-magenta)', fontSize: '12px' }}>(Required)</span>}
             </label>
 
@@ -1735,6 +1799,7 @@ function JobEditor({
                     })
                   }}
                 >
+                  {!selectedPreset && <option value="" disabled>Choose an available preset</option>}
                   {visiblePresets.map((preset) => (
                     <option key={preset.id} value={preset.id}>
                       [{formatPresetArchitectureTag(preset)}] {formatPresetNameWithRewardTag(preset)}
@@ -1788,7 +1853,7 @@ function JobEditor({
                   id="epochs"
                   type="number"
                   className="form-input"
-                  value={editedJob.trainingOverrides?.epochs || selectedPreset?.values.epochs || 100}
+                  value={displayedEpochs}
                   disabled={epochsLocked}
                   onChange={(e) => onSessionChange({
                     ...session,
@@ -1832,7 +1897,7 @@ function JobEditor({
                   id="latency-samples"
                   type="number"
                   className="form-input"
-                  value={editedJob.trainingOverrides?.latencySamples ?? 0}
+                  value={displayedLatency}
                   disabled={latencyInputDisabled}
                   onChange={(e) => onSessionChange({
                     ...session,

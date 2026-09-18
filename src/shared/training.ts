@@ -5,6 +5,7 @@ export type JobStatus =
   | 'preparing'
   | 'running'
   | 'stopping'
+  | 'finalizing'
   | 'succeeded'
   | 'failed'
   | 'canceled'
@@ -190,6 +191,9 @@ export interface JobRuntimeState {
   status: JobStatus
   pid: number | null
   frozenJob: JobSpec
+  /** Complete recipe captured at enqueue time. Optional only for older history. */
+  frozenPreset?: TrainingPresetFile
+  completionWarnings?: string[]
   queuedAt?: string
   startedAt?: string
   finishedAt?: string
@@ -217,6 +221,26 @@ export interface JobRuntimeState {
   stopMode?: JobStopMode | null
   userMessages: string[]
   errorCategory?: string | null
+}
+
+export interface QueueControlState {
+  pauseReason: 'restart' | 'termination_unconfirmed' | null
+}
+
+export function getEffectiveJobEpochs(job: JobSpec, preset: TrainingPresetFile): number {
+  const trainer = preset.expert.learning?.trainer
+  const override = isRecord(trainer) ? trainer.max_epochs : undefined
+  return typeof override === 'number' && Number.isFinite(override)
+    ? override
+    : job.trainingOverrides.epochs ?? preset.values.epochs
+}
+
+export function getEffectiveJobLatency(job: JobSpec, preset: TrainingPresetFile): number {
+  const common = preset.expert.data?.common
+  const override = isRecord(common) ? common.delay : undefined
+  return typeof override === 'number' && Number.isFinite(override)
+    ? override
+    : job.trainingOverrides.latencySamples ?? 0
 }
 
 export interface ImportedPresetResult {

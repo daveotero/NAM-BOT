@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Queued runs now retain their complete preset recipe and attribution, so later preset edits or deletion cannot change waiting jobs.
+- Restored queues expose a Resume Queue action, and diagnostics-blocked jobs show their reason with a direct link to Diagnostics.
+
+### Fixed
+
+- Window close and menu quit now confirm before stopping training. Unconfirmed force-stops pause the queue, and late process events cannot interfere with another run.
+- A second application launch now focuses the existing instance instead of opening a competing queue.
+- Unqueue operations recover interrupted draft transfers; failed draft saves avoid hidden duplicates; template-batch retries and preset backup recovery work correctly.
+- Batch navigation protects unsaved edits, audio paths remain editable, and preset creator names retain spaces while typing.
+- Diagnostics displays complete repair instructions and accurate status labels, and rejects results from previously selected environments.
+- Expert device settings are preserved, and locked epochs and latency display the values actually used for training.
+- Completion is reported after model finalization, result-processing warnings and operation errors are visible, and open logs refresh their final output.
+- Failed update checks preserve the last successful check date and report the failed attempt.
+- Expanded job charts fit the minimum window size; audio filters are consistent across entry points; confirmation dialogs support keyboard focus management and reduced-motion preferences are respected.
+- Setup documentation now accurately describes supported Conda environment modes.
+
 ## [0.6.5] - 2026-09-17
 
 ### Added

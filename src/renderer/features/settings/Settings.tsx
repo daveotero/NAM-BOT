@@ -45,6 +45,7 @@ export default function Settings() {
     isSettingsSaving,
     isBackendValidationLoading,
     settingsSaveError,
+    settingsLoadError,
     validationError,
     loadSettings,
     saveSettings,
@@ -53,6 +54,7 @@ export default function Settings() {
   } = useAppStore()
   const [localSettings, setLocalSettings] = useState<AppSettings | null>(null)
   const [useCustomCondaPath, setUseCustomCondaPath] = useState(false)
+  const [browseError, setBrowseError] = useState<string | null>(null)
   const saveTimerRef = useRef<number | null>(null)
   const latestSettingsRef = useRef<AppSettings | null>(null)
   const persistedSettingsRef = useRef<AppSettings | null>(null)
@@ -85,7 +87,9 @@ export default function Settings() {
     const settingsSnapshot = localSettings
     saveTimerRef.current = window.setTimeout(() => {
       saveTimerRef.current = null
-      void saveSettings(settingsSnapshot).catch(() => undefined)
+      void saveSettings(settingsSnapshot).then((saved) => {
+        setLocalSettings((current) => current === settingsSnapshot ? saved : current)
+      }).catch(() => undefined)
     }, 500)
   }, [localSettings, settings, saveSettings])
 
@@ -109,7 +113,9 @@ export default function Settings() {
       saveTimerRef.current = null
     }
     try {
-      await saveSettings(localSettings)
+      const snapshot = localSettings
+      const saved = await saveSettings(snapshot)
+      setLocalSettings((current) => current === snapshot ? saved : current)
       return true
     } catch {
       return false
@@ -127,16 +133,22 @@ export default function Settings() {
   }
 
   const chooseCondaPath = async () => {
-    const path = await window.namBot.settings.chooseCondaPath()
-    if (path && localSettings) {
-      setLocalSettings({ ...localSettings, condaExecutablePath: path })
+    try {
+      setBrowseError(null)
+      const path = await window.namBot.settings.chooseCondaPath()
+      if (path) setLocalSettings((current) => current ? { ...current, condaExecutablePath: path } : current)
+    } catch (error) {
+      setBrowseError(String(error))
     }
   }
 
   const chooseDirectory = async (field: 'defaultOutputRoot' | 'defaultWorkspaceRoot') => {
-    const path = await window.namBot.settings.chooseDirectory()
-    if (path && localSettings) {
-      setLocalSettings({ ...localSettings, [field]: path })
+    try {
+      setBrowseError(null)
+      const path = await window.namBot.settings.chooseDirectory()
+      if (path) setLocalSettings((current) => current ? { ...current, [field]: path } : current)
+    } catch (error) {
+      setBrowseError(String(error))
     }
   }
 
@@ -144,7 +156,8 @@ export default function Settings() {
     return (
       <div className="layout-main">
         <div className="panel">
-          <p className="processing-text" style={{ color: 'var(--text-steel)' }}>Loading</p>
+          {settingsLoadError ? <p role="alert">Could not load settings: {settingsLoadError} <button className="btn btn-secondary" onClick={() => void loadSettings()}>Retry</button></p>
+            : <p className="processing-text" style={{ color: 'var(--text-steel)' }}>Loading</p>}
         </div>
       </div>
     )
@@ -159,6 +172,7 @@ export default function Settings() {
 
   return (
     <div className="layout-main">
+      {browseError && <p role="alert" className="operation-error">Could not open the picker: {browseError}</p>}
       <div className="panel" style={{ marginBottom: '16px' }}>
         <div className="panel-header">
           <h3>Settings</h3>
@@ -184,7 +198,7 @@ export default function Settings() {
         </div>
 
         <div className="form-group">
-          <label className="form-label">Conda Executable Path</label>
+          <label className="form-label" htmlFor="settings-conda">Conda Executable Path</label>
           {condaDiscovery?.isOnPath && (
             <div className="toggle-group" style={{ marginBottom: '10px' }}>
               <button
@@ -210,6 +224,7 @@ export default function Settings() {
           )}
           <div style={{ display: 'flex', gap: '8px' }}>
             <input
+              id="settings-conda"
               type="text"
               className="form-input"
               value={displayedCondaPath}
@@ -231,8 +246,9 @@ export default function Settings() {
         </div>
 
         <div className="form-group">
-          <label className="form-label">Backend Mode</label>
+          <label className="form-label" htmlFor="settings-backend-mode">Backend Mode</label>
           <select
+            id="settings-backend-mode"
             className="form-select"
             value={localSettings.backendMode}
             onChange={(e) => {
@@ -246,8 +262,9 @@ export default function Settings() {
 
         {localSettings.backendMode === 'conda-name' && (
           <div className="form-group">
-            <label className="form-label">Environment Name</label>
+            <label className="form-label" htmlFor="settings-environment-name">Environment Name</label>
             <input
+              id="settings-environment-name"
               type="text"
               className="form-input"
               value={localSettings.environmentName || ''}
@@ -261,8 +278,9 @@ export default function Settings() {
 
         {localSettings.backendMode === 'conda-prefix' && (
           <div className="form-group">
-            <label className="form-label">Environment Prefix Path</label>
+            <label className="form-label" htmlFor="settings-environment-prefix">Environment Prefix Path</label>
             <input
+              id="settings-environment-prefix"
               type="text"
               className="form-input"
               value={localSettings.environmentPrefixPath || ''}
@@ -296,9 +314,10 @@ export default function Settings() {
         </div>
 
         <div className="form-group">
-          <label className="form-label">Default Model Output Root</label>
+          <label className="form-label" htmlFor="settings-output-root">Default Model Output Root</label>
           <div style={{ display: 'flex', gap: '8px' }}>
             <input
+              id="settings-output-root"
               type="text"
               className="form-input"
               value={localSettings.defaultOutputRoot || ''}
@@ -317,9 +336,10 @@ export default function Settings() {
         </div>
 
         <div className="form-group">
-          <label className="form-label">Workspace Root</label>
+          <label className="form-label" htmlFor="settings-workspace-root">Workspace Root</label>
           <div style={{ display: 'flex', gap: '8px' }}>
             <input
+              id="settings-workspace-root"
               type="text"
               className="form-input"
               value={localSettings.defaultWorkspaceRoot || ''}
@@ -341,8 +361,9 @@ export default function Settings() {
         </div>
 
         <div className="form-group">
-          <label className="form-label">Default Author Name</label>
+          <label className="form-label" htmlFor="settings-author-name">Default Author Name</label>
           <input
+            id="settings-author-name"
             type="text"
             className="form-input"
             value={localSettings.defaultAuthorName || ''}
@@ -354,8 +375,9 @@ export default function Settings() {
         </div>
 
         <div className="form-group">
-          <label className="form-label">Default Author URL</label>
+          <label className="form-label" htmlFor="settings-author-url">Default Author URL</label>
           <input
+            id="settings-author-url"
             type="text"
             className="form-input"
             value={localSettings.defaultAuthorUrl || ''}

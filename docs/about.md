@@ -8,6 +8,7 @@ The About screen doubles as NAM-BOT's in-app credits and lightweight update surf
 - The app uses the project's GitHub Releases feed as the source of truth.
 - Checks are throttled to at most once per hour across restarts by caching the last known result in the app data folder.
 - Users can bypass that throttle manually through `Help > Check for Updates`, which forces a fresh lookup immediately.
+- Failed attempts retain the last successful check timestamp and record a separate attempt time and error. The manual dialog reports the failure even if a previously discovered update remains available.
 - Pre-releases are ignored, so only stable published releases count as updates.
 - For local UI preview during development, you can spoof an available update by starting the app with `NAM_BOT_SPOOF_UPDATE_VERSION` set to a higher version than the packaged app.
 

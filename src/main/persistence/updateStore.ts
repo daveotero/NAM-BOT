@@ -8,6 +8,8 @@ import { atomicWriteJsonSync, readJsonWithBackupSync } from './atomicFile'
 interface StoredUpdateStatus {
   currentVersion?: string
   lastCheckedAt?: string | null
+  lastAttemptAt?: string | null
+  checkError?: string | null
   state?: UpdateState
   latestVersion?: string | null
   releaseUrl?: string | null
@@ -25,6 +27,8 @@ function normalizeStoredStatus(input: StoredUpdateStatus | null | undefined): Up
       ? input.currentVersion
       : baseStatus.currentVersion,
     lastCheckedAt: typeof input?.lastCheckedAt === 'string' ? input.lastCheckedAt : null,
+    lastAttemptAt: typeof input?.lastAttemptAt === 'string' ? input.lastAttemptAt : null,
+    checkError: typeof input?.checkError === 'string' ? input.checkError : null,
     state: input?.state ?? baseStatus.state,
     latestVersion: typeof input?.latestVersion === 'string' ? input.latestVersion : null,
     releaseUrl: typeof input?.releaseUrl === 'string' ? input.releaseUrl : null,

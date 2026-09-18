@@ -2,7 +2,7 @@ import { app, dialog, ipcMain } from 'electron'
 import { readFileSync, writeFileSync } from 'fs'
 import { basename } from 'path'
 import log from 'electron-log/main'
-import { deleteTrainingPreset, listTrainingPresets, saveTrainingPreset } from '../persistence/presetStore'
+import { deleteTrainingPreset, getPresetLoadWarnings, listTrainingPresets, saveTrainingPreset } from '../persistence/presetStore'
 import { normalizeTrainingPreset, slugifyPresetName } from '../types/jobs'
 
 const PRESET_EXPORT_SUFFIX = '.nam-bot-preset.json'
@@ -44,6 +44,7 @@ export function setupPresetIpcHandlers(): void {
   ipcMain.handle('presets:list', async () => {
     return listTrainingPresets()
   })
+  ipcMain.handle('presets:getWarnings', async () => getPresetLoadWarnings())
 
   ipcMain.handle('presets:save', async (_event, preset: unknown) => {
     return saveTrainingPreset(preset)

@@ -22,7 +22,9 @@ When any job is preparing, running, or stopping, the Dashboard shows an `Active 
 
 - running jobs can be expanded
 - terminal logs can be shown and refreshed
-- stop, force stop, retry, and result-folder actions use the same handlers as the Jobs screen
+- stop, force stop, and artifact actions report errors on the runtime card
+- finalizing runs remain visible until model processing completes; stop controls are hidden during this finalization stage
+- already-open logs fetch their final tail when a run ends
 
 ## Diagnostics Summary
 

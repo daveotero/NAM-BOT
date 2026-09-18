@@ -110,6 +110,7 @@ main {
 
 .layout-main {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   width: 100%;
   overflow-y: auto;
@@ -120,6 +121,7 @@ main {
 
 /* Panels */
 .panel {
+  min-width: 0;
   background-color: var(--bg-charcoal);
   border: 2px solid var(--border-dim);
   padding: 20px;
@@ -1040,6 +1042,8 @@ input[type="number"] {
 }
 
 .queue-card-details {
+  min-width: 0;
+  max-width: 100%;
   margin-top: 14px;
   padding: 16px;
   background: rgba(9, 9, 11, 0.4);
@@ -1098,7 +1102,7 @@ input[type="number"] {
 
 .esr-chart-scale { gap: 4px; }
 .esr-chart .esr-chart-empty { padding: 24px 0 8px; line-height: 1.6; }
-.esr-chart-plot { overflow-x: auto; margin: 16px 0 4px; }
+.esr-chart-plot { min-width: 0; max-width: 100%; overflow-x: auto; margin: 16px 0 4px; }
 .esr-chart svg { display: block; width: 100%; min-width: 560px; }
 .esr-chart svg text { fill: var(--text-steel); font-size: 16px; font-family: var(--font-arcade); }
 .esr-chart-grid { stroke: var(--border-dim); stroke-opacity: 0.5; }
@@ -1956,4 +1960,53 @@ input[type="number"] {
   font-size: 12px;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.job-list,
+.queue-card,
+.queue-card-details > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.job-sections {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+
+.job-sections > div {
+  min-width: 0;
+}
+
+.queue-recovery-banner,
+.completion-warnings {
+  padding: 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--neon-gold);
+  color: var(--neon-gold);
+  overflow-wrap: anywhere;
+}
+
+.queue-recovery-banner p {
+  margin-bottom: 10px;
+}
+
+.completion-warnings ul {
+  padding-left: 20px;
+  margin-top: 8px;
+}
+
+.operation-error {
+  color: var(--neon-magenta);
+  margin: 10px 0;
+  overflow-wrap: anywhere;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
 }

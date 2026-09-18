@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactElement } from 'react'
+import { useEffect, useId, useRef, type ReactElement } from 'react'
 
 interface ConfirmDialogProps {
   isOpen: boolean
@@ -32,23 +32,46 @@ export default function ConfirmDialog({
   onAlternate
 }: ConfirmDialogProps): ReactElement | null {
   const cancelButtonRef = useRef<HTMLButtonElement | null>(null)
+  const dialogRef = useRef<HTMLDivElement | null>(null)
+  const cancelRef = useRef(onCancel)
+  cancelRef.current = onCancel
+  const titleId = useId()
+  const descriptionId = useId()
 
   useEffect(() => {
     if (!isOpen) {
       return undefined
     }
 
+    const previousFocus = document.activeElement
     cancelButtonRef.current?.focus()
 
     const handleKeyDown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
-        onCancel()
+        event.preventDefault()
+        cancelRef.current()
+      }
+      if (event.key === 'Tab') {
+        const controls = dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), [tabindex="0"]')
+        if (!controls?.length) return
+        const first = controls[0]
+        const last = controls[controls.length - 1]
+        if (event.shiftKey && (document.activeElement === first || !dialogRef.current?.contains(document.activeElement))) {
+          event.preventDefault()
+          last.focus()
+        } else if (!event.shiftKey && (document.activeElement === last || !dialogRef.current?.contains(document.activeElement))) {
+          event.preventDefault()
+          first.focus()
+        }
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, onCancel])
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus()
+    }
+  }, [isOpen])
 
   if (!isOpen) {
     return null
@@ -56,9 +79,9 @@ export default function ConfirmDialog({
 
   return (
     <div className="modal-overlay" onClick={onCancel}>
-      <div className="modal-content" onClick={(event) => event.stopPropagation()}>
-        <h3>{title}</h3>
-        <p style={{ color: 'var(--text-steel)', lineHeight: '1.6' }}>{message}</p>
+      <div ref={dialogRef} className="modal-content" role="alertdialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId} onClick={(event) => event.stopPropagation()}>
+        <h3 id={titleId}>{title}</h3>
+        <p id={descriptionId} style={{ color: 'var(--text-steel)', lineHeight: '1.6' }}>{message}</p>
         {checkboxLabel && onCheckboxChange && (
           <label className="checkbox-container modal-option">
             {checkboxLabel}

@@ -367,6 +367,12 @@ function getAcceleratorLabelForIssue(issue: AcceleratorDiagnosticsSummary['issue
   if (issue === 'cuda_ready' || issue === 'mps_ready') {
     return '✓ GPU READY'
   }
+  if (issue === 'torch_cpu_only') return getAcceleratorLabel('cpu_only')
+  if (issue === 'cuda_not_visible') return getAcceleratorLabel('not_visible')
+  if (issue === 'lightning_mismatch') return getAcceleratorLabel('advisory')
+  if (issue === 'not_checked' || issue === 'conda_not_configured' || issue === 'conda_unreachable' || issue === 'environment_not_configured') {
+    return getAcceleratorLabel('not_checked')
+  }
   return getAcceleratorLabel('error')
 }
 
@@ -1155,6 +1161,26 @@ function buildBackendAction(settings: AppSettings | null, failure: BackendCheckR
   const commands = getDiagnosticCommands(settings)
   const condaLookupCommand = window.namBot.platform === 'win32' ? 'where conda' : 'which conda'
 
+  if (failure.code === 'lightning_vulnerable' || failure.code === 'lightning_security_check_failed') {
+    return {
+      title: 'Fix This First',
+      headline: failure.title,
+      body: failure.message,
+      steps: [failure.suggestion ?? 'Inspect package metadata in the selected environment, then re-check Diagnostics.'],
+      commands: failure.code === 'lightning_vulnerable'
+        ? [
+            { label: 'Inspect Lightning Metadata', command: commands.inspectLightningSecurity },
+            { label: 'Remove Affected Lightning', command: commands.uninstallLightning },
+            { label: 'Install Safe Lightning', command: commands.installSafeLightning },
+            { label: 'Upgrade Neural Amp Modeler', command: commands.reinstallNam },
+            { label: 'Verify NAM Import', command: commands.verifyNam }
+          ]
+        : [{ label: 'Verify Python Target', command: commands.verifyPython }, { label: 'Inspect Lightning Metadata', command: commands.inspectLightningSecurity }],
+      verify: 'Re-check All after completing these steps.',
+      tone: 'fail'
+    }
+  }
+
   if (failure.code.includes('conda')) {
     return {
       title: 'Fix This First',
@@ -1406,7 +1432,7 @@ function ActionCenter({ actions, allReady, onOpenSettings }: { actions: ActionIt
           </div>
           <div style={{ display: 'grid', alignContent: 'start' }}>
             {primary.commands.length > 0 ? (
-              primary.commands.slice(0, 2).map((command) => <CopyableCodeBlock key={command.label} label={command.label} command={command.command} />)
+              primary.commands.map((command) => <CopyableCodeBlock key={command.label} label={command.label} command={command.command} />)
             ) : (
               <div style={{ border: '1px solid var(--border-dim)', padding: '12px', color: 'var(--text-steel)', fontSize: '13px', lineHeight: 1.45 }}>
                 No command is needed for this fix. Update the setting, folder, or app location, then re-check.

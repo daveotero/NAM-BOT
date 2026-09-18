@@ -1,6 +1,6 @@
 import { app, BrowserWindow } from 'electron'
 import log from 'electron-log/main'
-import { createDefaultUpdateStatus, type UpdateStatus } from '../../shared/update'
+import type { UpdateStatus } from '../../shared/update'
 import { compareAppVersions } from '../../shared/version'
 import { loadUpdateStatus, saveUpdateStatus } from '../persistence/updateStore'
 
@@ -54,11 +54,12 @@ function normalizeVersion(version: string): string {
 }
 
 function shouldUseCachedStatus(status: UpdateStatus): boolean {
-  if (!status.lastCheckedAt) {
+  const lastAttemptAt = status.lastAttemptAt ?? status.lastCheckedAt
+  if (!lastAttemptAt) {
     return false
   }
 
-  const lastCheckedTime = new Date(status.lastCheckedAt).getTime()
+  const lastCheckedTime = new Date(lastAttemptAt).getTime()
   if (!Number.isFinite(lastCheckedTime)) {
     return false
   }
@@ -91,6 +92,7 @@ function getSpoofedUpdateStatus(): UpdateStatus | null {
 
 async function fetchLatestRelease(): Promise<GitHubReleasePayload> {
   const response = await fetch(GITHUB_LATEST_RELEASE_API_URL, {
+    signal: AbortSignal.timeout(10_000),
     headers: {
       Accept: 'application/vnd.github+json',
       'User-Agent': `NAM-BOT/${app.getVersion()}`
@@ -115,6 +117,8 @@ function buildSuccessStatus(previousStatus: UpdateStatus, payload: GitHubRelease
   return {
     currentVersion: previousStatus.currentVersion,
     lastCheckedAt: nowIso,
+    lastAttemptAt: nowIso,
+    checkError: null,
     state: isUpdateAvailable ? 'update-available' : 'up-to-date',
     latestVersion: latestVersion.length > 0 ? latestVersion : null,
     releaseUrl: isUpdateAvailable ? releaseUrl : null,
@@ -122,20 +126,13 @@ function buildSuccessStatus(previousStatus: UpdateStatus, payload: GitHubRelease
   }
 }
 
-function buildErrorStatus(previousStatus: UpdateStatus): UpdateStatus {
+function buildErrorStatus(previousStatus: UpdateStatus, error: unknown): UpdateStatus {
   const nowIso = new Date().toISOString()
-
-  if (previousStatus.state === 'update-available' || previousStatus.state === 'up-to-date') {
-    return {
-      ...previousStatus,
-      lastCheckedAt: nowIso
-    }
-  }
-
   return {
-    ...createDefaultUpdateStatus(previousStatus.currentVersion),
-    lastCheckedAt: nowIso,
-    state: 'error'
+    ...previousStatus,
+    lastAttemptAt: nowIso,
+    checkError: error instanceof Error ? error.message : String(error),
+    state: previousStatus.state === 'update-available' ? 'update-available' : 'error'
   }
 }
 
@@ -174,8 +171,8 @@ export async function checkForUpdates(force = false): Promise<UpdateStatus> {
       return persistAndCache(nextStatus, true)
     } catch (error) {
       log.error('Background update check failed:', error)
-      const nextStatus = buildErrorStatus(currentStatus)
-      return persistAndCache(nextStatus, currentStatus.state !== nextStatus.state)
+      const nextStatus = buildErrorStatus(currentStatus, error)
+      return persistAndCache(nextStatus, true)
     } finally {
       activeCheckPromise = null
     }

@@ -34,6 +34,7 @@ export interface BackendCheckResult {
 }
 
 export interface BackendValidationSummary {
+  settingsKey?: string
   checkedAt: string
   condaReachable: BackendCheckResult
   environmentReachable: BackendCheckResult

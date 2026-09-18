@@ -13,7 +13,7 @@ Jobs are intentionally separate from presets.
 
 - presets define reusable training recipes
 - jobs define one specific training run
-- queue items freeze a job at enqueue time so later edits do not mutate an already queued run
+- queue items freeze both the job and its complete preset at enqueue time so later edits do not mutate an already queued run
 
 ## Goals
 
@@ -92,7 +92,7 @@ The batch badge is display-only. It does not create a locked group, and editing 
 
 The Jobs page supports dragging output audio files directly onto the main panel.
 
-- supported file extensions include `.wav`, `.mp3`, and `.flac`
+- native pickers, batch selection, and drag-and-drop all accept `.wav`, `.mp3`, `.flac`, `.aiff`, and `.aif`; decoding still depends on the selected NAM environment (NAM 0.13 uses wavio with a librosa fallback)
 - dropping or selecting one output file creates one draft directly
 - dropping or selecting multiple output files opens the batch editor before any drafts are created
 - the draft name defaults to the output filename without extension
@@ -128,6 +128,9 @@ The editor shows `Save Job` buttons at both the top and bottom of the form.
 - `Use Output Filename` beside Job Name and Model Name copies the selected output audio filename stem into that field.
 - Clicking `Cancel` with unsaved edits opens a confirm dialog so the user can save, keep editing, or discard changes.
 - Choosing another app section from the sidebar or app menu while the editor has unsaved edits opens a discard warning before navigation.
+- Batch editors use the same navigation guard. `Keep Editing` retains both the selected files and shared edits.
+- Audio paths can be typed, pasted, or replaced through Browse. Only the bundled default input display is disabled.
+- Save and picker failures are shown in the editor, with the unsaved edits retained for retry. An unavailable preset must be explicitly replaced before saving or queueing a draft.
 
 ### Input Audio Modes
 
@@ -201,6 +204,10 @@ Queued jobs appear in their own section.
 
 The queue UI follows the same bottom-first execution model as drafts. The lowest visible queued job is the next item to move into Training, and drag-and-drop reordering preserves that logical order.
 
+After an app restart, pending jobs remain paused until **Resume Queue** is selected. Diagnostics-blocked cards show **Diagnostics needed** and a **Run Diagnostics** link. Confirming the NAM version automatically resumes those jobs during an uninterrupted session; an explicit restart or process-termination pause still requires Resume Queue.
+
+If Force Stop cannot confirm termination, the queue pauses persistently. Before resuming, check the system process manager and confirm the previous trainer has stopped. Enqueueing another job or re-running Diagnostics does not bypass that pause.
+
 - A2 jobs are preflighted before enqueue. If the selected NAM environment is confirmed older than `neural-amp-modeler` `0.13.0`, enqueue is blocked with an upgrade command.
 - If Diagnostics has not confirmed the selected NAM version yet, A2 jobs can be queued but pause as diagnostics-blocked queued items instead of failing. Run Diagnostics or `Re-check All` to confirm the environment; a valid NAM version resumes the queue automatically.
 - Batch enqueue preflights all selected drafts before adding any of them to the queue so partial A2 batch enqueue does not occur.
@@ -225,6 +232,7 @@ Completed, failed, and stopped jobs appear in the finished section.
 - successful result folders can be opened from the UI
 - finished cards can be used as templates for new editable drafts by selecting one or more new output audio files
 - terminal logs can be expanded after the run has finished
+- An already-open log refreshes its final tail when the job finishes or fails. Log-read errors appear in the log panel with retry guidance.
 - `Clear Finished` removes all finished runtime entries from the finished section
 - individual finished items can also be cleared from their card
 - expanded finished-job details use the same compact layout as active jobs, with artifact links instead of full path rows
@@ -328,6 +336,8 @@ Important runtime fields include:
 
 - `jobId`, `jobName`, and `status`
 - `frozenJob` for the exact job snapshot that was queued
+- `frozenPreset` for the complete training recipe and preset attribution captured at enqueue time
+- `completionWarnings` for nonfatal model-renaming, metadata, or copy failures, displayed on the finished card and written to the terminal log
 - timestamps such as `queuedAt`, `startedAt`, and `finishedAt`
 - progress fields such as `plannedEpochs` and `currentEpoch`
 - resolved paths such as workspace, run directory, generated configs, logs, and published model output
@@ -351,6 +361,7 @@ Jobs move through these statuses:
 - `preparing`
 - `running`
 - `stopping`
+- `finalizing`
 - `succeeded`
 - `failed`
 - `canceled`
@@ -362,7 +373,9 @@ Stop requests use two modes:
 
 Stop and application-quit requests cover the complete run lifecycle. During `preparing`, NAM-BOT cancels latency, Lightning, Torch, and other environment subprocesses; after the training PTY starts, the same request controls the full training process tree.
 
-Force Stop always moves the job to a terminal state after the operating-system kill attempt. A confirmed process-tree termination becomes `canceled`; if termination cannot be confirmed, the job becomes `failed` with a message directing the user to check Task Manager instead of remaining stuck in `stopping`.
+Force Stop always moves the job to a terminal state after the operating-system kill attempt. A confirmed process-tree termination becomes `canceled`; if termination cannot be confirmed, the job becomes `failed` and the queue pauses until the user confirms recovery. Late events from a finished process cannot affect a newer active job.
+
+A zero trainer exit code first enters `finalizing`. NAM-BOT verifies that a final model exists and completes naming, metadata, and optional copying before reporting success or sending a completion notification. Nonfatal result-processing failures show **Completed with warnings**.
 
 Each run also captures one immutable backend-settings snapshot before preparation. Settings changes made while a job is preparing or running apply to later jobs, not the active run.
 
@@ -390,7 +403,7 @@ The friendly job editor fields map to concrete training behavior.
 - `NAM Metadata`
   - is written back into the final `.nam` file after a successful run
 
-If a selected preset locks epochs or latency through expert config, the job editor shows those fields as read-only.
+If a selected preset locks epochs or latency through expert config, the job editor shows those fields as read-only with their effective values. Planned epochs and progress also use the effective learning config. Explicit expert accelerator and device settings are retained; automatic device detection applies to `accelerator: "auto"`.
 
 ### Latency Auto-Alignment
 
@@ -428,11 +441,16 @@ When a draft is enqueued:
 - the draft is cloned
 - a new queue/task id is assigned
 - the queue item stores that cloned `frozenJob`
+- the queue item also stores a cloned `frozenPreset`, including its name, values, and expert overrides
 - the original editable draft is removed from the drafts list
 
 This prevents a user from accidentally changing the meaning of an already queued run.
 
+Editing or deleting the library preset does not change that run, its displayed attribution, or exported filename/metadata. Older pending records without a preset snapshot capture the available recipe during recovery; if it is unavailable, they become a visible missing-preset failure rather than silently using A2 defaults. Older finished history may still lack a recipe snapshot.
+
 Queue persistence completes before the draft is removed. A small recovery marker bridges the queue and draft files so a crash between those writes cannot delete the only durable copy of a job.
+
+Unqueue and Unqueue All use a recovery marker in the other direction: restored drafts are persisted before removing queue entries. A failed write leaves a durable queue copy, and the transfer can finish on restart.
 
 ### A2 Version Gate
 
@@ -478,6 +496,7 @@ High-volume terminal progress is coalesced before queue state is written or sent
 The open job editor session is renderer-memory only.
 
 - switching to another section with unsaved edits prompts before discarding the open editor session
+- batch file selections and shared edits participate in the same guard
 - canceling that prompt keeps the user on the editor with the in-progress state intact
 - the renderer session includes form values, selected preset, input mode, output-root mode, and validation visibility
 - closing the app still discards an unsaved editor session that was never saved as a draft

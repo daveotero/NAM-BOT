@@ -939,7 +939,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
       preset: normalizeTrainingPreset({
         ...session.preset,
         ...patch
-      })
+      }),
     })
   }
 
@@ -1012,10 +1012,11 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
   }
 
   const updatePresetAuthor = (patch: { name?: string; url?: string }): void => {
-    updatePreset({
-      author: {
-        ...session.preset.author,
-        ...patch
+    // Text normalization belongs at the save boundary, not on each keystroke.
+    updateSession({
+      preset: {
+        ...session.preset,
+        author: { ...session.preset.author, ...patch }
       }
     })
   }
@@ -1676,6 +1677,8 @@ export default function Presets() {
   const presetEditorSession = useAppStore((state) => state.presetEditorSession)
   const setPresetEditorSession = useAppStore((state) => state.setPresetEditorSession)
   const clearPresetEditorSession = useAppStore((state) => state.clearPresetEditorSession)
+  const presetWarnings = useAppStore((state) => state.presetWarnings)
+  const presetsLoadError = useAppStore((state) => state.presetsLoadError)
   const [expandedPresets, setExpandedPresets] = useState<Record<string, boolean>>({})
   const [pendingDeletePreset, setPendingDeletePreset] = useState<TrainingPresetFile | null>(null)
   const [message, setMessage] = useState<string | null>(null)
@@ -1821,6 +1824,8 @@ export default function Presets() {
           Browse your preset library here. Open a card for deeper technical details, or launch the editor only when you need to create or change a preset.
         </p>
 
+        {presetWarnings.map((warning) => <p role="status" key={warning} style={{ color: 'var(--neon-gold)', marginTop: '10px' }}>{warning}</p>)}
+        {presetsLoadError && <p role="alert" className="operation-error">Could not load presets: {presetsLoadError} <button className="btn btn-sm btn-secondary" onClick={() => void loadPresets()}>Retry</button></p>}
         {message && <p style={{ color: 'var(--neon-green)', marginTop: '10px' }}>{message}</p>}
         {error && <p style={{ color: 'var(--neon-magenta)', marginTop: '10px' }}>{error}</p>}
       </div>

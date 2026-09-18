@@ -10,17 +10,21 @@ import {
 } from '../backend/adapter'
 import { AppSettings, NamVersionInfo } from '../types'
 import { getQueueManager } from '../jobs/queueManager'
+import { buildBackendSettingsKey } from '../../shared/backend-settings'
 
 let cachedSettings: AppSettings | null = null
 
 async function validateAndBroadcast(): Promise<ReturnType<typeof validateBackend> extends Promise<infer TResult> ? TResult : never> {
   const settings: AppSettings = cachedSettings || loadSettings()
   cachedSettings = settings
-  const result = await validateBackend(settings)
+  const settingsKey = buildBackendSettingsKey(settings)
+  const result = { ...await validateBackend(settings), settingsKey }
 
-  BrowserWindow.getAllWindows().forEach((win) => {
-    win.webContents.send('backend:validationUpdated', result)
-  })
+  if (cachedSettings && buildBackendSettingsKey(cachedSettings) === settingsKey) {
+    BrowserWindow.getAllWindows().forEach((win) => {
+      win.webContents.send('backend:validationUpdated', result)
+    })
+  }
 
   return result
 }
@@ -48,6 +52,7 @@ export function setupIpcHandlers(): void {
       // Keep queue runner in sync with latest settings without requiring restart.
       getQueueManager().setSettings(normalizedSettings)
       log.info('Settings saved')
+      return normalizedSettings
     } catch (error) {
       log.error('Failed to save settings:', error)
       throw error
@@ -95,16 +100,14 @@ export function setupIpcHandlers(): void {
   })
 
   ipcMain.handle('settings:getNamVersionInfo', async (): Promise<NamVersionInfo> => {
+    const settings: AppSettings = cachedSettings || loadSettings()
+    cachedSettings = settings
     try {
-      const settings: AppSettings = cachedSettings || loadSettings()
-      cachedSettings = settings
       const result = await getNamVersionInfo(settings)
       getQueueManager().setKnownNamVersion(settings, result.installedVersion)
       return result
     } catch (error) {
       log.error('Failed to get NAM version info:', error)
-      const settings: AppSettings = cachedSettings || loadSettings()
-      cachedSettings = settings
       getQueueManager().setKnownNamVersion(settings, null)
       return {
         installedVersion: null,

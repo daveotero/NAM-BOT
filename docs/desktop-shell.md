@@ -19,10 +19,13 @@ The menu is organized around the screens that already exist inside the app:
 
 - Active training updates the taskbar progress indicator so Windows shows that NAM-BOT is busy.
 - Finishing, failing, or canceling a job triggers a desktop notification. Clicking the notification brings the app forward and opens Jobs.
-- If a training job is still active, closing the window prompts before quitting because the trainer will be force-stopped.
+- If training is still active, both window close and menu/keyboard quit share one confirmation. `Keep Training` leaves the process running. Shutdown cleanup runs only after quitting is approved.
+- Launching NAM-BOT a second time focuses the existing instance rather than opening a competing queue against the same app data.
 - `Help > About NAM-BOT` opens a conventional version dialog, while the in-app About route remains available as the Credits screen.
 - The in-app About route also performs a background GitHub Releases check on app load and highlights the About nav item when a newer stable version is available.
 - `Help > Check for Updates` forces a fresh release lookup immediately, bypassing the normal one-hour cache, and shows a result dialog so the user knows whether a new build exists.
+- Failed update attempts report a failure and retain the last successful check date. A cached update link can remain available without claiming that the latest check succeeded.
+- Confirmation dialogs provide keyboard focus containment, Escape cancellation, and focus restoration. Reduced-motion system preferences disable CSS animations and transitions.
 
 ## Support Folders
 

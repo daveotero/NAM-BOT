@@ -8,14 +8,15 @@ const mockPaths = vi.hoisted(() => ({
 
 vi.mock('electron', () => ({
   app: {
-    getPath: () => mockPaths.userDataPath
+    getPath: () => mockPaths.userDataPath,
+    getVersion: () => '0.6.5'
   },
   shell: {
     openPath: vi.fn()
   }
 }))
 
-const runNamFullMock = vi.hoisted(() => vi.fn())
+const runNamFullMock = vi.hoisted(() => vi.fn<typeof import('../backend/adapter').runNamFull>())
 const inspectTorchRuntimeMock = vi.hoisted(() => vi.fn())
 const analyzeNamLatencyMock = vi.hoisted(() => vi.fn())
 
@@ -47,6 +48,9 @@ vi.mock('../backend/adapter', () => {
 import { defaultSettings } from '../types'
 import { DEFAULT_PRESET_ID, defaultJobSpec, type JobRuntimeState, type JobSpec } from '../types/jobs'
 import { QueueManager } from './queueManager'
+import { createTrainingPreset } from '../../shared/training'
+import { deleteTrainingPreset, saveTrainingPreset } from '../persistence/presetStore'
+import type { RunHooks } from '../backend/adapter'
 
 function buildJobSpec(overrides: Partial<JobSpec> = {}): JobSpec {
   const base: JobSpec = {
@@ -109,6 +113,141 @@ afterEach(() => {
 })
 
 describe('QueueManager A2 diagnostics gate', () => {
+  it('emits failure without a success notification state when a clean exit produces no model', async () => {
+    const manager = createQueueManager()
+    manager.setKnownNamVersion(defaultSettings, '0.13.0')
+    manager.addToQueue(buildJobSpec())
+    const states: string[] = []
+    manager.on('jobUpdated', (runtime: JobRuntimeState) => states.push(runtime.status))
+    runNamFullMock.mockImplementation(async (_settings, _args, hooks) => {
+      hooks.onStarted(1234)
+      hooks.onExit(0)
+      return { cancel: vi.fn(), forceKill: vi.fn(async () => true), forceKillSync: vi.fn() }
+    })
+    await manager.startQueue()
+    expect(states).toContain('finalizing')
+    expect(states).not.toContain('succeeded')
+    expect(manager.getQueue()[0].errorCategory).toBe('missing_model_artifact')
+  })
+
+  it('retains the queued recipe and attribution after editing and deleting its library preset', async () => {
+    const original = saveTrainingPreset(createTrainingPreset({ id: 'frozen-recipe', name: 'Original Recipe' }))
+    const manager = createQueueManager()
+    manager.setKnownNamVersion(defaultSettings, '0.13.0')
+    const job = buildJobSpec({ presetId: original.id, appendPresetToModelFileName: true })
+    manager.addToQueue(job)
+    saveTrainingPreset({ ...original, name: 'Edited Recipe', values: { ...original.values, batchSize: 99 } })
+    deleteTrainingPreset(original.id)
+    const states: string[] = []
+    manager.on('jobUpdated', (runtime: JobRuntimeState) => states.push(runtime.status))
+    runNamFullMock.mockImplementation(async (_settings, args, hooks) => {
+      expect(JSON.parse(readFileSync(args.learningConfigPath, 'utf-8'))).toMatchObject({ train_dataloader: { batch_size: 16 } })
+      mkdirSync(args.outputRootDir, { recursive: true })
+      writeNamModel(join(args.outputRootDir, 'model.nam'))
+      hooks.onStarted(1234)
+      hooks.onExit(0)
+      expect(states).not.toContain('succeeded')
+      return { cancel: vi.fn(), forceKill: vi.fn(async () => true), forceKillSync: vi.fn() }
+    })
+    await manager.startQueue()
+    const runtime = manager.getQueue()[0]
+    expect(runtime.status).toBe('succeeded')
+    expect(runtime.publishedModelPath).toContain('Original Recipe.nam')
+    expect(states).toContain('finalizing')
+    expect(JSON.parse(readFileSync(runtime.publishedModelPath!, 'utf-8'))).toMatchObject({ metadata: { nam_bot: { preset_name: 'Original Recipe', trained_epochs: job.trainingOverrides.epochs } } })
+    expect(createQueueManager().getQueue()[0].frozenPreset?.values.batchSize).toBe(16)
+    expect(() => manager.addToQueue(buildJobSpec({ id: 'missing', presetId: original.id }))).toThrow('unavailable')
+  })
+
+  it('honors expert device selection and reports effective locked epochs and latency', async () => {
+    const preset = saveTrainingPreset(createTrainingPreset({
+      id: 'locked-recipe', name: 'Locked',
+      expert: { learning: { trainer: { accelerator: 'cpu', devices: 2, max_epochs: 3 } }, data: { common: { delay: 17 } } }
+    }))
+    const manager = createQueueManager()
+    manager.setKnownNamVersion(defaultSettings, '0.13.0')
+    manager.addToQueue(buildJobSpec({ presetId: preset.id, trainingOverrides: { epochs: 200, latencyMode: 'manual', latencySamples: 0 } }))
+    inspectTorchRuntimeMock.mockResolvedValue({ cudaAvailable: true, deviceName: 'GPU', torchVersion: 'test', mpsAvailable: false })
+    runNamFullMock.mockImplementation(async (_settings, args, hooks) => {
+      expect(JSON.parse(readFileSync(args.learningConfigPath, 'utf-8'))).toMatchObject({ trainer: { accelerator: 'cpu', devices: 2, max_epochs: 3 } })
+      expect(manager.getCurrentJob()).toMatchObject({ plannedEpochs: 3, latencyAlignment: { delaySamples: 17 }, deviceSummary: { acceleratorRequested: 'cpu' } })
+      hooks.onStarted(1234)
+      hooks.onExit(1)
+      return { cancel: vi.fn(), forceKill: vi.fn(async () => true), forceKillSync: vi.fn() }
+    })
+    await manager.startQueue()
+  })
+
+  it('pauses after an unconfirmed termination, persists the pause, and ignores late process callbacks', async () => {
+    const manager = createQueueManager()
+    manager.setKnownNamVersion(defaultSettings, '0.13.0')
+    manager.addManyToQueue([buildJobSpec({ id: 'first' }), buildJobSpec({ id: 'second' })])
+    const hooksByRun: RunHooks[] = []
+    runNamFullMock.mockImplementation(async (_settings, _args, hooks) => {
+      hooksByRun.push(hooks)
+      hooks.onStarted(1234 + hooksByRun.length)
+      return { cancel: vi.fn(), forceKill: vi.fn(async () => false), forceKillSync: vi.fn() }
+    })
+    const firstRun = manager.startQueue()
+    await vi.waitFor(() => expect(hooksByRun).toHaveLength(1))
+    await manager.forceStopJob('first')
+    await firstRun
+    expect(manager.getQueue()[1].status).toBe('queued')
+    expect(manager.getControlState().pauseReason).toBe('termination_unconfirmed')
+    expect(createQueueManager().getControlState().pauseReason).toBe('termination_unconfirmed')
+    await expect(manager.resumeQueue()).rejects.toThrow('Confirm')
+    await manager.resumeQueue(true)
+    await vi.waitFor(() => expect(hooksByRun).toHaveLength(2))
+    hooksByRun[0].onExit(0)
+    hooksByRun[0].onError(new Error('late old-process event'))
+    expect(manager.getCurrentJob()?.jobId).toBe('second')
+    expect(manager.getCurrentJob()?.status).toBe('running')
+    expect(manager.getQueue()[0].errorCategory).toBe('force_stop_failed')
+    hooksByRun[1].onExit(1)
+    await vi.waitFor(() => expect(manager.isQueueProcessing()).toBe(false))
+  })
+
+  it('allows explicitly resuming pending jobs restored after restart', async () => {
+    createQueueManager().addToQueue(buildJobSpec())
+    const restored = createQueueManager()
+    restored.setKnownNamVersion(defaultSettings, '0.13.0')
+    restored.setKnownNamVersion({ ...defaultSettings, environmentName: 'previous-target' }, '0.12.0')
+    expect(restored.getControlState().pauseReason).toBe('restart')
+    expect(runNamFullMock).not.toHaveBeenCalled()
+    runNamFullMock.mockImplementation(async (_settings, _args, hooks) => {
+      hooks.onStarted(1234)
+      hooks.onExit(1)
+      return { cancel: vi.fn(), forceKill: vi.fn(async () => true), forceKillSync: vi.fn() }
+    })
+    await restored.resumeQueue()
+    await vi.waitFor(() => expect(restored.getQueue()[0].status).toBe('failed'))
+    await vi.waitFor(() => expect(restored.isQueueProcessing()).toBe(false))
+  })
+
+  it('reports completion warnings when metadata cannot be written and never announces premature success', async () => {
+    const manager = createQueueManager()
+    manager.setKnownNamVersion(defaultSettings, '0.13.0')
+    manager.addToQueue(buildJobSpec())
+    const terminalEvents: string[] = []
+    manager.on('jobUpdated', (runtime: JobRuntimeState) => {
+      if (runtime.status === 'succeeded') {
+        terminalEvents.push(runtime.status)
+        expect(runtime.completionWarnings?.join(' ')).toContain('metadata failed')
+      }
+    })
+    runNamFullMock.mockImplementation(async (_settings, args, hooks) => {
+      mkdirSync(args.outputRootDir, { recursive: true })
+      writeFileSync(join(args.outputRootDir, 'model.nam'), '{invalid model JSON')
+      hooks.onStarted(1234)
+      hooks.onExit(0)
+      expect(terminalEvents).toEqual([])
+      return { cancel: vi.fn(), forceKill: vi.fn(async () => true), forceKillSync: vi.fn() }
+    })
+    await manager.startQueue()
+    expect(terminalEvents).toEqual(['succeeded'])
+    expect(readFileSync(manager.getQueue()[0].terminalLogPath!, 'utf-8')).toContain('metadata failed')
+  })
+
   it('captures live per-model ESR and persists the final epoch even on a failed exit', async () => {
     const queueManager = createQueueManager()
     queueManager.setKnownNamVersion(defaultSettings, '0.13.0')
@@ -116,6 +255,7 @@ describe('QueueManager A2 diagnostics gate', () => {
     const first = { epoch: 1, step: 10, models: [{ submodelIndex: 0, submodelName: 'channels_3', esr: 0.001 }] }
     const second = { epoch: 2, step: 20, models: [{ submodelIndex: 0, submodelName: 'channels_3', esr: 0.002 }] }
     runNamFullMock.mockImplementation(async (_settings, args, hooks) => {
+      if (!args.cwd) throw new Error('Missing run workspace')
       const historyPath = join(args.cwd, 'esr-history.jsonl')
       writeFileSync(historyPath, `${JSON.stringify(first)}\n`)
       hooks.onStarted(1234)

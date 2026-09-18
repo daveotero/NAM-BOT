@@ -5,8 +5,8 @@ import {
   JobStopMode
 } from '../../state/types'
 
-export type ActiveRuntimeStatus = 'preparing' | 'running' | 'stopping'
-export const ACTIVE_RUNTIME_STATUSES: ActiveRuntimeStatus[] = ['preparing', 'running', 'stopping']
+export type ActiveRuntimeStatus = 'preparing' | 'running' | 'stopping' | 'finalizing'
+export const ACTIVE_RUNTIME_STATUSES: ActiveRuntimeStatus[] = ['preparing', 'running', 'stopping', 'finalizing']
 export const FORCE_STOP_DELAY_MS = 10_000
 
 export type QueueDisplayState = 'Queued' | 'Running' | 'Successful' | 'Error'
@@ -170,6 +170,7 @@ export function getDisplayState(runtime: JobRuntimeState): QueueDisplayState {
     case 'preparing':
     case 'running':
     case 'stopping':
+    case 'finalizing':
       return 'Running'
     case 'succeeded':
       return 'Successful'
@@ -219,6 +220,7 @@ export function getProgressPercent(runtime: JobRuntimeState): number | null {
 }
 
 export function getProgressHeadline(runtime: JobRuntimeState): string {
+  if (runtime.status === 'finalizing') return 'Finalizing model and metadata...'
   if (runtime.status === 'stopping') {
     return runtime.stopMode === 'force' ? 'Force stopping...' : 'Stopping...'
   }
@@ -377,6 +379,8 @@ export function getCollapsedSummaryItems(
         { label: 'Elapsed', value: elapsed || 'Calculating...' },
         { label: 'Stopped', value: getStopModeLabel(runtime) }
       ]
+    case 'finalizing':
+      return [{ label: 'Preset', value: presetName }, { label: 'Status', value: 'Finalizing artifacts' }]
     case 'succeeded':
       return [
         { label: 'Preset', value: presetName },
@@ -423,12 +427,12 @@ export function getStatusSentence(runtime: JobRuntimeState): string {
     return 'Validating job before queue'
   }
 
-  if (runtime.status === 'preparing' || runtime.status === 'running' || runtime.status === 'stopping') {
+  if (isActiveRuntime(runtime.status)) {
     return getProgressHeadline(runtime)
   }
 
   if (runtime.status === 'succeeded') {
-    return 'Training complete'
+    return runtime.completionWarnings?.length ? 'Completed with warnings — review details' : 'Training complete'
   }
 
   if (runtime.status === 'canceled') {
@@ -484,6 +488,7 @@ export interface StopActionState {
 }
 
 export function getStopActionState(runtime: JobRuntimeState, nowMs: number): StopActionState | null {
+  if (runtime.status === 'finalizing') return null
   if (!isActiveRuntime(runtime.status)) {
     return null
   }

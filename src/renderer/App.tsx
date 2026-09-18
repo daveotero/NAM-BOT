@@ -25,6 +25,7 @@ import { buildJobEditorSession, createNewJobDraft } from './features/jobs/jobEdi
 import { buildNewPresetDraft, buildPresetEditorSession } from './features/presets/presetEditorSession'
 import ConfirmDialog from './components/ConfirmDialog'
 import { useTerminalLogs } from './hooks/useTerminalLogs'
+import { isActiveRuntime } from './features/jobs/job-helpers'
 import log from 'electron-log/renderer'
 
 type PendingAppAction =
@@ -268,7 +269,7 @@ function Dashboard() {
   
   const [expandedJobIds, setExpandedJobIds] = useState<Set<string>>(new Set())
   const [visibleLogJobIds, setVisibleLogJobIds] = useState<Set<string>>(new Set())
-  const { logContents, loadingLogIds, loadTerminalLog } = useTerminalLogs()
+  const { logContents, logErrors, loadingLogIds, loadTerminalLog } = useTerminalLogs(queue)
   const [nowMs, setNowMs] = useState<number>(() => Date.now())
 
   const diagnosticsCards = getDashboardDiagnosticsCards(
@@ -278,7 +279,7 @@ function Dashboard() {
     namVersionInfo
   )
 
-  const trainingJobs = queue.filter(r => r.status === 'preparing' || r.status === 'running' || r.status === 'stopping')
+  const trainingJobs = queue.filter(r => isActiveRuntime(r.status))
   const queuedJobs = queue.filter(r => r.status === 'queued' || r.status === 'validating')
   const completedJobs = queue.filter(r => r.status === 'succeeded')
   const errorJobs = queue.filter(r => r.status === 'failed' || r.status === 'canceled')
@@ -384,7 +385,7 @@ function Dashboard() {
     const interval = window.setInterval(() => {
       for (const runtime of queueRef.current) {
         if (visibleLogJobIds.has(runtime.jobId)
-          && (runtime.status === 'preparing' || runtime.status === 'running' || runtime.status === 'stopping')) {
+          && isActiveRuntime(runtime.status)) {
           void loadTerminalLog(runtime.jobId)
         }
       }
@@ -448,7 +449,7 @@ function Dashboard() {
                   nowMs={nowMs}
                  isExpanded={expandedJobIds.has(job.jobId)}
                  isLogsVisible={visibleLogJobIds.has(job.jobId)}
-                 terminalLog={logContents[job.jobId] || ''}
+                  terminalLog={logErrors[job.jobId] || logContents[job.jobId] || ''}
                  isLoadingLog={loadingLogIds.has(job.jobId)}
                  onToggleExpanded={toggleExpanded}
                   onToggleLogs={toggleLogs}
@@ -515,6 +516,8 @@ function AppShell() {
   const setPresetEditorSession = useAppStore((state) => state.setPresetEditorSession)
   const jobEditorSession = useAppStore((state) => state.jobEditorSession)
   const presetEditorSession = useAppStore((state) => state.presetEditorSession)
+  const batchEditorSession = useAppStore((state) => state.batchEditorSession)
+  const setBatchEditorSession = useAppStore((state) => state.setBatchEditorSession)
   const loadJobs = useAppStore((state) => state.loadJobs)
   const subscribeToJobEvents = useAppStore((state) => state.subscribeToJobEvents)
   const hasUpdateAvailable = updateStatus.state === 'update-available'
@@ -527,7 +530,7 @@ function AppShell() {
     && jobEditorSession.initialSnapshot !== serializeJobEditorSession(jobEditorSession)
   const hasUnsavedPresetChanges = presetEditorSession != null
     && presetEditorSession.initialSnapshot !== serializePresetEditorSession(presetEditorSession)
-  const hasUnsavedEditorChanges = hasUnsavedJobChanges || hasUnsavedPresetChanges
+  const hasUnsavedEditorChanges = hasUnsavedJobChanges || hasUnsavedPresetChanges || batchEditorSession !== null
 
   const performAction = useCallback((action: PendingAppAction): void => {
     switch (action.type) {
@@ -535,11 +538,13 @@ function AppShell() {
         navigate(action.path)
         return
       case 'new-job':
+        setBatchEditorSession(null)
         setPresetEditorSession(null)
         setJobEditorSession(buildJobEditorSession('New Job', createNewJobDraft({ presets, settings }), settings))
         navigate('/jobs')
         return
       case 'new-preset':
+        setBatchEditorSession(null)
         setJobEditorSession(null)
         setPresetEditorSession(buildPresetEditorSession('New Preset', buildNewPresetDraft(settings)))
         navigate('/presets')
@@ -547,7 +552,7 @@ function AppShell() {
       default:
         return
     }
-  }, [navigate, presets, setJobEditorSession, setPresetEditorSession, settings])
+  }, [navigate, presets, setJobEditorSession, setPresetEditorSession, setBatchEditorSession, settings])
 
   const requestAction = useCallback((action: PendingAppAction): boolean => {
     if (action.type === 'navigate' && action.path === location.pathname) {
@@ -572,6 +577,7 @@ function AppShell() {
     setPendingAction(null)
     setJobEditorSession(null)
     setPresetEditorSession(null)
+    setBatchEditorSession(null)
     performAction(action)
   }
 
@@ -609,7 +615,7 @@ function AppShell() {
 
   useEffect(() => {
     const isActive = queue.some((runtime) =>
-      runtime.status === 'preparing' || runtime.status === 'running' || runtime.status === 'stopping'
+      isActiveRuntime(runtime.status)
     )
     setIsTraining(isActive)
   }, [queue, setIsTraining])

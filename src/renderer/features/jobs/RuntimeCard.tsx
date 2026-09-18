@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import {
   JobPackedSubmodelCheckpointSummary,
   JobRuntimeState,
@@ -189,6 +190,15 @@ export default function RuntimeCard({
   onOpenArtifact,
   onClearFinished
 }: RuntimeCardProps) {
+  const [actionError, setActionError] = useState<string | null>(null)
+  const runAction = async (action: () => Promise<void>): Promise<void> => {
+    try {
+      setActionError(null)
+      await action()
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error))
+    }
+  }
   const displayState = getDisplayState(runtime)
   const statusSentence = getStatusSentence(runtime)
   const stopAction = getStopActionState(runtime, nowMs)
@@ -198,7 +208,7 @@ export default function RuntimeCard({
   const isSuccessfulDisplay = displayState === 'Successful'
   const outputPath = getOutputPath(runtime)
   const batchSourceName = runtime.frozenJob.batchSourceName?.trim() || ''
-  const preset = presets.find((entry) => entry.id === runtime.frozenJob.presetId)
+  const preset = runtime.frozenPreset ?? presets.find((entry) => entry.id === runtime.frozenJob.presetId)
   const presetName = preset?.name || runtime.frozenJob.presetId || 'Unknown'
   const presetTag = preset ? formatPresetArchitectureTag(preset) : 'CUSTOM'
   const latencyModeLabel = getLatencyModeLabel(runtime)
@@ -275,7 +285,7 @@ export default function RuntimeCard({
               {displayState === 'Queued' && onUnqueue && (
                 <button
                   className="btn btn-sm btn-secondary"
-                  onClick={() => void onUnqueue(runtime.jobId)}
+                  onClick={() => void runAction(() => onUnqueue(runtime.jobId))}
                 >
                   Unqueue
                 </button>
@@ -284,7 +294,7 @@ export default function RuntimeCard({
               {displayState === 'Running' && stopAction && (
                 <button
                   className="btn btn-sm btn-orange"
-                  onClick={() => void (stopAction.isForce ? onForceStop(runtime.jobId) : onCancel(runtime.jobId))}
+                  onClick={() => void runAction(() => stopAction.isForce ? onForceStop(runtime.jobId) : onCancel(runtime.jobId))}
                   disabled={stopAction.disabled}
                 >
                   {stopAction.label}
@@ -292,7 +302,7 @@ export default function RuntimeCard({
               )}
 
               {displayState === 'Successful' && outputPath && (
-                <button className="btn btn-sm btn-green" onClick={() => void onOpenFolder(runtime.jobId)}>
+                <button className="btn btn-sm btn-green" onClick={() => void runAction(() => onOpenFolder(runtime.jobId))}>
                   Open Folder
                 </button>
               )}
@@ -300,7 +310,7 @@ export default function RuntimeCard({
               {isFinishedDisplay && onCreateDraftFromRuntime && (
                 <button
                   className={`btn btn-sm ${displayState === 'Error' ? 'btn-gold' : 'btn-secondary'}`}
-                  onClick={() => void onCreateDraftFromRuntime(runtime)}
+                  onClick={() => void runAction(() => onCreateDraftFromRuntime(runtime))}
                   title={displayState === 'Error'
                     ? 'Create an editable draft from this failed or stopped job'
                     : 'Create a new editable draft from this finished job'}
@@ -333,7 +343,7 @@ export default function RuntimeCard({
               )}
 
               {isFinishedDisplay && onClearFinished && (
-                <button className="btn btn-sm btn-secondary" onClick={() => void onClearFinished(runtime.jobId)}>
+                <button className="btn btn-sm btn-secondary" onClick={() => void runAction(() => onClearFinished(runtime.jobId))}>
                   Clear
                 </button>
               )}
@@ -341,7 +351,7 @@ export default function RuntimeCard({
               {hasTerminalToggle && (
                 <button
                   className={`btn btn-sm btn-secondary${isLogsVisible ? ' is-toggled' : ''}`}
-                  onClick={() => void onToggleLogs(runtime)}
+                  onClick={() => void runAction(() => onToggleLogs(runtime))}
                   disabled={isLoadingLog}
                 >
                   {isLoadingLog ? 'Loading...' : isLogsVisible ? 'Hide Logs' : 'Show Logs'}
@@ -351,6 +361,14 @@ export default function RuntimeCard({
           )}
         </div>
       </div>
+
+      {actionError && <p role="alert" className="operation-error">{actionError}</p>}
+      {(runtime.completionWarnings?.length ?? 0) > 0 && (
+        <div role="status" className="completion-warnings" data-no-card-toggle="true">
+          <strong>Completed with warnings</strong>
+          <ul>{runtime.completionWarnings?.map((warning, index) => <li key={index}>{warning}</li>)}</ul>
+        </div>
+      )}
 
       {hasTerminalToggle && isExpanded && (
         <div className="queue-card-details">
@@ -409,7 +427,7 @@ export default function RuntimeCard({
                       className="runtime-artifact-link"
                       key={`${runtime.jobId}-${link.target}`}
                       title={link.path}
-                      onClick={() => void onOpenArtifact(runtime.jobId, link.target)}
+                      onClick={() => void runAction(() => onOpenArtifact(runtime.jobId, link.target))}
                     >
                       {link.label}
                     </button>
