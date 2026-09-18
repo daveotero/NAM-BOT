@@ -44,41 +44,6 @@ body {
   width: 100%;
 }
 
-/* Header */
-header {
-  padding: 24px;
-  text-align: center;
-  border-bottom: 2px solid var(--border-dim);
-  background-color: var(--bg-void);
-  position: relative;
-  z-index: 10;
-}
-
-header h1 {
-  font-family: var(--font-arcade);
-  font-size: 64px;
-  color: var(--text-ash);
-  text-shadow: 2px 2px 0px var(--neon-magenta), -2px -2px 0px var(--neon-cyan);
-  letter-spacing: 2px;
-  margin-bottom: 5px;
-  text-transform: uppercase;
-  line-height: 1;
-  display: inline-block;
-}
-
-header h1:hover {
-  animation: titleFlash 0.1s infinite, intenseShake 0.05s infinite;
-  cursor: crosshair;
-}
-
-.subtitle {
-  color: var(--neon-cyan);
-  font-size: 18px;
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  font-family: var(--font-arcade);
-}
-
 main {
   flex: 1;
   overflow: hidden;
@@ -1775,27 +1740,6 @@ input[type="number"] {
 }
 
 /* Animations */
-@keyframes titleFlash {
-  0%   { color: yellow; text-shadow: 4px 4px 0px red, 0 0 20px yellow; }
-  33%  { color: var(--neon-cyan); text-shadow: -4px 4px 0px var(--neon-magenta), 0 0 30px var(--neon-cyan); }
-  66%  { color: var(--neon-green); text-shadow: 4px -4px 0px blue, 0 0 40px var(--neon-green); }
-  100% { color: yellow; text-shadow: 4px 4px 0px red, 0 0 20px yellow; }
-}
-
-@keyframes intenseShake {
-  0%   { transform: translate(2px, 1px) rotate(0deg); }
-  10%  { transform: translate(-1px, -2px) rotate(-1deg); }
-  20%  { transform: translate(-3px, 0px) rotate(1deg); }
-  30%  { transform: translate(0px, 2px) rotate(0deg); }
-  40%  { transform: translate(1px, -1px) rotate(1deg); }
-  50%  { transform: translate(-1px, 2px) rotate(-1deg); }
-  60%  { transform: translate(-3px, 1px) rotate(0deg); }
-  70%  { transform: translate(2px, 1px) rotate(-1deg); }
-  80%  { transform: translate(-1px, -1px) rotate(1deg); }
-  90%  { transform: translate(2px, 2px) rotate(0deg); }
-  100% { transform: translate(1px, -2px) rotate(-1deg); }
-}
-
 @keyframes movePattern {
   0% { background-position: 0 0; }
   100% { background-position: 30px 0; }

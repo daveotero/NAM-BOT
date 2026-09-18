@@ -1,0 +1,129 @@
+.app-title-bar {
+  --shell-height: calc(44px * var(--shell-scale, 1));
+  flex: 0 0 var(--shell-height);
+  height: var(--shell-height);
+  background: var(--bg-void);
+  border-bottom: 1px solid #29292f;
+  user-select: none;
+  -webkit-app-region: drag;
+  position: relative;
+  z-index: 10;
+}
+
+.app-title-bar-safe-area {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: calc(12px * var(--shell-scale));
+  padding: 0 calc(16px * var(--shell-scale));
+  min-width: 0;
+  overflow: hidden;
+}
+
+.app-title-bar[data-platform='win32'][data-fullscreen='false'] {
+  height: env(titlebar-area-height, var(--shell-height));
+  flex-basis: env(titlebar-area-height, var(--shell-height));
+}
+
+.app-title-bar[data-platform='win32'][data-fullscreen='false'] .app-title-bar-safe-area {
+  margin-left: env(titlebar-area-x, 0px);
+  width: env(titlebar-area-width, calc(100% - 152px * var(--shell-scale)));
+  padding-left: calc(6px * var(--shell-scale));
+}
+
+.app-title-bar[data-platform='darwin'][data-fullscreen='false'] .app-title-bar-safe-area {
+  padding-left: calc(90px * var(--shell-scale));
+}
+
+.app-title-bar[data-fullscreen='true'],
+.app-title-bar:not([data-platform='win32']):not([data-platform='darwin']) {
+  -webkit-app-region: no-drag;
+}
+
+.app-title-bar-brand {
+  /* Native drag regions swallow hover events. Keep only the logo interactive,
+     with a stationary hit area so its shaking text cannot flicker in and out. */
+  -webkit-app-region: no-drag;
+  display: inline-flex;
+  align-items: center;
+  height: calc(36px * var(--shell-scale));
+  padding: 0 calc(4px * var(--shell-scale));
+  flex-shrink: 0;
+  cursor: crosshair;
+}
+
+.app-title-bar-wordmark {
+  display: inline-block;
+  pointer-events: none;
+  font: calc(28px * var(--shell-scale)) / 1 var(--font-arcade);
+  letter-spacing: calc(1px * var(--shell-scale));
+  flex-shrink: 0;
+  color: var(--text-ash);
+  text-shadow: calc(1px * var(--shell-scale)) calc(1px * var(--shell-scale)) 0 var(--neon-magenta),
+    calc(-1px * var(--shell-scale)) calc(-1px * var(--shell-scale)) 0 var(--neon-cyan);
+}
+
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .app-title-bar-brand:hover .app-title-bar-wordmark {
+    animation: title-bar-flash .1s infinite, title-bar-shake .05s infinite;
+  }
+}
+
+@keyframes title-bar-flash {
+  0%, 100% { color: yellow; text-shadow: calc(2px * var(--shell-scale)) calc(2px * var(--shell-scale)) 0 red, 0 0 calc(5px * var(--shell-scale)) yellow; }
+  33% { color: var(--neon-cyan); text-shadow: calc(-2px * var(--shell-scale)) calc(2px * var(--shell-scale)) 0 var(--neon-magenta), 0 0 calc(6px * var(--shell-scale)) var(--neon-cyan); }
+  66% { color: var(--neon-green); text-shadow: calc(2px * var(--shell-scale)) calc(-2px * var(--shell-scale)) 0 blue, 0 0 calc(8px * var(--shell-scale)) var(--neon-green); }
+}
+
+@keyframes title-bar-shake {
+  0%, 70% { transform: translate(calc(1px * var(--shell-scale)), calc(.5px * var(--shell-scale))) rotate(-1deg); }
+  10%, 100% { transform: translate(calc(-.5px * var(--shell-scale)), calc(-1px * var(--shell-scale))) rotate(-1deg); }
+  20%, 60% { transform: translate(calc(-1.5px * var(--shell-scale)), calc(.5px * var(--shell-scale))) rotate(1deg); }
+  30%, 90% { transform: translate(0, calc(1px * var(--shell-scale))) rotate(0deg); }
+  40%, 80% { transform: translate(calc(.5px * var(--shell-scale)), calc(-.5px * var(--shell-scale))) rotate(1deg); }
+  50% { transform: translate(calc(-.5px * var(--shell-scale)), calc(1px * var(--shell-scale))) rotate(-1deg); }
+}
+
+.app-title-bar-divider { color: #55555f; }
+.app-title-bar-section, .app-title-bar-activity, .app-title-bar-error {
+  font-size: calc(10px * var(--shell-scale));
+  letter-spacing: calc(1.3px * var(--shell-scale));
+  text-transform: uppercase;
+  color: var(--text-steel);
+  white-space: nowrap;
+}
+.app-title-bar-section { overflow: hidden; text-overflow: ellipsis; }
+.app-title-bar-activity {
+  display: flex;
+  align-items: center;
+  gap: calc(8px * var(--shell-scale));
+  margin-left: auto;
+  flex-shrink: 0;
+  letter-spacing: calc(1px * var(--shell-scale));
+}
+.app-title-bar-led { width: calc(5px * var(--shell-scale)); height: calc(5px * var(--shell-scale)); background: #62626e; }
+.app-title-bar-activity[data-activity='Training'] .app-title-bar-led,
+.app-title-bar-activity[data-activity='Finalizing'] .app-title-bar-led { background: var(--neon-cyan); }
+.app-title-bar-activity[data-activity='Queue Paused'] .app-title-bar-led { background: var(--neon-gold); }
+
+.app-title-bar .app-title-bar-menu {
+  -webkit-app-region: no-drag;
+  display: grid;
+  place-items: center;
+  width: calc(32px * var(--shell-scale));
+  height: calc(30px * var(--shell-scale));
+  padding: 0;
+  flex-shrink: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-steel);
+  box-shadow: none;
+  transform: none;
+}
+.app-title-bar-menu svg { width: calc(16px * var(--shell-scale)); height: calc(16px * var(--shell-scale)); fill: none; stroke: currentColor; stroke-width: 1.5; }
+.app-title-bar .app-title-bar-menu:hover, .app-title-bar .app-title-bar-menu[aria-expanded='true'] { background: var(--bg-charcoal); color: var(--neon-cyan); }
+.app-title-bar .app-title-bar-menu:focus-visible { outline: 1px solid var(--neon-cyan); outline-offset: -1px; }
+.app-title-bar[data-focused='false'] .app-title-bar-safe-area { opacity: .65; }
+.app-title-bar-error { color: var(--neon-magenta); letter-spacing: 0; }
+/* Reduced motion keeps the split-color logo without its hover flashing/shaking. */
+@media (prefers-reduced-motion: reduce) { .app-title-bar * { animation: none; transition: none; } }

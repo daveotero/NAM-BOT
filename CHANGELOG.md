@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.7] - 2026-09-18
+
+### Changed
+
+- Replaced the oversized app header with a compact retro title bar showing the current screen and training activity, while retaining native window controls on Windows and macOS.
+- Windows application commands are available from the title-bar menu or F10, with existing shortcuts and unsaved-editor protections preserved.
+- Window chrome adapts to application zoom, fullscreen, and focus changes while keeping content clear of native controls.
+- Restored the original split-color NAM-BOT logo and its animated hover effect in the compact title bar, with reduced-motion support.
+
+### Added
+
+- Desktop shell smoke tests and Windows/macOS CI coverage for window behavior, menu access, and navigation and quit protections.
+
 ## [0.6.6] - 2026-09-18
 
 ### Added

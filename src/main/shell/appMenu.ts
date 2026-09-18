@@ -1,6 +1,6 @@
-import { app, Menu, type MenuItemConstructorOptions } from 'electron'
+import { app, Menu, type BrowserWindow, type MenuItemConstructorOptions } from 'electron'
 
-import type { AppCommand, AppRoute } from '../../shared/appShell'
+import type { AppCommand, AppMenuAnchor, AppRoute } from '../../shared/appShell'
 
 interface AppMenuOptions {
   isDev: boolean
@@ -22,10 +22,10 @@ function navigateTo(sendAppCommand: AppMenuOptions['sendAppCommand'], path: AppR
   })
 }
 
-export function installApplicationMenu(options: AppMenuOptions): void {
+export function buildApplicationMenuTemplate(options: AppMenuOptions, platform: NodeJS.Platform = process.platform): MenuItemConstructorOptions[] {
   const template: MenuItemConstructorOptions[] = []
 
-  if (process.platform === 'darwin') {
+  if (platform === 'darwin') {
     template.push({
       label: app.name,
       submenu: [
@@ -73,7 +73,7 @@ export function installApplicationMenu(options: AppMenuOptions): void {
           click: () => options.openPresetsFolder()
         },
         { type: 'separator' },
-        process.platform === 'darwin' ? { role: 'close' } : { role: 'quit' }
+        platform === 'darwin' ? { role: 'close' } : { role: 'quit' }
       ]
     },
     {
@@ -150,7 +150,7 @@ export function installApplicationMenu(options: AppMenuOptions): void {
       submenu: [
         { role: 'minimize' },
         { role: 'zoom' },
-        ...(process.platform === 'darwin'
+        ...(platform === 'darwin'
           ? [{ type: 'separator' as const }, { role: 'front' as const }]
           : [{ role: 'close' as const }])
       ]
@@ -192,5 +192,24 @@ export function installApplicationMenu(options: AppMenuOptions): void {
     }
   )
 
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+  return template
+}
+
+export function installApplicationMenu(options: AppMenuOptions): void {
+  Menu.setApplicationMenu(Menu.buildFromTemplate(buildApplicationMenuTemplate(options)))
+}
+
+export function popupApplicationMenu(window: BrowserWindow, anchor: AppMenuAnchor): Promise<void> {
+  const menu = Menu.getApplicationMenu()
+  if (!menu) return Promise.resolve()
+  const zoom = window.webContents.getZoomFactor()
+  const [width, height] = window.getContentSize()
+  return new Promise((resolve) => {
+    menu.popup({
+      window,
+      x: Math.round(Math.max(0, Math.min(width - 1, anchor.x * zoom))),
+      y: Math.round(Math.max(0, Math.min(height - 1, anchor.y * zoom))),
+      callback: resolve
+    })
+  })
 }

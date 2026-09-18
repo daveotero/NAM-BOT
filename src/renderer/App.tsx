@@ -24,6 +24,7 @@ import RuntimeCard from './features/jobs/RuntimeCard'
 import { buildJobEditorSession, createNewJobDraft } from './features/jobs/jobEditorSession'
 import { buildNewPresetDraft, buildPresetEditorSession } from './features/presets/presetEditorSession'
 import ConfirmDialog from './components/ConfirmDialog'
+import AppTitleBar from './components/AppTitleBar'
 import { useTerminalLogs } from './hooks/useTerminalLogs'
 import { isActiveRuntime } from './features/jobs/job-helpers'
 import log from 'electron-log/renderer'
@@ -640,10 +641,7 @@ function AppShell() {
 
   return (
     <>
-      <header>
-        <h1>NAM-BOT</h1>
-        <p className="subtitle">Neural Amp Modeler Training Manager</p>
-      </header>
+      <AppTitleBar />
 
       <main>
         <div className="layout-two-column">

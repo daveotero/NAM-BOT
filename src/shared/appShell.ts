@@ -21,3 +21,15 @@ export interface NewPresetAppCommand {
 }
 
 export type AppCommand = NavigateAppCommand | NewJobAppCommand | NewPresetAppCommand
+
+export interface ShellWindowState {
+  focused: boolean
+  fullscreen: boolean
+  zoomFactor: number
+}
+
+/** Renderer CSS coordinates; the main process converts these to native DIPs. */
+export interface AppMenuAnchor {
+  x: number
+  y: number
+}

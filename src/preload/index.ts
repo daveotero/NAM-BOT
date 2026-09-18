@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
-import type { AppCommand } from '../shared/appShell'
+import type { AppCommand, AppMenuAnchor, ShellWindowState } from '../shared/appShell'
 import type { LogChunk } from '../shared/logs'
 import type { UpdateStatus } from '../shared/update'
 import type { QueueControlState } from '../shared/training'
@@ -8,6 +8,12 @@ import type { AppSettings } from '../main/types'
 
 export interface NamBotApi {
   platform: string
+  shell: {
+    getWindowState: () => Promise<ShellWindowState>
+    openMenu: (anchor: AppMenuAnchor) => Promise<void>
+    onWindowState: (callback: (state: ShellWindowState) => void) => () => void
+    onMenuRequested: (callback: () => void) => () => void
+  }
   settings: {
     get: () => Promise<unknown>
     save: (settings: unknown) => Promise<AppSettings>
@@ -80,6 +86,20 @@ export interface NamBotApi {
 
 const api: NamBotApi = {
   platform: process.platform,
+  shell: {
+    getWindowState: () => ipcRenderer.invoke('shell:getWindowState'),
+    openMenu: (anchor) => ipcRenderer.invoke('shell:openMenu', anchor),
+    onWindowState: (callback) => {
+      const handler = (_event: Electron.IpcRendererEvent, state: ShellWindowState): void => callback(state)
+      ipcRenderer.on('shell:windowState', handler)
+      return () => ipcRenderer.removeListener('shell:windowState', handler)
+    },
+    onMenuRequested: (callback) => {
+      const handler = (): void => callback()
+      ipcRenderer.on('shell:menuRequested', handler)
+      return () => ipcRenderer.removeListener('shell:menuRequested', handler)
+    }
+  },
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),
     save: (settings) => ipcRenderer.invoke('settings:save', settings),
