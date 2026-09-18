@@ -15,6 +15,7 @@ This document provides guidance for AI agents working on the NAM-BOT project.
 - Prefix repo-scoped skill names with `nam-` so they stay easy to distinguish from global skills.
 - Use `.agents/skills/nam-release-workflow/SKILL.md` when the user asks to update the changelog, choose a version bump, clean generated release trash, commit, or push.
 - Ask the user to approve the exact version before changing release metadata. A request to commit or push does not itself approve a version bump. This approval requirement overrides automatic version-bump defaults in the release workflow; small feature additions may still be patch updates.
+- Do not commit or push until the user explicitly requests that action. Approval of a feature, version number, or correction is not commit authorization. A completed commit/push request does not authorize later commits; leave subsequent changes uncommitted until asked again. This rule overrides automatic commit/push steps in the release workflow.
 
 ### 0.2 Documentation Discipline
 

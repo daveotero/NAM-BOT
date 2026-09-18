@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Export each embedded model's best validated weights while training continues, with a save-location picker and a link to the latest snapshot.
+- Stop training with a choice to save the best model and finish cleanly, stop without a new export, or keep training.
+
+### Changed
+
+- ESR charts now use logarithmic scale exclusively, with All, 100-epoch, and 30-epoch viewing windows that follow training live.
+
 ## [0.6.5] - 2026-09-17
 
 ### Added

@@ -54,7 +54,8 @@ import {
   getBasename,
   getDirname,
   getDisplayState,
-  getPlannedEpochsLabel
+  getPlannedEpochsLabel,
+  canExportTrainingModel
 } from './job-helpers'
 import RuntimeCard, { renderDisplayBadge } from './RuntimeCard'
 import { handleCardToggleKeyDown, shouldIgnoreCardToggle } from '../../utils/card-toggle'
@@ -369,6 +370,9 @@ export default function Jobs() {
   const { logContents, loadingLogIds, loadTerminalLog, clearTerminalLog } = useTerminalLogs()
   const [nowMs, setNowMs] = useState<number>(() => Date.now())
   const [pendingDeleteJob, setPendingDeleteJob] = useState<JobSpec | null>(null)
+  const [pendingStopJobId, setPendingStopJobId] = useState<string | null>(null)
+  const [exportingJobId, setExportingJobId] = useState<string | null>(null)
+  const pendingStopJob = queue.find((runtime) => runtime.jobId === pendingStopJobId && isActiveRuntime(runtime.status))
   const [skipDraftDeleteConfirm, setSkipDraftDeleteConfirm] = useState(false)
   const [queueingDraftIds, setQueueingDraftIds] = useState<Set<string>>(() => new Set())
   const [batchEditorState, setBatchEditorState] = useState<BatchEditorState | null>(null)
@@ -800,12 +804,28 @@ export default function Jobs() {
     await loadData()
   }
 
-  const handleCancel = async (jobId: string) => {
-    await window.namBot.jobs.cancel(jobId)
+  const handleCancel = async (jobId: string): Promise<void> => {
+    setPendingStopJobId(jobId)
   }
 
-  const handleForceStop = async (jobId: string) => {
-    await window.namBot.jobs.forceStop(jobId)
+  const handleForceStop = async (jobId: string): Promise<void> => {
+    try {
+      await window.namBot.jobs.forceStop(jobId)
+    } catch (error) {
+      setQueueError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  const handleExportModel = async (jobId: string, finishAfterExport = false): Promise<void> => {
+    setExportingJobId(jobId)
+    setQueueError(null)
+    try {
+      await window.namBot.jobs.exportModel(jobId, finishAfterExport)
+    } catch (error) {
+      setQueueError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setExportingJobId(null)
+    }
   }
 
   const handleDuplicate = async (jobId: string) => {
@@ -1064,6 +1084,8 @@ export default function Jobs() {
                       onToggleExpanded={toggleExpanded}
                       onToggleLogs={(entry) => toggleLogs(entry.jobId)}
                       onCancel={handleCancel}
+                      onExportModel={handleExportModel}
+                      isExporting={exportingJobId === runtime.jobId}
                       onForceStop={handleForceStop}
                       onCreateDraftFromRuntime={handleCreateDraftFromRuntime}
                       onUseRuntimeAsTemplate={handleUseRuntimeAsTemplate}
@@ -1100,6 +1122,8 @@ export default function Jobs() {
                       onToggleExpanded={toggleExpanded}
                       onToggleLogs={(entry) => toggleLogs(entry.jobId)}
                       onCancel={handleCancel}
+                      onExportModel={handleExportModel}
+                      isExporting={exportingJobId === runtime.jobId}
                       onForceStop={handleForceStop}
                       onCreateDraftFromRuntime={handleCreateDraftFromRuntime}
                       onUseRuntimeAsTemplate={handleUseRuntimeAsTemplate}
@@ -1137,6 +1161,32 @@ export default function Jobs() {
             window.localStorage.setItem(SKIP_DRAFT_DELETE_CONFIRM_STORAGE_KEY, 'true')
           }
           void handleDeleteJob(pendingDeleteJob.id)
+        }}
+      />
+      <ConfirmDialog
+        isOpen={Boolean(pendingStopJob)}
+        title="Stop training?"
+        message={pendingStopJob && canExportTrainingModel(pendingStopJob)
+          ? 'Save & stop exports the best validated weights for every embedded model, then finishes training cleanly. Discard & stop ends training immediately without a new export. Existing exports and checkpoints are kept.'
+          : 'There is no exportable checkpoint yet, or an export is already in progress. You can keep training or stop immediately without a new export. Existing exports and checkpoints are kept.'}
+        confirmLabel="Save & stop"
+        confirmClassName="btn btn-green"
+        confirmDisabled={!pendingStopJob || !canExportTrainingModel(pendingStopJob) || exportingJobId !== null}
+        alternateLabel="Discard & stop"
+        alternateClassName="btn btn-orange"
+        cancelLabel="Keep training"
+        onCancel={() => setPendingStopJobId(null)}
+        onConfirm={() => {
+          if (!pendingStopJob) return
+          const id = pendingStopJob.jobId
+          setPendingStopJobId(null)
+          void handleExportModel(id, true)
+        }}
+        onAlternate={() => {
+          if (!pendingStopJob) return
+          const id = pendingStopJob.jobId
+          setPendingStopJobId(null)
+          void handleForceStop(id)
         }}
       />
     </div>
