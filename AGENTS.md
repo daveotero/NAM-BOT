@@ -1,4 +1,4 @@
-# AGENTS.md - NAM-BOT Development Guide (v0.7.0)
+# AGENTS.md - NAM-BOT Development Guide (v0.6.5)
 
 This document provides guidance for AI agents working on the NAM-BOT project.
 
@@ -14,6 +14,7 @@ This document provides guidance for AI agents working on the NAM-BOT project.
 - Project-local agent workflow files live under `.agents/`.
 - Prefix repo-scoped skill names with `nam-` so they stay easy to distinguish from global skills.
 - Use `.agents/skills/nam-release-workflow/SKILL.md` when the user asks to update the changelog, choose a version bump, clean generated release trash, commit, or push.
+- Ask the user to approve the exact version before changing release metadata. A request to commit or push does not itself approve a version bump. This approval requirement overrides automatic version-bump defaults in the release workflow; small feature additions may still be patch updates.
 
 ### 0.2 Documentation Discipline
 
