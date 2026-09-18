@@ -1071,7 +1071,7 @@ input[type="number"] {
 .esr-chart-header,
 .esr-chart-controls,
 .esr-chart-scale,
-.esr-chart-scrubber {
+.esr-chart-readout {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1108,41 +1108,15 @@ input[type="number"] {
 .esr-chart-grid { stroke: var(--border-dim); stroke-opacity: 0.5; }
 .esr-chart-cursor { stroke: var(--text-steel); stroke-dasharray: 3 5; stroke-opacity: 0.65; }
 
-.esr-chart-scrubber label {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex: 1;
-  min-width: 200px;
+.esr-chart-readout {
+  min-height: 24px;
   color: var(--text-steel);
   font-size: 12px;
-  margin: 0;
+  font-variant-numeric: tabular-nums;
 }
 
-.esr-chart-scrubber label span { min-width: 78px; font-variant-numeric: tabular-nums; }
-.esr-chart-scrubber input {
-  appearance: none;
-  flex: 1;
-  width: 100%;
-  min-width: 0;
-  height: 18px;
-  padding: 0;
-  background: transparent;
-  border: 0;
-  border-radius: 0;
-  cursor: pointer;
-}
-.esr-chart-scrubber input::-webkit-slider-runnable-track { height: 2px; background: var(--border-dim); }
-.esr-chart-scrubber input::-webkit-slider-thumb {
-  appearance: none;
-  width: 10px;
-  height: 14px;
-  margin-top: -6px;
-  border: 2px solid var(--neon-cyan);
-  border-radius: 0;
-  background: var(--bg-charcoal);
-}
-.esr-chart-scrubber input:focus-visible { outline: 1px solid var(--neon-cyan); outline-offset: 4px; }
+.esr-chart svg[role="slider"] { cursor: crosshair; }
+.esr-chart svg:focus-visible { outline: 1px solid var(--neon-cyan); outline-offset: -1px; }
 .esr-chart-legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 
 .esr-chart-model {

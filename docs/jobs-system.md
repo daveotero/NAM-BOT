@@ -319,7 +319,8 @@ Expanded training and finished job cards include an **ESR over time** chart. Eac
 
 - The horizontal axis shows one-based epochs. The vertical axis shows validation ESR in decimal notation; lower is better.
 - Curves show actual validation results, including regressions, rather than the running best checkpoint value shown in the ESR summary.
-- Hover over the chart or use the keyboard-accessible epoch slider to inspect exact values. Click a model in the legend to hide/show its curve, or `Latest epoch` to follow the newest result.
+- Hover over the chart to inspect exact values; leaving the chart returns to the latest result. Click or tap the chart to pin an epoch, then use `Return to latest` to resume following new results. The readout directly above the model values identifies their epoch and whether it is pinned or latest. A pinned epoch stays selected while it remains in the chosen viewing window.
+- Focus the chart and use arrow keys to inspect and pin adjacent recorded epochs, Home for the first visible epoch, or End/Escape to return to latest. Click a model in the legend to hide/show its curve.
 - The chart always uses a logarithmic ESR scale with ordinary decimal labels. `All`, `100 epochs`, and `30 epochs` select the visible epoch window; recent windows follow training live and rescale the ESR axis to their visible values. The full history is retained. A true zero ESR is placed at the bottom of the log plot, with an explicit note and its exact value in the legend.
 - Updates arrive after validation completes, normally once per epoch, on the existing two-second artifact poll. If an expert preset validates multiple times per epoch, the latest validation step represents that epoch. Epochs without validation have no measurement.
 - History stays with completed, failed, and stopped runs and survives app restarts. Older runs without recorded history show an explicit empty state; a retry starts a fresh history.

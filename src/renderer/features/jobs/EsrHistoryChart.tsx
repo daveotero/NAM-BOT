@@ -1,4 +1,4 @@
-import { useMemo, useState, type JSX, type PointerEvent } from 'react'
+import { useMemo, useState, type JSX, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react'
 import type { JobEsrEpoch } from '../../../shared/training'
 import { buildEsrChartSeries, getEsrChartDomain, selectEsrHistoryWindow, type EsrEpochWindow } from './esr-chart-data'
 import { formatEsr } from './job-helpers'
@@ -19,6 +19,7 @@ export default function EsrHistoryChart({ history, active }: EsrHistoryChartProp
   const [epochWindow, setEpochWindow] = useState<EsrEpochWindow>('all')
   const [hidden, setHidden] = useState<string[]>([])
   const [selectedEpoch, setSelectedEpoch] = useState<number | null>(null)
+  const [hoveredEpoch, setHoveredEpoch] = useState<number | null>(null)
   const windowHistory = useMemo(() => selectEsrHistoryWindow(history, epochWindow), [history, epochWindow])
   const series = useMemo(() => buildEsrChartSeries(windowHistory), [windowHistory])
   const visible = series.filter((entry) => !hidden.includes(entry.id))
@@ -28,7 +29,8 @@ export default function EsrHistoryChart({ history, active }: EsrHistoryChartProp
   const lastEpoch = history.at(-1)?.epoch ?? firstEpoch
   const xMin = firstEpoch === lastEpoch ? Math.max(0, firstEpoch - 1) : firstEpoch
   const xMax = firstEpoch === lastEpoch ? firstEpoch + 1 : lastEpoch
-  const requestedIndex = windowHistory.findIndex((record) => record.epoch === selectedEpoch)
+  const pinned = windowHistory.some((record) => record.epoch === selectedEpoch)
+  const requestedIndex = windowHistory.findIndex((record) => record.epoch === (pinned ? selectedEpoch : hoveredEpoch))
   const selectionIndex = requestedIndex < 0 ? windowHistory.length - 1 : requestedIndex
   const selection = windowHistory[selectionIndex]
   const x = (epoch: number): number => LEFT + (epoch - xMin) / (xMax - xMin) * (RIGHT - LEFT)
@@ -36,14 +38,38 @@ export default function EsrHistoryChart({ history, active }: EsrHistoryChartProp
     : BOTTOM - (Math.log10(esr) - yMin) / (yMax - yMin) * (BOTTOM - TOP)
   const xTicks = [...new Set(Array.from({ length: 5 }, (_, index) => Math.round(xMin + (xMax - xMin) * index / 4)))]
 
-  function selectFromPointer(event: PointerEvent<SVGSVGElement>): void {
+  function epochFromPointer(event: PointerEvent<SVGSVGElement> | MouseEvent<SVGSVGElement>): number | null {
     const transform = event.currentTarget.getScreenCTM()
-    if (!transform || windowHistory.length === 0) return
+    if (!transform || windowHistory.length === 0) return null
     const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(transform.inverse())
     const epoch = xMin + Math.max(0, Math.min(1, (point.x - LEFT) / (RIGHT - LEFT))) * (xMax - xMin)
     const closest = windowHistory.reduce((previous, record) =>
       Math.abs(record.epoch - epoch) < Math.abs(previous.epoch - epoch) ? record : previous)
-    setSelectedEpoch(closest.epoch)
+    return closest.epoch
+  }
+
+  function returnToLatest(): void {
+    setSelectedEpoch(null)
+    setHoveredEpoch(null)
+  }
+
+  function inspectWithKeyboard(event: KeyboardEvent<SVGSVGElement>): void {
+    let nextIndex: number
+    switch (event.key) {
+      case 'ArrowLeft':
+      case 'ArrowDown': nextIndex = Math.max(0, selectionIndex - 1); break
+      case 'ArrowRight':
+      case 'ArrowUp': nextIndex = Math.min(windowHistory.length - 1, selectionIndex + 1); break
+      case 'Home': nextIndex = 0; break
+      case 'End':
+      case 'Escape':
+        event.preventDefault()
+        returnToLatest()
+        return
+      default: return
+    }
+    event.preventDefault()
+    setSelectedEpoch(windowHistory[nextIndex].epoch)
   }
 
   return (
@@ -51,15 +77,14 @@ export default function EsrHistoryChart({ history, active }: EsrHistoryChartProp
       <div className="esr-chart-header">
         <div>
           <h5>ESR over time</h5>
-          <p>Validation ESR · lower is better</p>
         </div>
         {history.length > 0 && (
           <div className="esr-chart-controls">
-            <span className={active ? 'esr-chart-live' : 'runtime-detail-label'}>{active ? 'Live' : 'Recorded history'}</span>
+            {active && <span className="esr-chart-live">Live</span>}
             <div className="esr-chart-scale" role="group" aria-label="Epoch window">
               {(['all', 100, 30] satisfies EsrEpochWindow[]).map((window) => (
                 <button key={window} type="button" className={`btn btn-sm btn-secondary${epochWindow === window ? ' is-toggled' : ''}`}
-                  aria-pressed={epochWindow === window} onClick={() => { setEpochWindow(window); setSelectedEpoch(null) }}
+                  aria-pressed={epochWindow === window} onClick={() => { setEpochWindow(window); returnToLatest() }}
                   title={window === 'all' ? 'Show the complete training history' : `Follow the last ${window} epochs`}>
                   {window === 'all' ? 'All' : `${window} epochs`}
                 </button>
@@ -75,10 +100,15 @@ export default function EsrHistoryChart({ history, active }: EsrHistoryChartProp
       ) : (
         <>
           <div className="esr-chart-plot">
-            <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} role="img"
-              aria-label={`Validation ESR from epoch ${firstEpoch} to ${lastEpoch}, logarithmic scale`}
-              onPointerMove={selectFromPointer} onPointerLeave={() => setSelectedEpoch(null)}>
-              <title>Per-model validation ESR. Use the epoch slider below for exact values.</title>
+            <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} role="slider" tabIndex={0}
+              aria-label="Inspect training epoch"
+              aria-valuemin={firstEpoch} aria-valuemax={lastEpoch} aria-valuenow={selection?.epoch ?? lastEpoch}
+              aria-valuetext={`Epoch ${selection?.epoch ?? lastEpoch}${pinned ? ', pinned' : ''}`}
+              onKeyDown={inspectWithKeyboard}
+              onClick={(event) => setSelectedEpoch(epochFromPointer(event))}
+              onPointerMove={(event) => { if (event.pointerType === 'mouse') setHoveredEpoch(epochFromPointer(event)) }}
+              onPointerLeave={() => setHoveredEpoch(null)}>
+              <title>Per-model validation ESR, logarithmic scale. Hover to inspect, click to pin. Arrow keys inspect epochs; Escape or End returns to latest.</title>
               {Array.from({ length: 5 }, (_, index) => {
                 const position = TOP + (BOTTOM - TOP) * index / 4
                 const value = yMax - (yMax - yMin) * index / 4
@@ -98,14 +128,10 @@ export default function EsrHistoryChart({ history, active }: EsrHistoryChartProp
               {selection && <line x1={x(selection.epoch)} x2={x(selection.epoch)} y1={TOP} y2={BOTTOM} className="esr-chart-cursor" />}
             </svg>
           </div>
-          <div className="esr-chart-scrubber">
-            <label>
-              <span>Epoch {selection?.epoch ?? lastEpoch}</span>
-              <input type="range" min={0} max={windowHistory.length - 1} value={selectionIndex}
-                aria-label="Inspect training epoch" aria-valuetext={`Epoch ${selection?.epoch ?? lastEpoch}`}
-                onChange={(event) => setSelectedEpoch(windowHistory[Number(event.target.value)].epoch)} />
-            </label>
-            <button type="button" className="runtime-artifact-link" onClick={() => setSelectedEpoch(null)}>Latest epoch</button>
+          <div className="esr-chart-readout">
+            <span>Values at epoch {selection?.epoch ?? lastEpoch}{pinned ? ' · Pinned' : selection?.epoch === lastEpoch ? ' · Latest' : ''}</span>
+            {pinned ? <button type="button" className="runtime-artifact-link" onClick={returnToLatest}>Return to latest</button>
+              : selection?.epoch !== lastEpoch && <span>Latest: {lastEpoch}</span>}
           </div>
           <div className="esr-chart-legend" aria-label="Models and selected epoch ESR">
             {series.map((entry) => {
@@ -119,8 +145,6 @@ export default function EsrHistoryChart({ history, active }: EsrHistoryChartProp
               </button>
             })}
           </div>
-          <p className="esr-chart-help">{visible.length === 0 ? 'Select a model above to show its curve.'
-            : 'Hover or drag the epoch slider to inspect values. Click a model to hide or show its curve.'}</p>
           {hasZero && <p className="esr-chart-help">Zero ESR is shown at the bottom of the logarithmic scale; the legend shows the exact value.</p>}
         </>
       )}
