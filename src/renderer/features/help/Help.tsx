@@ -288,7 +288,7 @@ export default function Help() {
             2. Save Settings
           </h4>
           <p style={{ color: 'var(--text-steel)', marginBottom: '16px' }}>
-            Click <strong>Save Settings</strong>. NAM-BOT will automatically re-run backend, accelerator, Training Launch, and NAM version checks against the environment you just selected.
+            Settings save automatically after a short pause, or you can click <strong>Save Settings</strong>. Then open <strong>Diagnostics</strong> to check the environment you selected; use <strong>Re-check All</strong> to refresh existing results.
           </p>
 
           <h4 style={{ fontFamily: 'var(--font-arcade)', color: 'var(--neon-cyan)', marginTop: '24px', marginBottom: '8px' }}>

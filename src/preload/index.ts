@@ -3,12 +3,14 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { AppCommand } from '../shared/appShell'
 import type { LogChunk } from '../shared/logs'
 import type { UpdateStatus } from '../shared/update'
+import type { QueueControlState } from '../shared/training'
+import type { AppSettings } from '../main/types'
 
 export interface NamBotApi {
   platform: string
   settings: {
     get: () => Promise<unknown>
-    save: (settings: unknown) => Promise<void>
+    save: (settings: unknown) => Promise<AppSettings>
     validate: () => Promise<unknown>
     detectConda: () => Promise<unknown>
     getAcceleratorDiagnostics: () => Promise<unknown>
@@ -18,6 +20,8 @@ export interface NamBotApi {
     chooseDirectory: () => Promise<string | null>
   }
   jobs: {
+    getControlState: () => Promise<QueueControlState>
+    resumeQueue: (terminationConfirmed?: boolean) => Promise<void>
     createDraft: (input?: unknown) => Promise<unknown>
     createDraftBatch: (input: unknown) => Promise<unknown[]>
     saveDraft: (job: unknown) => Promise<unknown>
@@ -47,6 +51,7 @@ export interface NamBotApi {
     getPathForFile: (file: File) => string
   }
   presets: {
+    getWarnings: () => Promise<string[]>
     list: () => Promise<unknown[]>
     save: (preset: unknown) => Promise<unknown>
     delete: (presetId: string) => Promise<void>
@@ -64,6 +69,7 @@ export interface NamBotApi {
     openLatestChangelog: () => Promise<void>
   }
   events: {
+    onQueueControlUpdated: (callback: (state: QueueControlState) => void) => () => void
     onQueueUpdated: (callback: (queue: unknown[]) => void) => () => void
     onJobUpdated: (callback: (state: unknown) => void) => () => void
     onBackendValidationUpdated: (callback: (summary: unknown) => void) => () => void
@@ -86,6 +92,8 @@ const api: NamBotApi = {
     chooseDirectory: () => ipcRenderer.invoke('settings:chooseDirectory')
   },
   jobs: {
+    getControlState: () => ipcRenderer.invoke('jobs:getControlState'),
+    resumeQueue: (terminationConfirmed) => ipcRenderer.invoke('jobs:resumeQueue', terminationConfirmed),
     createDraft: (input) => ipcRenderer.invoke('jobs:createDraft', input),
     createDraftBatch: (input) => ipcRenderer.invoke('jobs:createDraftBatch', input),
     saveDraft: (job) => ipcRenderer.invoke('jobs:saveDraft', job),
@@ -115,6 +123,7 @@ const api: NamBotApi = {
     getPathForFile: (file: File) => webUtils.getPathForFile(file)
   },
   presets: {
+    getWarnings: () => ipcRenderer.invoke('presets:getWarnings'),
     list: () => ipcRenderer.invoke('presets:list'),
     save: (preset) => ipcRenderer.invoke('presets:save', preset),
     delete: (presetId) => ipcRenderer.invoke('presets:delete', presetId),
@@ -132,6 +141,11 @@ const api: NamBotApi = {
     openLatestChangelog: () => ipcRenderer.invoke('updates:openLatestChangelog')
   },
   events: {
+    onQueueControlUpdated: (callback) => {
+      const handler = (_event: Electron.IpcRendererEvent, state: QueueControlState): void => callback(state)
+      ipcRenderer.on('queue:controlUpdated', handler)
+      return () => ipcRenderer.removeListener('queue:controlUpdated', handler)
+    },
     onQueueUpdated: (callback) => {
       const handler = (_event: Electron.IpcRendererEvent, queue: unknown[]) => callback(queue)
       ipcRenderer.on('queue:updated', handler)

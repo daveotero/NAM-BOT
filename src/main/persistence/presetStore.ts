@@ -11,9 +11,14 @@ import {
   normalizeTrainingPreset,
   slugifyPresetName
 } from '../types/jobs'
-import { atomicWriteJsonSync } from './atomicFile'
+import { atomicWriteJsonSync, readJsonWithBackupSync } from './atomicFile'
 
 const userPresetsPath = join(app.getPath('userData'), 'presets')
+let presetLoadWarnings: string[] = []
+
+export function getPresetLoadWarnings(): string[] {
+  return [...presetLoadWarnings]
+}
 
 export function getUserPresetsPath(): string {
   return userPresetsPath
@@ -56,15 +61,17 @@ function getPresetFilePath(presetId: string): string {
 function listUserPresetsInternal(): TrainingPresetFile[] {
   ensurePresetDirectory()
   const presets: TrainingPresetFile[] = []
+  presetLoadWarnings = []
+  const fileNames = new Set(readdirSync(userPresetsPath, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && /\.json(?:\.bak)?$/i.test(entry.name))
+    .map((entry) => entry.name.replace(/\.bak$/i, '')))
 
-  for (const entry of readdirSync(userPresetsPath, { withFileTypes: true })) {
-    if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.json')) {
-      continue
-    }
-
-    const fullPath = join(userPresetsPath, entry.name)
+  for (const fileName of fileNames) {
+    const fullPath = join(userPresetsPath, fileName)
     try {
-      const raw = JSON.parse(readFileSync(fullPath, 'utf-8')) as unknown
+      const raw = readJsonWithBackupSync(fullPath, () => {
+        presetLoadWarnings.push(`Recovered ${fileName} from its backup. Export or save the recovered preset to keep a fresh copy.`)
+      })
       const preset = normalizeTrainingPreset(raw)
       if (preset.builtIn) {
         continue
@@ -72,6 +79,7 @@ function listUserPresetsInternal(): TrainingPresetFile[] {
       presets.push({ ...preset, builtIn: false, readOnly: false })
     } catch (error) {
       log.warn('Failed to read preset file:', fullPath, error)
+      presetLoadWarnings.push(`Could not load ${fileName} or its backup. Restore this preset before queueing drafts that use it.`)
     }
   }
 
@@ -137,9 +145,11 @@ export function listTrainingPresets(): TrainingPresetFile[] {
 
 export function getTrainingPresetById(presetId: string | null | undefined): TrainingPresetFile {
   const allPresets = listTrainingPresets()
-  return allPresets.find((entry) => entry.id === presetId)
-    ?? allPresets.find((entry) => entry.id === DEFAULT_PRESET_ID)
-    ?? builtInTrainingPresets[0]
+  const preset = allPresets.find((entry) => entry.id === (presetId ?? DEFAULT_PRESET_ID))
+  if (!preset) {
+    throw new Error(`Preset "${presetId}" is unavailable. Edit the draft and select an available preset.`)
+  }
+  return preset
 }
 
 export function saveTrainingPreset(input: unknown): TrainingPresetFile {
@@ -185,5 +195,8 @@ export function deleteTrainingPreset(presetId: string): void {
   const target = getPresetFilePath(presetId)
   if (existsSync(target)) {
     unlinkSync(target)
+  }
+  if (existsSync(`${target}.bak`)) {
+    unlinkSync(`${target}.bak`)
   }
 }

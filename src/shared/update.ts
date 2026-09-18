@@ -8,6 +8,8 @@ export type UpdateState =
 export interface UpdateStatus {
   currentVersion: string
   lastCheckedAt: string | null
+  lastAttemptAt?: string | null
+  checkError?: string | null
   state: UpdateState
   latestVersion: string | null
   releaseUrl: string | null

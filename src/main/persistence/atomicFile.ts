@@ -56,7 +56,7 @@ export function atomicWriteJsonSync(targetPath: string, value: unknown): void {
   atomicWriteFileSync(targetPath, `${JSON.stringify(value, null, 2)}\n`)
 }
 
-export function readJsonWithBackupSync(targetPath: string): unknown {
+export function readJsonWithBackupSync(targetPath: string, onRecovery?: () => void): unknown {
   try {
     return JSON.parse(readFileSync(targetPath, 'utf-8')) as unknown
   } catch (primaryError) {
@@ -64,7 +64,9 @@ export function readJsonWithBackupSync(targetPath: string): unknown {
     if (!existsSync(backupPath)) {
       throw primaryError
     }
-    return JSON.parse(readFileSync(backupPath, 'utf-8')) as unknown
+    const recovered: unknown = JSON.parse(readFileSync(backupPath, 'utf-8'))
+    onRecovery?.()
+    return recovered
   }
 }
 

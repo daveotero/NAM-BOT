@@ -1,6 +1,7 @@
 import { create } from 'zustand'
-import { getPresetArchitectureVersion, type JobSpec, type TrainingPresetFile, type JobRuntimeState } from '../../shared/training'
+import { getPresetArchitectureVersion, type JobSpec, type TrainingPresetFile, type JobRuntimeState, type QueueControlState } from '../../shared/training'
 import { createDefaultUpdateStatus, type UpdateStatus } from '../../shared/update'
+import { buildBackendSettingsKey } from '../../shared/backend-settings'
 
 const epochRunnerRewardPresetId = 'epoch-runner-reward'
 const epochRunnerRewardPresetName = 'Converged Night Run'
@@ -91,6 +92,7 @@ export interface BackendCheckResult {
 }
 
 export interface BackendValidationSummary {
+  settingsKey?: string
   checkedAt: string
   condaReachable: BackendCheckResult
   environmentReachable: BackendCheckResult
@@ -258,6 +260,22 @@ export interface JobEditorSession {
   showValidationErrors: boolean
 }
 
+export type BatchTemplateSource =
+  | { kind: 'draft'; template: JobSpec }
+  | { kind: 'runtime'; template: JobSpec; runtimeId: string }
+
+export interface BatchOutputFile {
+  outputAudioPath: string
+  outputFileName: string
+}
+
+export interface BatchEditorSession {
+  editorSession: JobEditorSession
+  outputFiles: BatchOutputFile[]
+  source: BatchTemplateSource | null
+  batchId: string
+}
+
 interface AppState {
   settings: AppSettings | null
   validation: BackendValidationSummary | null
@@ -269,6 +287,11 @@ interface AppState {
   presets: TrainingPresetFile[]
   presetEditorSession: PresetEditorSession | null
   jobEditorSession: JobEditorSession | null
+  batchEditorSession: BatchEditorSession | null
+  presetWarnings: string[]
+  presetsLoadError: string | null
+  jobsLoadError: string | null
+  queueControl: QueueControlState
   isLoading: boolean;
   isSettingsSaving: boolean;
   isBackendValidationLoading: boolean;
@@ -298,6 +321,7 @@ interface AppState {
   clearPresetEditorSession: () => void
   setJobEditorSession: (session: JobEditorSession | null) => void
   clearJobEditorSession: () => void
+  setBatchEditorSession: (session: BatchEditorSession | null) => void
   setLoading: (loading: boolean) => void
   setAcceleratorDiagnosticsLoading: (loading: boolean) => void
   setTrainingLaunchDiagnosticsLoading: (loading: boolean) => void
@@ -306,7 +330,7 @@ interface AppState {
   setQueue: (queue: JobRuntimeState[] | ((prev: JobRuntimeState[]) => JobRuntimeState[])) => void
   
   loadSettings: () => Promise<void>
-  saveSettings: (settings: AppSettings) => Promise<void>
+  saveSettings: (settings: AppSettings) => Promise<AppSettings>
   validateBackend: () => Promise<void>
   loadAcceleratorDiagnostics: () => Promise<void>
   loadTrainingLaunchDiagnostics: () => Promise<void>
@@ -329,6 +353,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   presets: [],
   presetEditorSession: null,
   jobEditorSession: null,
+  batchEditorSession: null,
+  presetWarnings: [],
+  presetsLoadError: null,
+  jobsLoadError: null,
+  queueControl: { pauseReason: null },
   isLoading: false,
   isSettingsSaving: false,
   isBackendValidationLoading: false,
@@ -347,7 +376,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   queue: [],
   
   setSettings: (settings) => set({ settings }),
-  setValidation: (validation) => set({ validation, validationError: null }),
+  setValidation: (validation) => {
+    const { settings, isSettingsSaving } = get()
+    if (!settings || isSettingsSaving || validation.settingsKey !== buildBackendSettingsKey(settings)) return
+    set({ validation, validationError: null })
+  },
   setAcceleratorDiagnostics: (acceleratorDiagnostics) => set({ acceleratorDiagnostics, acceleratorDiagnosticsError: null }),
   setTrainingLaunchDiagnostics: (trainingLaunchDiagnostics) => set({ trainingLaunchDiagnostics, trainingLaunchDiagnosticsError: null }),
   setCondaDiscovery: (condaDiscovery) => set({ condaDiscovery }),
@@ -358,6 +391,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   clearPresetEditorSession: () => set({ presetEditorSession: null }),
   setJobEditorSession: (jobEditorSession) => set({ jobEditorSession }),
   clearJobEditorSession: () => set({ jobEditorSession: null }),
+  setBatchEditorSession: (batchEditorSession) => set({ batchEditorSession }),
   setLoading: (isLoading) => set({ isLoading }),
   setAcceleratorDiagnosticsLoading: (isAcceleratorDiagnosticsLoading) => set({ isAcceleratorDiagnosticsLoading }),
   setTrainingLaunchDiagnosticsLoading: (isTrainingLaunchDiagnosticsLoading) => set({ isTrainingLaunchDiagnosticsLoading }),
@@ -385,9 +419,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   saveSettings: async (settings) => {
     set({ isSettingsSaving: true, settingsSaveError: null })
     try {
-      await window.namBot.settings.save(settings)
+      const savedSettings = await window.namBot.settings.save(settings)
       set((state) => ({
-        settings,
+        settings: savedSettings,
         settingsRevision: state.settingsRevision + 1,
         validation: null,
         acceleratorDiagnostics: null,
@@ -398,6 +432,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         trainingLaunchDiagnosticsError: null,
         namVersionInfoError: null
       }))
+      return savedSettings
     } catch (error) {
       console.error('Failed to save settings:', error)
       set({ settingsSaveError: getErrorMessage(error) })
@@ -514,25 +549,30 @@ export const useAppStore = create<AppState>((set, get) => ({
   loadPresets: async () => {
     try {
       const presets = await window.namBot.presets.list() as TrainingPresetFile[]
-      set({ presets: sortPresets(presets) })
+      const presetWarnings = await window.namBot.presets.getWarnings()
+      set({ presets: sortPresets(presets), presetWarnings, presetsLoadError: null })
     } catch (error) {
       console.error('Failed to load presets:', error)
+      set({ presetsLoadError: getErrorMessage(error) })
     }
   },
 
   loadJobs: async () => {
     try {
-      const [drafts, queue] = await Promise.all([
+      const [drafts, queue, queueControl] = await Promise.all([
         window.namBot.jobs.listDrafts(),
-        window.namBot.jobs.listQueue()
+        window.namBot.jobs.listQueue(),
+        window.namBot.jobs.getControlState()
       ])
-      set({ drafts: drafts as JobSpec[], queue: queue as JobRuntimeState[] })
+      set({ drafts: drafts as JobSpec[], queue: queue as JobRuntimeState[], queueControl, jobsLoadError: null })
     } catch (error) {
       console.error('Failed to load jobs:', error)
+      set({ jobsLoadError: getErrorMessage(error) })
     }
   },
 
   subscribeToJobEvents: () => {
+    const unsubControl = window.namBot.events.onQueueControlUpdated((queueControl) => set({ queueControl }))
     const unsubQueue = window.namBot.events.onQueueUpdated((updatedQueue) => {
       set({ queue: updatedQueue as JobRuntimeState[] })
     })
@@ -549,6 +589,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     })
 
     return () => {
+      unsubControl()
       unsubQueue()
       unsubJob()
     }

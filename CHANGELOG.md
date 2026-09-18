@@ -7,14 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.6] - 2026-09-18
+
 ### Added
 
-- Export each embedded model's best validated weights while training continues, with a save-location picker and a link to the latest snapshot.
-- Stop training with a choice to save the best model and finish cleanly, stop without a new export, or keep training.
+- Save Snapshot exports each embedded model's best validated weights while training continues, with a save-location picker and a link to the latest snapshot.
+- Save & Stop saves the best model before finishing training cleanly; the stop dialog also offers Discard & Stop and Keep Training.
 
 ### Changed
 
-- ESR charts now use logarithmic scale exclusively, with All, 100-epoch, and 30-epoch viewing windows that follow training live.
+- ESR charts use a logarithmic scale with All, 100-epoch, and 30-epoch viewing windows that follow training live.
+- Queued runs retain their preset recipe and attribution, so later preset edits or deletion cannot change training or exported snapshots.
+- Restored queues offer Resume Queue, and diagnostics-blocked jobs link directly to the checks they need.
+
+### Fixed
+
+- Closing or quitting confirms before stopping training; unconfirmed force-stops pause the queue, and late process events cannot affect another run. Launching NAM-BOT again focuses the existing window.
+- Interrupted queue-to-draft transfers, failed draft saves, batch retries, and preset backups recover without losing jobs or creating hidden duplicates.
+- Completion is reported only after model finalization, including Save & Stop. Completion warnings remain visible, and open logs refresh their final output.
+- Settings and diagnostics reject stale environment results, show clearer errors and repair instructions, and preserve expert device settings and effective epoch/latency values.
+- Batch navigation protects unsaved edits; audio paths and preset attribution remain editable. Charts fit smaller windows, audio filters are consistent, and dialogs respect keyboard focus and reduced-motion preferences.
+- Failed update checks preserve the last successful check date. Setup documentation now accurately describes supported Conda environment modes.
 
 ## [0.6.5] - 2026-09-17
 

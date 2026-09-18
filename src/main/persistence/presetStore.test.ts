@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, rmSync } from 'fs'
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -14,7 +14,7 @@ vi.mock('electron', () => ({
 }))
 
 import { createTrainingPreset } from '../../shared/training'
-import { deleteTrainingPreset, saveTrainingPreset } from './presetStore'
+import { deleteTrainingPreset, getPresetLoadWarnings, getTrainingPresetById, listTrainingPresets, saveTrainingPreset } from './presetStore'
 
 beforeEach(() => {
   rmSync(mockPaths.userDataPath, { recursive: true, force: true })
@@ -26,6 +26,20 @@ afterEach(() => {
 })
 
 describe('preset path validation', () => {
+  it('recovers corrupt and missing primary files from backups and reports the recovery', () => {
+    const preset = saveTrainingPreset(createTrainingPreset({ id: 'recover-me', name: 'Recover me' }))
+    saveTrainingPreset(preset)
+    const path = join(mockPaths.userDataPath, 'presets', 'recover-me.json')
+    writeFileSync(path, '{broken')
+    expect(getTrainingPresetById(preset.id).name).toBe('Recover me')
+    expect(getPresetLoadWarnings()[0]).toContain('Recovered')
+    rmSync(path)
+    expect(getTrainingPresetById(preset.id).name).toBe('Recover me')
+    deleteTrainingPreset(preset.id)
+    expect(listTrainingPresets().some((entry) => entry.id === preset.id)).toBe(false)
+    expect(() => getTrainingPresetById(preset.id)).toThrow('unavailable')
+  })
+
   it('rejects traversal IDs for save and delete', () => {
     const unsafePreset = createTrainingPreset({
       id: '../settings',

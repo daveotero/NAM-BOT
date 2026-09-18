@@ -35,11 +35,12 @@ export default function ConfirmDialog({
   onCancel,
   onAlternate
 }: ConfirmDialogProps): ReactElement | null {
-  const titleId = useId()
   const cancelButtonRef = useRef<HTMLButtonElement | null>(null)
   const dialogRef = useRef<HTMLDivElement | null>(null)
-  const cancelHandlerRef = useRef(onCancel)
-  cancelHandlerRef.current = onCancel
+  const cancelRef = useRef(onCancel)
+  cancelRef.current = onCancel
+  const titleId = useId()
+  const descriptionId = useId()
 
   useEffect(() => {
     if (!isOpen) {
@@ -51,18 +52,20 @@ export default function ConfirmDialog({
 
     const handleKeyDown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
-        cancelHandlerRef.current()
+        event.preventDefault()
+        cancelRef.current()
       }
       if (event.key === 'Tab') {
-        const controls = dialogRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled])')
-        const first = controls?.[0]
-        const last = controls?.[controls.length - 1]
-        if (event.shiftKey && document.activeElement === first) {
+        const controls = dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), [tabindex="0"]')
+        if (!controls?.length) return
+        const first = controls[0]
+        const last = controls[controls.length - 1]
+        if (event.shiftKey && (document.activeElement === first || !dialogRef.current?.contains(document.activeElement))) {
           event.preventDefault()
-          last?.focus()
-        } else if (!event.shiftKey && document.activeElement === last) {
+          last.focus()
+        } else if (!event.shiftKey && (document.activeElement === last || !dialogRef.current?.contains(document.activeElement))) {
           event.preventDefault()
-          first?.focus()
+          first.focus()
         }
       }
     }
@@ -80,9 +83,9 @@ export default function ConfirmDialog({
 
   return (
     <div className="modal-overlay" onClick={onCancel}>
-      <div ref={dialogRef} className="modal-content" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={`${titleId}-message`} onClick={(event) => event.stopPropagation()}>
+      <div ref={dialogRef} className="modal-content" role="alertdialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId} onClick={(event) => event.stopPropagation()}>
         <h3 id={titleId}>{title}</h3>
-        <p id={`${titleId}-message`} style={{ color: 'var(--text-steel)', lineHeight: '1.6' }}>{message}</p>
+        <p id={descriptionId} style={{ color: 'var(--text-steel)', lineHeight: '1.6' }}>{message}</p>
         {checkboxLabel && onCheckboxChange && (
           <label className="checkbox-container modal-option">
             {checkboxLabel}

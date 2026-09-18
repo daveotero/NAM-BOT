@@ -3,6 +3,8 @@ import { existsSync, copyFileSync, readFileSync, statSync } from 'fs'
 import log from 'electron-log/main'
 import { join } from 'path'
 import { v4 as uuidv4 } from 'uuid'
+import { AUDIO_EXTENSIONS } from '../../shared/audio'
+import type { QueueControlState } from '../../shared/training'
 import { getQueueManager } from '../jobs/queueManager'
 import { loadSettings } from '../persistence/settingsStore'
 import { JobRuntimeState, JobSpec, defaultJobSpec, normalizeJobSpec } from '../types/jobs'
@@ -17,8 +19,10 @@ const draftQueueTransactionPath = join(app.getPath('userData'), 'draft-queue-tra
 const drafts: Map<string, JobSpec> = new Map()
 
 interface DraftQueueTransaction {
+  direction?: 'enqueue' | 'unqueue'
   draftIds: string[]
   queuedJobIds: string[]
+  restoredDrafts?: JobSpec[]
 }
 
 interface DraftBatchSource {
@@ -64,7 +68,7 @@ function getJobArtifactPath(job: JobRuntimeState, target: JobArtifactTarget): st
 async function openJobArtifactPath(targetPath: string): Promise<void> {
   if (!existsSync(targetPath)) {
     log.warn('Job artifact path does not exist:', targetPath)
-    return
+    throw new Error(`This artifact is no longer available: ${targetPath}`)
   }
 
   try {
@@ -79,6 +83,7 @@ async function openJobArtifactPath(targetPath: string): Promise<void> {
   const errorMessage = await shell.openPath(targetPath)
   if (errorMessage) {
     log.warn('Failed to open job artifact path:', targetPath, errorMessage)
+    throw new Error(`Could not open the artifact: ${errorMessage}`)
   }
 }
 
@@ -99,7 +104,7 @@ function saveDrafts(): void {
 }
 
 function loadDrafts(): void {
-  if (!existsSync(draftsPath)) {
+  if (!existsSync(draftsPath) && !existsSync(`${draftsPath}.bak`)) {
     return
   }
 
@@ -179,6 +184,18 @@ function recoverDraftQueueTransaction(queueManager: ReturnType<typeof getQueueMa
 
     const draftIds = parsed.draftIds.filter((value): value is string => typeof value === 'string')
     const queuedJobIds = parsed.queuedJobIds.filter((value): value is string => typeof value === 'string')
+    if (parsed.direction === 'unqueue' && Array.isArray(parsed.restoredDrafts)) {
+      const nextDrafts = new Map(drafts)
+      for (const entry of parsed.restoredDrafts) {
+        const draft = normalizeJobSpec(entry)
+        if (draft.id) nextDrafts.set(draft.id, draft)
+      }
+      saveDraftCollection(nextDrafts)
+      replaceDrafts(nextDrafts)
+      for (const jobId of queuedJobIds) queueManager.unqueueJob(jobId)
+      finishDraftQueueTransaction()
+      return
+    }
     const durableQueueIds = new Set(queueManager.getQueue().map((runtime) => runtime.jobId))
     if (queuedJobIds.length > 0 && queuedJobIds.every((jobId) => durableQueueIds.has(jobId))) {
       for (const draftId of draftIds) {
@@ -192,7 +209,23 @@ function recoverDraftQueueTransaction(queueManager: ReturnType<typeof getQueueMa
   }
 }
 
+function replaceDrafts(nextDrafts: Map<string, JobSpec>): void {
+  drafts.clear()
+  for (const [id, draft] of nextDrafts) drafts.set(id, draft)
+}
+
+function commitDrafts(nextDrafts: Map<string, JobSpec>): void {
+  saveDraftCollection(nextDrafts)
+  replaceDrafts(nextDrafts)
+}
+
 function beginDraftQueueTransaction(transaction: DraftQueueTransaction): void {
+  if (existsSync(draftQueueTransactionPath)) {
+    recoverDraftQueueTransaction(getQueueManager())
+    if (existsSync(draftQueueTransactionPath)) {
+      throw new Error('A previous queue transfer could not be recovered. Check that the app data folder is writable and retry.')
+    }
+  }
   atomicWriteJsonSync(draftQueueTransactionPath, transaction)
 }
 
@@ -227,17 +260,25 @@ export function setupJobIpcHandlers(): void {
   queueManager.on('jobUpdated', (runtime: JobRuntimeState) => {
     broadcastJob(runtime)
   })
+  queueManager.on('queueControlUpdated', (state: QueueControlState) => {
+    for (const win of BrowserWindow.getAllWindows()) win.webContents.send('queue:controlUpdated', state)
+  })
+
+  ipcMain.handle('jobs:getControlState', async () => queueManager.getControlState())
+  ipcMain.handle('jobs:resumeQueue', async (_event, terminationConfirmed: boolean = false) => {
+    await queueManager.resumeQueue(terminationConfirmed === true)
+  })
 
   ipcMain.handle('jobs:createDraft', async (_event, input?: Partial<JobSpec>) => {
     const job = createDraftFromInput(input)
-    drafts.set(job.id, job)
-    saveDrafts()
+    commitDrafts(new Map(drafts).set(job.id, job))
     return job
   })
 
   ipcMain.handle('jobs:createDraftBatch', async (_event, input: unknown) => {
     const request = parseDraftBatchRequest(input)
-    const existing = Array.from(drafts.values()).filter((draft) => draft.batchId === request.batchId)
+    const existing = Array.from(drafts.values()).filter((draft) => draft.batchId === request.batchId
+      && !(request.source?.kind === 'draft' && draft.id === request.source.id))
     if (existing.length > 0) {
       const existingPaths = new Set(existing.map((draft) => draft.outputAudioPath))
       const requestedPaths = new Set(request.drafts.map((draft) => normalizeJobSpec(draft).outputAudioPath))
@@ -296,14 +337,14 @@ export function setupJobIpcHandlers(): void {
       createdAt: job.createdAt,
       updatedAt: new Date().toISOString()
     }
-    drafts.set(updated.id, updated)
-    saveDrafts()
+    commitDrafts(new Map(drafts).set(updated.id, updated))
     return updated
   })
 
   ipcMain.handle('jobs:deleteDraft', async (_event, jobId: string) => {
-    drafts.delete(jobId)
-    saveDrafts()
+    const nextDrafts = new Map(drafts)
+    nextDrafts.delete(jobId)
+    commitDrafts(nextDrafts)
   })
 
   ipcMain.handle('jobs:listDrafts', async () => {
@@ -325,11 +366,7 @@ export function setupJobIpcHandlers(): void {
       }
     }
 
-    drafts.clear()
-    for (const draft of orderedDrafts) {
-      drafts.set(draft.id, draft)
-    }
-    saveDrafts()
+    commitDrafts(new Map(orderedDrafts.map((draft) => [draft.id, draft])))
   })
 
   ipcMain.handle('jobs:enqueue', async (_event, draftId: string) => {
@@ -405,20 +442,30 @@ export function setupJobIpcHandlers(): void {
   })
 
   ipcMain.handle('jobs:unqueue', async (_event, jobId: string) => {
-    const restored = queueManager.unqueueJob(jobId)
-    if (restored) {
-      drafts.set(restored.id, restored)
-      saveDrafts()
-    }
+    const runtime = queueManager.getQueue().find((entry) => entry.jobId === jobId
+      && (entry.status === 'queued' || entry.status === 'validating'))
+    if (!runtime) return null
+    const restored = cloneJobSpec(runtime.frozenJob)
+    beginDraftQueueTransaction({ direction: 'unqueue', draftIds: [restored.id], queuedJobIds: [jobId], restoredDrafts: [restored] })
+    const nextDrafts = new Map(drafts).set(restored.id, restored)
+    saveDraftCollection(nextDrafts)
+    replaceDrafts(nextDrafts)
+    queueManager.unqueueJob(jobId)
+    finishDraftQueueTransaction()
     return restored
   })
 
   ipcMain.handle('jobs:unqueueAll', async () => {
-    const restoredDrafts = queueManager.unqueueAll()
-    for (const restored of restoredDrafts) {
-      drafts.set(restored.id, restored)
-    }
-    saveDrafts()
+    const waiting = queueManager.getQueue().filter((entry) => entry.status === 'queued' || entry.status === 'validating')
+    const restoredDrafts = waiting.map((entry) => cloneJobSpec(entry.frozenJob))
+    if (restoredDrafts.length === 0) return []
+    beginDraftQueueTransaction({ direction: 'unqueue', draftIds: restoredDrafts.map((entry) => entry.id), queuedJobIds: waiting.map((entry) => entry.jobId), restoredDrafts })
+    const nextDrafts = new Map(drafts)
+    for (const restored of restoredDrafts) nextDrafts.set(restored.id, restored)
+    saveDraftCollection(nextDrafts)
+    replaceDrafts(nextDrafts)
+    queueManager.unqueueAll()
+    finishDraftQueueTransaction()
     return restoredDrafts
   })
 
@@ -485,8 +532,7 @@ export function setupJobIpcHandlers(): void {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     }
-    drafts.set(newJob.id, newJob)
-    saveDrafts()
+    commitDrafts(new Map(drafts).set(newJob.id, newJob))
     return newJob
   })
   ipcMain.handle('jobs:reorder', async (_event, jobIds: string[]) => {
@@ -505,7 +551,9 @@ export function setupJobIpcHandlers(): void {
     const job = queueManager.getQueue().find((entry) => entry.jobId === jobId)
     const targetPath = job?.resolvedRunDirectory || job?.outputRootDir || job?.workspaceDirectory
     if (targetPath) {
-      shell.openPath(targetPath)
+      await openJobArtifactPath(targetPath)
+    } else {
+      throw new Error('This job does not have a results folder yet.')
     }
   })
 
@@ -530,7 +578,7 @@ export function setupJobIpcHandlers(): void {
       title: 'Select Audio File',
       properties: ['openFile'],
       filters: [
-        { name: 'Audio Files', extensions: ['wav', 'mp3', 'flac', 'aiff', 'aif'] },
+        { name: 'Audio Files', extensions: AUDIO_EXTENSIONS },
         { name: 'All Files', extensions: ['*'] }
       ]
     })

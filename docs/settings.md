@@ -11,6 +11,8 @@ Settings in NAM-BOT are automatically saved after a short pause, and the header 
 - The header reports `Unsaved changes`, `Saving`, `Saved`, or a visible save error.
 - **Validate Backend** first saves the exact settings shown on screen, then validates that saved snapshot.
 - Changing backend settings invalidates earlier backend, accelerator, launch, and NAM-version results so a stale `Backend Ready` result is not displayed for the new target.
+- Late validation broadcasts from a previous environment are discarded. The saved normalized settings are returned to the editor so readiness and the displayed target stay consistent.
+- Settings-load and file-picker errors are shown with retry guidance.
 
 ## Configuration Categories
 

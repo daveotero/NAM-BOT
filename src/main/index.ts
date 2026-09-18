@@ -26,6 +26,10 @@ import { installApplicationMenu } from './shell/appMenu'
 import { loadSettings } from './persistence/settingsStore'
 import { getUserPresetsPath } from './persistence/presetStore'
 import type { AppCommand } from '../shared/appShell'
+import { createQuitGuard } from './shell/quitGuard'
+
+const ownsInstance = app.requestSingleInstanceLock()
+if (!ownsInstance) app.exit(0)
 
 log.initialize()
 
@@ -34,7 +38,7 @@ const APP_ID = 'com.nambot.app'
 const PROJECT_URL = 'https://github.com/daveotero/nam-bot'
 const ISSUE_TRACKER_URL = 'https://github.com/daveotero/nam-bot/issues'
 const NAM_GITHUB_URL = 'https://github.com/sdatkinson/neural-amp-modeler'
-const ACTIVE_JOB_STATUSES: JobStatus[] = ['preparing', 'running', 'stopping']
+const ACTIVE_JOB_STATUSES: JobStatus[] = ['preparing', 'running', 'stopping', 'finalizing']
 const FINISHED_JOB_STATUSES: JobStatus[] = ['succeeded', 'failed', 'canceled']
 const TRAINING_POWER_SAVE_BLOCKER_TYPE = process.platform === 'win32'
   ? 'prevent-display-sleep'
@@ -79,10 +83,27 @@ interface RendererErrorPayload {
 }
 
 let mainWindow: BrowserWindow | null = null
-let allowUnsafeClose = false
 let trainingPowerSaveBlockerId: number | null = null
 const reportedFinishedStatuses: Map<string, JobStatus> = new Map()
 const reportedDiagnosticBlocks: Set<string> = new Set()
+const guardQuit = createQuitGuard({
+  hasActiveWork: hasActiveTrainingWork,
+  confirmQuit: async (): Promise<boolean> => {
+    const result = await showMainMessageBox({
+      type: 'warning',
+      title: 'Training is still running',
+      message: 'Closing NAM-BOT right now will force-stop the active training job.',
+      detail: 'Choose "Keep Training" to leave the app open, or "Quit and Stop Training" to close the app and terminate the training process.',
+      buttons: ['Keep Training', 'Quit and Stop Training'],
+      cancelId: 0,
+      defaultId: 0,
+      noLink: true
+    })
+    return result.response === 1
+  },
+  quit: () => app.quit(),
+  onError: (error: unknown) => log.error('Could not confirm application quit:', error)
+})
 
 function showMainMessageBox(options: MessageBoxOptions): Promise<MessageBoxReturnValue> {
   return mainWindow
@@ -201,6 +222,17 @@ async function showAboutDialog(): Promise<void> {
 async function showManualUpdateCheckDialog(): Promise<void> {
   try {
     const status = await checkForUpdatesNow()
+    if (status.checkError) {
+      await showMainMessageBox({
+        type: 'warning',
+        title: 'Update Check Failed',
+        message: 'NAM-BOT could not check for updates right now.',
+        detail: `${status.checkError}${status.lastCheckedAt ? `\nLast successful check: ${new Date(status.lastCheckedAt).toLocaleString()}.` : ''}`,
+        buttons: ['Close'],
+        noLink: true
+      })
+      return
+    }
 
     if (status.state === 'update-available' && status.latestVersion) {
       const result = await showMainMessageBox({
@@ -444,30 +476,7 @@ function createWindow(): void {
     callback(false)
   })
 
-  mainWindow.on('close', (event) => {
-    if (allowUnsafeClose || !hasActiveTrainingWork()) {
-      return
-    }
-
-    event.preventDefault()
-    void showMainMessageBox({
-      type: 'warning',
-      title: 'Training is still running',
-      message: 'Closing NAM-BOT right now will force-stop the active training job.',
-      detail: 'Choose "Keep Training" to leave the app open, or "Quit and Stop Training" to close the app and terminate the training process.',
-      buttons: ['Keep Training', 'Quit and Stop Training'],
-      cancelId: 0,
-      defaultId: 0,
-      noLink: true
-    }).then((result) => {
-      if (result.response !== 1) {
-        return
-      }
-
-      allowUnsafeClose = true
-      app.quit()
-    })
-  })
+  mainWindow.on('close', guardQuit)
 
   if (isDev && process.env['ELECTRON_RENDERER_URL']) {
     log.info(`Loading dev URL: ${process.env['ELECTRON_RENDERER_URL']}`)
@@ -502,6 +511,7 @@ function setupRendererErrorLogging(): void {
 }
 
 app.whenReady().then(() => {
+  if (!ownsInstance) return
   log.info('App ready')
   
   // Setup IPC handlers
@@ -568,7 +578,9 @@ app.on('window-all-closed', () => {
   }
 })
 
-app.on('before-quit', () => {
+app.on('second-instance', focusMainWindow)
+app.on('before-quit', guardQuit)
+app.on('will-quit', () => {
   getQueueManager().shutdownSync('app shutdown')
   stopTrainingPowerSaveBlocker()
   log.info('=== NAM-BOT SHUTTING DOWN ===')

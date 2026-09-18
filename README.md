@@ -43,7 +43,7 @@ NAM-BOT tries to make local training smoother by giving you:
 - Use dashboard diagnostics cards for Backend, Accelerator, Training Launch, and NAM Version status at a glance
 - Save and reuse training presets across runs
 - Export and import presets for sharing, including creator name and URL metadata
-- Point the app at either a Conda environment or a direct Python executable
+- Point the app at a Conda environment by name or environment-folder path
 - Validate backend setup before launching jobs
 - Inspect backend readiness, Training Launch readiness, CUDA, ROCm, MPS, Lightning, and host GPU visibility from Diagnostics
 - Review live terminal output while a job is running
@@ -53,7 +53,7 @@ NAM-BOT tries to make local training smoother by giving you:
 **Windows**
 
 - Windows 10 or Windows 11, x64
-- [Miniconda or Anaconda](https://www.anaconda.com/download), unless you already run NAM another way
+- [Miniconda or Anaconda](https://www.anaconda.com/download), using a named environment or an environment-folder path
 - A Python environment with `neural-amp-modeler` 0.13.0 or newer installed
 - `neural-amp-modeler` 0.13.0 or newer is required for A2 local training
 - NVIDIA GPU recommended if you want faster local training
@@ -87,7 +87,7 @@ If you already train NAM models outside NAM-BOT, you usually do not need to rebu
 
 1. Open `Settings`.
 2. If NAM-BOT already found Conda on `PATH` and your environment is named `nam`, you may not need to change anything at all.
-3. Otherwise, point NAM-BOT at the same Conda environment, environment path, or Python executable you already use.
+3. Otherwise, point NAM-BOT at the same Conda environment name or environment-folder path you already use. Direct Python executables and standalone virtual environments are not currently supported.
 4. Open `Diagnostics` and confirm backend, accelerator, and Training Launch checks pass.
 5. Start training.
 
@@ -228,6 +228,8 @@ If the built-in guidance is not enough, the Diagnostics panel can also generate 
 5. Watch the Queue button switch to `Queueing...` while NAM-BOT validates and freezes the draft.
 6. Monitor progress from the Dashboard and Jobs screens.
 
+Queued runs keep a snapshot of their preset, so later preset edits or deletion do not change waiting runs. After restarting NAM-BOT, use **Resume Queue** to continue restored pending jobs. A job waiting for NAM-version confirmation shows **Diagnostics needed** with a link to Diagnostics.
+
 ## Preset Sharing
 
 Presets are more than saved defaults. NAM-BOT lets you export a training preset, send it to someone else, and import theirs into your own library.
@@ -256,6 +258,7 @@ Presets library:
 - [Jobs System](./docs/jobs-system.md)
 - [Presets System](./docs/presets-system.md)
 - [Desktop Shell](./docs/desktop-shell.md)
+- [Setup Guide](./docs/setup-guide.md)
 
 ## License
 

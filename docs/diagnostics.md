@@ -34,6 +34,7 @@ The Diagnostics screen auto-loads its checks when the page opens.
 - a failed automatic request is retained as an error instead of being retried in a render loop
 - failed checks show a visible error and wait for `Re-check All` before trying again
 - results are tied to the settings revision that started them; changing Settings discards stale in-flight results
+- backend-validation broadcasts also carry a backend-target key and are ignored if they belong to a previously selected environment
 
 This keeps the page useful as a quick status check even when the user has not manually triggered anything yet.
 
@@ -53,6 +54,7 @@ Below the tiles, Diagnostics shows one action center rather than a stack of sepa
 - If everything is ready, the action center reports `Ready To Train`.
 - If something needs attention, it chooses the highest-priority issue and shows what happened, what it likely means, how to fix it, and how to verify the fix.
 - Lower-priority issues are summarized as compact `Also detected` badges so the user is not forced to juggle many open sections.
+- The primary issue displays every command in its ordered repair sequence, including installation steps after verification commands. Lightning blocks expose their full metadata-check and repair sequence directly.
 
 The priority order is:
 
@@ -232,7 +234,6 @@ The commands are generated against the user's currently selected backend target,
 
 - Conda environment name mode
 - Conda prefix mode
-- direct Python mode
 
 When the target uses Conda, the guidance can also include an activation step before the repair commands.
 
@@ -357,7 +358,7 @@ Diagnostics depends on the current Settings target.
 
 - changing backend mode changes which environment is probed
 - changing the Conda executable path changes which Conda install NAM-BOT uses
-- changing the environment name, prefix, or direct Python path changes the target for all validation and repair commands
+- changing the environment name or prefix changes the target for all validation and repair commands; direct Python mode is not supported
 
 In practice, Settings answers "what should NAM-BOT use?" and Diagnostics answers "does that target actually work?"
 
