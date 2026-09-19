@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Lifetime training totals and recent completed runs on the dashboard, preserved when Jobs history is cleared.
 - Always-visible Jobs search across names, presets, and audio paths, plus a live model filename preview in the job editor.
+- A saved default preset for new jobs and dropped audio, with automatic fallback to A2 if the selected preset is deleted.
+- Terminal logs follow new output automatically, pause following when scrolled up, and resume at the bottom, with an explicit auto-scroll status.
 
 ### Changed
 
@@ -19,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Themed About, update, and exit dialogs to match the app; removed the duplicate title-bar status and the unused Windows Window > Zoom command.
 - macOS uses standard application-menu placement for Settings, About, and updates, native Help and Window menus, and platform-appropriate dialog buttons and path examples.
 - Replaced working indicators with a pulsing 3×3 LED grid, with a natural startup sequence, gentle fade-out, and reduced-motion support.
+- Grouped packed-model choices and similar checkbox controls in subtly shaded panels.
+- ESR charts reserve at least 20 epochs of horizontal space so early measurements remain readable.
 
 ### Fixed
 

@@ -194,6 +194,15 @@
 .property-workspace .packed-submodel-option, .job-check-option, .property-check-option { display: flex; align-items: center; gap: 8px; color: var(--text-ash); font-size: 12px; line-height: 1.4; cursor: pointer; }
 .property-workspace input[type='checkbox'] { accent-color: var(--neon-cyan); width: 14px; height: 14px; flex-shrink: 0; }
 .job-check-options { display: flex; flex-wrap: wrap; gap: 10px 24px; padding: 4px 0; }
+.property-option-panel {
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--neon-cyan) 15%, var(--border-field));
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--neon-cyan) 4%, var(--bg-charcoal));
+}
+.property-option-panel .packed-submodel-helper { margin: 0; }
+.property-option-panel > label, .property-option-panel > span, .property-option-panel .packed-submodel-option > span { overflow-wrap: anywhere; }
 .model-filename-preview { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; gap: 12px; border: 1px solid var(--border-field); background: #0c0c0f; padding: 10px 12px; min-width: 0; }
 .model-filename-preview > span { color: var(--text-steel); font: 15px var(--font-arcade); text-transform: uppercase; }
 .model-filename-output { display: block; min-width: 0; max-height: 140px; overflow-y: auto; font: 13px/1.6 Consolas, monospace; color: var(--neon-cyan); }
@@ -235,6 +244,7 @@
   .property-row { grid-template-columns: 130px minmax(0, 1fr); gap: 8px 12px; }
 }
 @container property-editor (max-width: 500px) {
+  .property-workspace .packed-submodel-options { grid-template-columns: minmax(0, 1fr); }
   .property-row { grid-template-columns: minmax(0, 1fr); gap: 7px; padding: 12px 0; }
   .property-workspace .property-row > .form-label, .property-row > .form-label-row { padding: 0; }
   .property-nav { padding: 5px 8px; }

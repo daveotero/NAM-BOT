@@ -5,6 +5,7 @@ import PropertySheet, { PropertySection } from '../../components/PropertySheet'
 import JsonCodeEditor, { type JsonEditorError } from '../../components/JsonCodeEditor'
 import { type AppSettings, type PresetEditorSession, useAppStore } from '../../state/store'
 import {
+  DEFAULT_PRESET_ID,
   type ArchitectureSize,
   type ImportedPresetResult,
   type ModelFamily,
@@ -1488,7 +1489,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                     {renderInfoButton(BASIC_FIELD_HELP_TEXT.fitMrstft)}
                   </div>
                   <div className="property-control">
-                    <label className="property-check-option">
+                    <label className="property-check-option property-option-panel">
                       <input
                         id="preset-fit-mrstft"
                         type="checkbox"
@@ -1789,6 +1790,10 @@ export default function Presets() {
     try {
       await window.namBot.presets.delete(preset.id)
       await loadPresets()
+      const currentSettings = useAppStore.getState().settings
+      if (currentSettings?.defaultPresetId === preset.id) {
+        await useAppStore.getState().saveSettings({ ...currentSettings, defaultPresetId: DEFAULT_PRESET_ID })
+      }
       setExpandedPresets((current) => {
         const nextState = { ...current }
         delete nextState[preset.id]
@@ -1919,7 +1924,7 @@ export default function Presets() {
       <ConfirmDialog
         isOpen={pendingDeletePreset !== null}
         title="Delete Preset?"
-        message={pendingDeletePreset ? `Delete preset "${pendingDeletePreset.name}"? This cannot be undone.` : ''}
+        message={pendingDeletePreset ? `Delete preset "${pendingDeletePreset.name}"? This cannot be undone.${settings?.defaultPresetId === pendingDeletePreset.id ? ' A2 Packed WaveNet will become your default.' : ''}` : ''}
         confirmLabel="Delete"
         onConfirm={() => {
           if (!pendingDeletePreset) {

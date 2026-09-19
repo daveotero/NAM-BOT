@@ -61,7 +61,7 @@ Draft jobs are editable saved jobs that have not been frozen into the queue yet.
 - `Queue All` enqueues every valid draft from bottom to top and skips drafts missing required fields.
 - While a draft is being queued, its Queue button changes to `Queueing...` and draft actions are disabled to prevent duplicate enqueue clicks.
 - Draft delete confirmation includes a `Don't show this again` option that bypasses future draft-delete confirmations on that device.
-- New jobs default to the A2 preset and remember the last-used output root mode, the last-used exported-model naming preferences, and a small set of low-risk reusable capture fields.
+- New jobs use **Settings → Application → Default preset** (initially A2 Packed WaveNet) and inherit that preset's epoch count. They remember the last-used output root mode, the last-used exported-model naming preferences, and a small set of low-risk reusable capture fields.
 
 Drafts are where users can iterate safely before they commit a run to the queue.
 
@@ -107,7 +107,7 @@ The Jobs page supports dragging output audio files directly onto the main panel.
 - the NAM model name defaults to the output filename without extension
 - the output root defaults to the dropped file's directory
 - the input audio defaults to the bundled NAM training signal when available
-- the preset defaults to the A2 default preset, then the first visible preset
+- the preset and epoch count come from **Settings → Application → Default preset**, for both single-file drafts and fresh batches; an unavailable selection falls back to A2 Packed WaveNet, then the last-used visible preset or the first visible preset
 
 This is intended to speed up common “I already have my re-amped captures on disk” workflows.
 
@@ -340,6 +340,7 @@ interface JobSpec {
 Expanded training and finished job cards include an **ESR over time** chart. Each embedded model has its own neon-colored curve and friendly tier label, with matching colors in the ESR summary. The chart uses NAM-BOT's dark panels, pixel typography, thin grid, and square controls; non-packed models have a single curve.
 
 - The horizontal axis shows one-based epochs. The vertical axis shows validation ESR in decimal notation; lower is better.
+- `All` reserves at least 20 epoch positions, leaving room to the right during the first few validations instead of stretching one or two samples across the plot. After that it expands with the recorded history. The 30- and 100-epoch views retain their full selected span, including when only a few measurements exist. Empty space adds no synthetic measurements, and inspection still selects only recorded epochs.
 - Curves show actual validation results, including regressions, rather than the running best checkpoint value shown in the ESR summary.
 - Hover over the chart to inspect exact values; leaving the chart returns to the latest result. Click or tap the chart to pin an epoch, then use `Return to latest` to resume following new results. The readout directly above the model values identifies their epoch and whether it is pinned or latest. A pinned epoch stays selected while it remains in the chosen viewing window.
 - Focus the chart and use arrow keys to inspect and pin adjacent recorded epochs, Home for the first visible epoch, or End/Escape to return to latest. Click a model in the legend to hide/show its curve.
@@ -350,6 +351,10 @@ Expanded training and finished job cards include an **ESR over time** chart. Eac
 NAM-BOT launches the installed `nam-full` entry point through a workspace-local Python wrapper. It adds a Lightning callback to NAM's existing callbacks and records `ESR_packed_<index>` (or `ESR` for non-packed models) at `on_validation_end` into `esr-history.jsonl` in that run's workspace. Names come from the generated model config, so a selected subset of embedded models is labeled correctly. Initial sanity-check validation and non-primary distributed workers are excluded. A metrics-capture error disables collection with a terminal message while allowing training to continue.
 
 The queue tails complete JSONL records incrementally and persists validated `esrHistory` entries with the runtime. This captures every validation epoch rather than reconstructing history from best-checkpoint files, which may be overwritten or removed during training.
+
+### Terminal Log View
+
+`Show Logs` opens the same terminal viewer in Jobs and on the Dashboard. It follows new output by default, including the final log update when training ends. Scrolling up pauses following while new lines continue to load; reaching the bottom resumes following automatically. A compact **Auto-scroll active** / **Auto-scroll paused** label identifies the log-view state separately from training, with no toggle. The paused position is retained while that job card stays mounted, including when its logs are hidden and reopened. Only the log pane scrolls, so following output does not move the surrounding page. The log pane is keyboard-focusable for manual scrolling.
 
 ### Export During Training And Stop Choices
 

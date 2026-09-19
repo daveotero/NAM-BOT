@@ -251,12 +251,17 @@ export function buildJobEditorSession(title: string, job: JobSpec, settings: App
   }
 }
 
-export function createNewJobDraft(options: CreateNewJobDraftOptions): JobSpec {
+export function getPreferredJobPreset(options: CreateNewJobDraftOptions): TrainingPresetFile | undefined {
   const visiblePresets = options.presets.filter((preset) => preset.visible)
   const storedPresetId = window.localStorage.getItem(LAST_USED_PRESET_STORAGE_KEY)
-  const fallbackPreset = visiblePresets.find((preset) => preset.id === DEFAULT_PRESET_ID)
+  return visiblePresets.find((preset) => preset.id === options.settings?.defaultPresetId)
+    ?? visiblePresets.find((preset) => preset.id === DEFAULT_PRESET_ID)
     ?? visiblePresets.find((preset) => preset.id === storedPresetId)
     ?? visiblePresets[0]
+}
+
+export function createNewJobDraft(options: CreateNewJobDraftOptions): JobSpec {
+  const fallbackPreset = getPreferredJobPreset(options)
   const preferredOutputRootSelection = getPreferredOutputRootSelection(options.settings, '')
 
   const newJob: JobSpec = {

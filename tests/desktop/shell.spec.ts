@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
-import { A1_STANDARD_PRESET_ID, createTrainingPreset, defaultJobSpec, type JobRuntimeState } from '../../src/shared/training'
+import { A1_STANDARD_PRESET_ID, A2_HEAVY_12_PRESET_ID, DEFAULT_PRESET_ID, createTrainingPreset, defaultJobSpec, getBuiltInPreset, type JobRuntimeState } from '../../src/shared/training'
 
 let app: ElectronApplication
 let page: Page
@@ -323,6 +323,196 @@ test('Jobs toolbar saves drafts and creates batches without losing editor action
   await toolbar.getByRole('button', { name: 'Create Batch', exact: true }).click()
   await expect(page.locator('.draft-card')).toHaveCount(4)
   await page.screenshot({ path: info.outputPath('jobs-drafts.png') })
+  expect(errors).toEqual([])
+})
+
+test('saved default presets apply to dropped audio and new batches while templates keep their recipe', async ({}, info) => {
+  const builtIn = getBuiltInPreset(A2_HEAVY_12_PRESET_ID)
+  const preferred = createTrainingPreset({ ...builtIn, id: 'drop-default', name: 'Drop default', builtIn: false, readOnly: false, values: { ...builtIn.values, epochs: 37 } })
+  await page.evaluate(async (preset) => { await window.namBot.presets.save(preset) }, preferred)
+  await chooseMenu(await settingsMenu(), 'Settings')
+  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Application', exact: true }).click()
+  const toolbar = page.locator('.workspace-toolbar')
+  const defaultPreset = page.getByLabel('Default preset', { exact: true })
+  await expect(defaultPreset).toHaveValue(DEFAULT_PRESET_ID)
+  await defaultPreset.selectOption(preferred.id)
+  await expect(toolbar.getByRole('status')).toHaveText('Saved')
+  expect(JSON.parse(await readFile(join(dataPath, 'settings.json'), 'utf8')).defaultPresetId).toBe(preferred.id)
+  await page.reload()
+  await expect(defaultPreset).toHaveValue(preferred.id)
+  await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Application', exact: true }).click()
+  await captureRenderer(info, 'default-preset-settings.png')
+
+  const output = join(dataPath, 'Default capture.wav')
+  const secondOutput = join(dataPath, 'Second capture.wav')
+  await writeFile(output, Buffer.alloc(44))
+  await writeFile(secondOutput, Buffer.alloc(44))
+  // Native-backed File objects exercise the same drop handler and path lookup as external files.
+  const dropAudio = async (paths: string[]): Promise<void> => {
+    await page.evaluate(() => {
+      const input = document.createElement('input')
+      input.id = 'smoke-drop-input'
+      input.type = 'file'
+      input.multiple = true
+      input.hidden = true
+      document.body.append(input)
+    })
+    const input = page.locator('#smoke-drop-input')
+    await input.setInputFiles(paths)
+    await input.evaluate((element) => {
+      if (!(element instanceof HTMLInputElement) || !element.files) throw new Error('Missing drop files')
+      const target = document.querySelector('.jobs-drop-target')
+      if (!target) throw new Error('Missing Jobs drop target')
+      const transfer = new DataTransfer()
+      for (const file of Array.from(element.files)) transfer.items.add(file)
+      target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }))
+      element.remove()
+    })
+  }
+  await chooseMenu('Navigate', 'Jobs')
+  await dropAudio([output])
+  await expect(page.locator('.draft-card h4')).toHaveText('Default capture')
+  expect(await page.evaluate(() => window.namBot.jobs.listDrafts())).toEqual([
+    expect.objectContaining({ presetId: preferred.id, outputAudioPath: output, trainingOverrides: expect.objectContaining({ epochs: 37 }) })
+  ])
+
+  await toolbar.getByRole('button', { name: 'New Job', exact: true }).click()
+  await expect(page.locator('#preset-select')).toHaveValue(preferred.id)
+  await expect(page.locator('#epochs')).toHaveValue('37')
+  await expect(page.getByRole('group', { name: 'Packed models', exact: true }).getByRole('checkbox')).toHaveCount(3)
+  const sections = page.getByRole('navigation', { name: 'Job editor sections' })
+  await sections.getByRole('button', { name: 'Training', exact: true }).click()
+  await captureRenderer(info, 'packed-model-options.png')
+  await app.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows()[0]; window.setSize(1000, 700); window.webContents.setZoomFactor(1.5) })
+  await sections.getByRole('button', { name: 'Training', exact: true }).click()
+  await waitForPropertyScroll()
+  await page.getByRole('group', { name: 'Packed models', exact: true }).scrollIntoViewIfNeeded()
+  await expect.poll(() => page.locator('.job-editor-workspace').evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
+  await captureRenderer(info, 'packed-model-options-small.png')
+  await app.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows()[0]; window.webContents.setZoomFactor(1); window.setSize(1400, 900) })
+  await toolbar.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(page.locator('.jobs-drop-target')).toBeVisible()
+  await dropAudio([output, secondOutput])
+  await expect(page.getByLabel('Batch Label', { exact: false })).toBeVisible()
+  await expect(page.locator('#preset-select')).toHaveValue(preferred.id)
+  await expect(page.locator('#epochs')).toHaveValue('37')
+  await toolbar.getByRole('button', { name: 'Create Batch', exact: true }).click()
+  await expect(page.locator('.draft-card')).toHaveCount(3)
+  const created = await page.evaluate(() => window.namBot.jobs.listDrafts())
+  expect(created).toHaveLength(3)
+  for (const draft of created) expect(draft).toMatchObject({ presetId: preferred.id, trainingOverrides: { epochs: 37 } })
+
+  await chooseMenu(await settingsMenu(), 'Settings')
+  await defaultPreset.selectOption(A1_STANDARD_PRESET_ID)
+  await expect(toolbar.getByRole('status')).toHaveText('Saved')
+  await chooseMenu('Navigate', 'Jobs')
+  const template = page.locator('.draft-card').first()
+  await template.getByRole('button', { name: 'Edit', exact: true }).click()
+  await expect(page.locator('#preset-select')).toHaveValue(preferred.id)
+  await toolbar.getByRole('button', { name: 'Cancel', exact: true }).click()
+  const chooser = page.waitForEvent('filechooser')
+  await template.getByRole('button', { name: 'Create Batch', exact: true }).click()
+  await (await chooser).setFiles([output, secondOutput])
+  await expect(page.locator('#preset-select')).toHaveValue(preferred.id)
+  await expect(page.locator('#epochs')).toHaveValue('37')
+  await toolbar.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Discard Changes', exact: true }).click()
+  await expect(page.locator('.jobs-drop-target')).toBeVisible()
+  await chooseMenu(await settingsMenu(), 'Settings')
+  await defaultPreset.selectOption(preferred.id)
+  await expect(toolbar.getByRole('status')).toHaveText('Saved')
+  await chooseMenu('Navigate', 'Presets')
+  const preferredRow = page.locator('.preset-library-row').filter({ has: page.getByRole('heading', { name: preferred.name, exact: true }) })
+  await preferredRow.getByRole('button', { name: 'Delete', exact: true }).click()
+  const confirmation = page.getByRole('alertdialog')
+  await expect(confirmation).toContainText('A2 Packed WaveNet will become your default.')
+  await confirmation.getByRole('button', { name: 'Delete', exact: true }).click()
+  await expect(preferredRow).toHaveCount(0)
+  await expect.poll(() => page.evaluate(() => window.namBot.settings.get())).toMatchObject({ defaultPresetId: DEFAULT_PRESET_ID })
+  await chooseMenu(await settingsMenu(), 'Settings')
+  await expect(defaultPreset).toHaveValue(DEFAULT_PRESET_ID)
+  await chooseMenu('Navigate', 'Jobs')
+  const fallbackOutput = join(dataPath, 'A2 fallback.wav')
+  await writeFile(fallbackOutput, Buffer.alloc(44))
+  await dropAudio([fallbackOutput])
+  await expect(page.locator('.draft-card h4').filter({ hasText: 'A2 fallback' })).toHaveCount(1)
+  expect(await page.evaluate(() => window.namBot.jobs.listDrafts())).toEqual(expect.arrayContaining([
+    expect.objectContaining({ outputAudioPath: fallbackOutput, presetId: DEFAULT_PRESET_ID, trainingOverrides: expect.objectContaining({ epochs: getBuiltInPreset(DEFAULT_PRESET_ID).values.epochs }) })
+  ]))
+  expect(errors).toEqual([])
+})
+
+test('early ESR charts keep their scale and terminal logs follow until scrolled up', async ({}, info) => {
+  const now = new Date().toISOString()
+  const runtime: JobRuntimeState = {
+    jobId: 'live-display', jobName: 'Live display', status: 'running', pid: null,
+    frozenJob: { ...defaultJobSpec, id: 'live-display', name: 'Live display', createdAt: now, updatedAt: now },
+    frozenPreset: getBuiltInPreset(DEFAULT_PRESET_ID), startedAt: now,
+    currentEpoch: 2, plannedEpochs: 100, userMessages: [],
+    esrHistory: [1, 2].map((epoch) => ({ epoch, step: epoch, models: [{ submodelIndex: null, esr: 0.1 / epoch }] }))
+  }
+  // Simulate display updates only; shell smoke mode never launches training.
+  await app.evaluate(({ BrowserWindow, ipcMain }, current) => {
+    ipcMain.removeHandler('jobs:listQueue')
+    ipcMain.handle('jobs:listQueue', () => [current])
+    BrowserWindow.getAllWindows()[0].webContents.send('queue:updated', [current])
+    let content = Array.from({ length: 100 }, (_, index) => `Terminal line ${index + 1}\n`).join('')
+    ipcMain.removeHandler('logs:getTerminalChunk')
+    ipcMain.handle('logs:getTerminalChunk', (_event, _jobId: string, offset: number | null) => ({
+      content: content.slice(offset ?? 0), nextOffset: content.length, reset: offset === null, truncated: false
+    }))
+    ipcMain.on('smoke:append-output', (_event, line: string) => { content += `${line}\n` })
+  }, runtime)
+  const appendLine = async (line: string): Promise<void> => {
+    await app.evaluate(({ ipcMain }, text) => { ipcMain.emit('smoke:append-output', null, text) }, line)
+  }
+
+  for (const view of ['Jobs', 'Dashboard']) {
+    await chooseMenu('Navigate', view)
+    const card = page.locator('.queue-card').filter({ has: page.getByRole('heading', { name: 'Live display', exact: true }) })
+    await card.getByRole('button', { name: 'Show Details', exact: true }).click()
+    const chart = card.getByRole('region', { name: 'Validation ESR history' })
+    const slider = chart.getByRole('slider')
+    await expect(slider).toHaveAttribute('aria-valuemax', '2')
+    await expect(slider.locator('text').last()).toHaveText('20')
+    const span = await slider.locator('polyline').first().evaluate(element => {
+      const points = (element.getAttribute('points') ?? '').split(' ').map(point => Number(point.split(',')[0]))
+      return points[1] - points[0]
+    })
+    expect(span).toBeGreaterThan(0)
+    expect(span).toBeLessThan(50)
+    await slider.press('Home')
+    await expect(slider).toHaveAttribute('aria-valuenow', '1')
+    await slider.press('ArrowRight')
+    await slider.press('ArrowRight')
+    await expect(slider).toHaveAttribute('aria-valuenow', '2')
+    await chart.screenshot({ path: info.outputPath(`esr-early-${view.toLowerCase()}.png`) })
+
+    await card.getByRole('button', { name: 'Show Logs', exact: true }).click()
+    const log = card.locator('.queue-inline-log-body')
+    const following = card.locator('.queue-inline-log-follow-state')
+    const distanceFromBottom = async (): Promise<number> => log.evaluate(element => element.scrollHeight - element.clientHeight - element.scrollTop)
+    await expect(following).toHaveText('Auto-scroll active')
+    await expect.poll(distanceFromBottom).toBeLessThanOrEqual(2)
+    await appendLine(`${view}: following update`)
+    await expect(log).toContainText(`${view}: following update`)
+    await expect.poll(distanceFromBottom).toBeLessThanOrEqual(2)
+    await log.evaluate(element => { element.scrollTop = 100 })
+    await expect(following).toHaveText('Auto-scroll paused')
+    await appendLine(`${view}: paused update`)
+    await expect(log).toContainText(`${view}: paused update`)
+    await expect.poll(() => log.evaluate(element => element.scrollTop)).toBe(100)
+    await card.getByRole('button', { name: 'Hide Logs', exact: true }).click()
+    await card.getByRole('button', { name: 'Show Logs', exact: true }).click()
+    await expect(following).toHaveText('Auto-scroll paused')
+    await expect.poll(() => log.evaluate(element => element.scrollTop)).toBe(100)
+    await log.evaluate(element => { element.scrollTop = element.scrollHeight })
+    await expect(following).toHaveText('Auto-scroll active')
+    await appendLine(`${view}: resumed update`)
+    await expect(log).toContainText(`${view}: resumed update`)
+    await expect.poll(distanceFromBottom).toBeLessThanOrEqual(2)
+    await card.locator('.queue-inline-log').screenshot({ path: info.outputPath(`following-log-${view.toLowerCase()}.png`) })
+  }
   expect(errors).toEqual([])
 })
 

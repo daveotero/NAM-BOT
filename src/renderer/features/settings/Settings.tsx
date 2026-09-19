@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useAppStore, AppSettings } from '../../state/store'
+import { formatPresetArchitectureTag } from '../../state/types'
 import WorkspaceToolbar from '../../components/WorkspaceToolbar'
 import PropertySheet, { PropertySection } from '../../components/PropertySheet'
 import WorkingIndicator from '../../components/WorkingIndicator'
@@ -14,6 +15,8 @@ const SETTINGS_SECTIONS = [
 export default function Settings() {
   const {
     settings,
+    presets,
+    presetsLoadError,
     validation,
     condaDiscovery,
     isSettingsSaving,
@@ -22,6 +25,7 @@ export default function Settings() {
     settingsLoadError,
     validationError,
     loadSettings,
+    loadPresets,
     saveSettings,
     validateBackend,
     detectConda
@@ -35,8 +39,9 @@ export default function Settings() {
 
   useEffect(() => {
     void loadSettings()
+    void loadPresets()
     void detectConda()
-  }, [detectConda, loadSettings])
+  }, [detectConda, loadSettings, loadPresets])
 
   useEffect(() => {
     if (settings && !localSettings) {
@@ -144,6 +149,8 @@ export default function Settings() {
     : (localSettings.condaExecutablePath || '')
   const hasUnsavedChanges = JSON.stringify(localSettings) !== JSON.stringify(settings)
   const isBackendBusy = isSettingsSaving || isBackendValidationLoading
+  const visiblePresets = presets.filter((preset) => preset.visible)
+  const defaultPresetUnavailable = !visiblePresets.some((preset) => preset.id === localSettings.defaultPresetId)
 
   return (
     <PropertySheet sections={SETTINGS_SECTIONS} navigationLabel="Settings sections" className="settings-workspace">
@@ -360,11 +367,34 @@ export default function Settings() {
           </div>
         </PropertySection>
         <PropertySection id="settings-application" title="Application">
-
+          <div className="property-row">
+            <label className="form-label" htmlFor="settings-default-preset">Default preset</label>
+            <div className="property-control">
+              <select
+                id="settings-default-preset"
+                className="form-select"
+                value={localSettings.defaultPresetId}
+                disabled={visiblePresets.length === 0}
+                aria-describedby="settings-default-preset-hint"
+                onChange={(event) => setLocalSettings({ ...localSettings, defaultPresetId: event.target.value })}
+              >
+                {defaultPresetUnavailable && <option value={localSettings.defaultPresetId} disabled>Unavailable preset</option>}
+                {visiblePresets.map((preset) => (
+                  <option key={preset.id} value={preset.id}>{formatPresetArchitectureTag(preset)} · {preset.name}</option>
+                ))}
+              </select>
+              <p id="settings-default-preset-hint" className="property-hint">
+                {defaultPresetUnavailable
+                  ? 'The selected preset is unavailable. New jobs use the app default.'
+                  : 'Used for new jobs and dropped audio files.'}
+              </p>
+              {presetsLoadError && <p role="alert" className="operation-error">Could not load presets: {presetsLoadError} <button type="button" className="btn btn-sm btn-secondary" onClick={() => void loadPresets()}>Retry</button></p>}
+            </div>
+          </div>
           <div className="property-row">
             <span className="form-label">Results folder</span>
             <div className="property-control">
-              <label className="property-check-option">
+              <label className="property-check-option property-option-panel">
                 <input
                   type="checkbox"
                   checked={localSettings.autoOpenResultsFolder}

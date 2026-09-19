@@ -36,6 +36,7 @@ The presets page defaults to a library view rather than showing the editor at al
 - Expanded Packed WaveNet preset details show every packed submodel tier in a compact single-column list, including imported custom packs.
 - Built-in presets can be customized into user presets.
 - User presets can be edited, duplicated, exported, and deleted.
+- Settings → Application → Default preset selects the recipe used for new jobs and dropped audio. Deleting that preset resets the saved default to A2 Packed WaveNet; existing drafts still require an explicit replacement if their preset is deleted.
 - Any preset can be exported.
 
 `Import Preset` and `New Preset` sit in the fixed workspace command bar. The filter strip offers All, A2, A1, and Custom architecture filters, plus case-insensitive search over name, description, model family, and architecture tag. The count shows matching presets out of all visible presets. Filters preserve the existing library order and do not alter or delete presets. Saving or importing a preset clears filters so the saved entry is visible.

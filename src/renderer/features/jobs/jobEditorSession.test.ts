@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { defaultSettings } from '../../../main/types'
 
 import {
   A1_STANDARD_PRESET_ID,
@@ -36,6 +37,34 @@ afterEach(() => {
 })
 
 describe('createNewJobDraft', () => {
+  it('uses the saved default preset and its epochs ahead of the built-in and last-used presets', () => {
+    stubLocalStorage({ [LAST_USED_PRESET_STORAGE_KEY]: A1_STANDARD_PRESET_ID })
+    const preferred = createTrainingPreset({ id: 'studio-preset', name: 'Studio preset', values: { epochs: 37 } })
+    const draft = createNewJobDraft({
+      settings: { ...defaultSettings, defaultPresetId: preferred.id },
+      presets: [
+        createTrainingPreset({ id: DEFAULT_PRESET_ID }),
+        createTrainingPreset({ id: A1_STANDARD_PRESET_ID }),
+        preferred
+      ]
+    })
+
+    expect(draft.presetId).toBe(preferred.id)
+    expect(draft.trainingOverrides.epochs).toBe(37)
+  })
+
+  it.each(['missing', 'hidden'])('falls back to the app default when the saved preset is %s', (availability: string) => {
+    stubLocalStorage()
+    const standard = createTrainingPreset({ id: DEFAULT_PRESET_ID, values: { epochs: 100 } })
+    const draft = createNewJobDraft({
+      settings: { ...defaultSettings, defaultPresetId: 'studio-preset' },
+      presets: [standard, ...(availability === 'hidden' ? [createTrainingPreset({ id: 'studio-preset', visible: false, values: { epochs: 37 } })] : [])]
+    })
+
+    expect(draft.presetId).toBe(DEFAULT_PRESET_ID)
+    expect(draft.trainingOverrides.epochs).toBe(100)
+  })
+
   it('prefers the A2 default preset over a stored A1 last-used preset', () => {
     stubLocalStorage({
       [LAST_USED_PRESET_STORAGE_KEY]: A1_STANDARD_PRESET_ID

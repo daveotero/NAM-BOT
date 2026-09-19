@@ -1904,6 +1904,8 @@ input[type="number"] {
 
 .queue-inline-log-header {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 12px;
   color: var(--text-steel);
@@ -1911,10 +1913,14 @@ input[type="number"] {
   margin-bottom: 8px;
 }
 
+.queue-inline-log-follow-state { font: 15px var(--font-arcade); }
+.queue-inline-log-follow-state[data-following='true'] { color: var(--neon-cyan); }
+
 .queue-inline-log-body {
   margin: 0;
   max-height: 320px;
   overflow: auto;
+  overflow-anchor: none;
   background: rgba(0, 0, 0, 0.35);
   border: 1px solid var(--border-dim);
   padding: 10px;

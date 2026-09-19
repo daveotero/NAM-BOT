@@ -5,7 +5,7 @@ import { buildBackendSettingsKey } from '../../shared/backend-settings'
 
 describe('diagnostic auto-loading', () => {
   it('rejects broadcast results from a previously selected environment', () => {
-    const settings: AppSettings = { condaExecutablePath: 'conda', backendMode: 'conda-name', environmentName: 'new-environment', environmentPrefixPath: null, defaultOutputRoot: null, defaultWorkspaceRoot: null, autoOpenResultsFolder: false, defaultAuthorName: '', defaultAuthorUrl: '' }
+    const settings: AppSettings = { condaExecutablePath: 'conda', backendMode: 'conda-name', environmentName: 'new-environment', environmentPrefixPath: null, defaultOutputRoot: null, defaultWorkspaceRoot: null, defaultPresetId: 'a2-packed-wavenet', autoOpenResultsFolder: false, defaultAuthorName: '', defaultAuthorUrl: '' }
     const check = { ok: true, code: 'ok', title: 'Ready', message: 'Ready' }
     const result: BackendValidationSummary = { settingsKey: buildBackendSettingsKey({ ...settings, environmentName: 'old-environment' }), checkedAt: new Date().toISOString(), overallOk: true, condaReachable: check, environmentReachable: check, pythonReachable: check, namInstalled: check, namFullAvailable: check }
     useAppStore.setState({ settings, validation: null, isSettingsSaving: false })

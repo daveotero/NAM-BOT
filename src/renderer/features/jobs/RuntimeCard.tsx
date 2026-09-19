@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState, type UIEvent } from 'react'
 import {
   JobPackedSubmodelCheckpointSummary,
   JobRuntimeState,
@@ -199,6 +199,35 @@ export default function RuntimeCard({
   onClearFinished
 }: RuntimeCardProps) {
   const [actionError, setActionError] = useState<string | null>(null)
+  const [followingLogs, setFollowingLogs] = useState(true)
+  const followingLogsRef = useRef(true)
+  const logScrollTopRef = useRef(0)
+  const terminalLogRef = useRef<HTMLPreElement>(null)
+
+  useLayoutEffect(() => {
+    const log = terminalLogRef.current
+    if (!isLogsVisible || !log) return
+    log.scrollTop = followingLogsRef.current ? log.scrollHeight : logScrollTopRef.current
+  }, [isLogsVisible, terminalLog])
+
+  useLayoutEffect(() => {
+    const log = terminalLogRef.current
+    if (!isLogsVisible || !log) return
+    const observer = new ResizeObserver(() => {
+      if (followingLogsRef.current) log.scrollTop = log.scrollHeight
+    })
+    observer.observe(log)
+    return () => observer.disconnect()
+  }, [isLogsVisible])
+
+  const handleLogScroll = (event: UIEvent<HTMLPreElement>): void => {
+    const log = event.currentTarget
+    const following = log.scrollHeight - log.clientHeight - log.scrollTop <= 2
+    logScrollTopRef.current = log.scrollTop
+    followingLogsRef.current = following
+    setFollowingLogs(following)
+  }
+
   const runAction = async (action: () => Promise<void>): Promise<void> => {
     try {
       setActionError(null)
@@ -471,9 +500,12 @@ export default function RuntimeCard({
         <div className="queue-inline-log" data-no-card-toggle="true">
           <div className="queue-inline-log-header">
             <span>Terminal Output</span>
-            {isActiveRuntime(runtime.status) && <span>Auto-refreshing while active</span>}
+            <span className="queue-inline-log-follow-state" data-following={followingLogs}
+              title={followingLogs ? 'Following new terminal output.' : 'Scroll to the bottom to follow new output.'}>
+              {followingLogs ? 'Auto-scroll active' : 'Auto-scroll paused'}
+            </span>
           </div>
-          <pre className="queue-inline-log-body">{terminalLog || '[no terminal output yet]'}</pre>
+          <pre ref={terminalLogRef} className="queue-inline-log-body" tabIndex={0} onScroll={handleLogScroll} aria-label={`${runtime.jobName} terminal output`}>{terminalLog || '[no terminal output yet]'}</pre>
         </div>
       )}
     </div>

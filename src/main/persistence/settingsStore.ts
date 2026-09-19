@@ -49,6 +49,10 @@ export function normalizeSettings(input: unknown): AppSettings {
       getSetting(input, 'defaultWorkspaceRoot'),
       defaultSettings.defaultWorkspaceRoot
     ),
+    defaultPresetId: normalizeNullableString(
+      getSetting(input, 'defaultPresetId'),
+      defaultSettings.defaultPresetId
+    )?.trim() || defaultSettings.defaultPresetId,
     autoOpenResultsFolder: typeof getSetting(input, 'autoOpenResultsFolder') === 'boolean'
       ? getSetting(input, 'autoOpenResultsFolder') === true
       : defaultSettings.autoOpenResultsFolder,

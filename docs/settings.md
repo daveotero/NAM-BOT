@@ -39,6 +39,7 @@ Older settings files that selected the unsupported Direct Python mode are migrat
 
 ### Application Settings
 
+- **Default preset**: The saved preset used for new jobs, dropped or selected output audio files, and batches created from fresh files. It starts with A2 Packed WaveNet and includes all visible built-in and user presets. Each new job inherits the chosen preset's epoch count. Deleting the selected default in Presets resets this preference to A2 Packed WaveNet. If the preset becomes unavailable outside the app or is hidden, new jobs still fall back to A2, and Settings flags the unavailable selection. Existing jobs and batches created from a template retain their selected recipe.
 - **Automatically open results folder**: Opens the completed run folder in your system file browser once training finishes.
   On Windows this usually means File Explorer. On macOS this means Finder.
 

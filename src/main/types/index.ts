@@ -1,3 +1,5 @@
+import { DEFAULT_PRESET_ID } from '../../shared/training'
+
 export type BackendMode = 'conda-name' | 'conda-prefix'
 
 export interface AppSettings {
@@ -7,6 +9,7 @@ export interface AppSettings {
   environmentPrefixPath: string | null
   defaultOutputRoot: string | null
   defaultWorkspaceRoot: string | null
+  defaultPresetId: string
   autoOpenResultsFolder: boolean
   defaultAuthorName: string
   defaultAuthorUrl: string
@@ -19,6 +22,7 @@ export const defaultSettings: AppSettings = {
   environmentPrefixPath: null,
   defaultOutputRoot: null,
   defaultWorkspaceRoot: null,
+  defaultPresetId: DEFAULT_PRESET_ID,
   autoOpenResultsFolder: false,
   defaultAuthorName: '',
   defaultAuthorUrl: ''

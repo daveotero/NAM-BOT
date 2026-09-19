@@ -78,6 +78,7 @@ import {
   getStoredAppendPresetToModelFileNamePreference,
   getOutputRootModeForJob,
   getPreferredOutputRootSelection,
+  getPreferredJobPreset,
   LAST_APPEND_ESR_STORAGE_KEY,
   LAST_APPEND_PRESET_NAME_STORAGE_KEY,
   LAST_COPY_FINAL_MODEL_TO_OUTPUT_AUDIO_FOLDER_STORAGE_KEY,
@@ -551,14 +552,10 @@ export default function Jobs() {
     }
 
     const defaultInputRef = await window.namBot.jobs.getDefaultInputAudioPath() as string | null
-    const visiblePresets = presets.filter((preset) => preset.visible)
-    const storedPresetId = window.localStorage.getItem(LAST_USED_PRESET_STORAGE_KEY)
     const appendPresetToModelFileName = getStoredAppendPresetToModelFileNamePreference()
     const appendEsrToModelFileName = getStoredAppendEsrToModelFileNamePreference()
     const copyFinalModelToOutputAudioFolder = window.localStorage.getItem(LAST_COPY_FINAL_MODEL_TO_OUTPUT_AUDIO_FOLDER_STORAGE_KEY) === 'true'
-    const fallbackPreset = visiblePresets.find((preset) => preset.id === DEFAULT_PRESET_ID)
-      ?? visiblePresets.find((preset) => preset.id === storedPresetId)
-      ?? visiblePresets[0]
+    const fallbackPreset = getPreferredJobPreset({ presets, settings })
     const createdJobs: JobSpec[] = []
 
     for (const file of audioFiles) {
@@ -1836,7 +1833,7 @@ function JobEditor({
               </div>
             </div>
             {showPackedSubmodelSelector && (
-              <div className="property-row"><span className="form-label" id="job-packed-models-label">Packed models</span><div className="property-control" role="group" aria-labelledby="job-packed-models-label">
+              <div className="property-row"><span className="form-label" id="job-packed-models-label">Packed models</span><div className="property-control property-option-panel" role="group" aria-labelledby="job-packed-models-label">
 
                 <p className="packed-submodel-helper">
                   Choose which model tiers to include. At least one must remain selected.
@@ -1961,7 +1958,7 @@ function JobEditor({
             <div className="property-row">
               <span className="form-label" id="job-file-naming-label">File naming</span>
               <div className="property-control">
-                <div className="job-check-options" role="group" aria-labelledby="job-file-naming-label">
+                <div className="job-check-options property-option-panel" role="group" aria-labelledby="job-file-naming-label">
                   <label className="job-check-option">
                     <input
                       type="checkbox"
@@ -2015,7 +2012,7 @@ function JobEditor({
             <div className="property-row">
               <span className="form-label">Extra copy</span>
               <div className="property-control">
-                <label className="job-check-option">
+                <label className="job-check-option property-option-panel">
                   <input
                     type="checkbox"
                     checked={editedJob.copyFinalModelToOutputAudioFolder}
