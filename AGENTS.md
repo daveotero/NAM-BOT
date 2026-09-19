@@ -1,4 +1,4 @@
-# AGENTS.md - NAM-BOT Development Guide (v0.6.7)
+# AGENTS.md - NAM-BOT Development Guide (v0.6.8)
 
 This document provides guidance for AI agents working on the NAM-BOT project.
 
@@ -14,7 +14,8 @@ This document provides guidance for AI agents working on the NAM-BOT project.
 - Project-local agent workflow files live under `.agents/`.
 - Prefix repo-scoped skill names with `nam-` so they stay easy to distinguish from global skills.
 - Use `.agents/skills/nam-release-workflow/SKILL.md` when the user asks to update the changelog, choose a version bump, clean generated release trash, commit, or push.
-- Ask the user to approve the exact version before changing release metadata. A request to commit or push does not itself approve a version bump. This approval requirement overrides automatic version-bump defaults in the release workflow; small feature additions may still be patch updates.
+- The user chooses the version increment: patch, minor, or major. An explicit request for one of these increments approves the corresponding next version; calculate it from the current version and proceed without asking for exact-number confirmation. An explicitly requested version number is also approved.
+- Do not choose the increment on the user's behalf. If a release request specifies neither an increment nor an exact version, ask which increment they want. A request to commit or push alone does not authorize a version bump. These rules override automatic version-bump defaults in any workflow.
 - Do not commit or push until the user explicitly requests that action. Approval of a feature, version number, or correction is not commit authorization. A completed commit/push request does not authorize later commits; leave subsequent changes uncommitted until asked again. This rule overrides automatic commit/push steps in the release workflow.
 
 ### 0.2 Documentation Discipline
@@ -22,6 +23,7 @@ This document provides guidance for AI agents working on the NAM-BOT project.
 - When a significant change is made to a core feature, update the relevant documentation in `docs/` as part of the same work whenever practical.
 - Core features include, at minimum, Jobs, Presets, Settings, Diagnostics, Dashboard, and Setup Guide.
 - If no matching document exists yet, create one rather than leaving the feature undocumented.
+- Keep public documentation and release notes for unlisted terminal behavior oblique, using occasional BBS wordplay. Leave names, entry sequences, controls, and outcomes for users to discover.
 
 ---
 

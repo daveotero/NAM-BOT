@@ -1,9 +1,10 @@
-import type { CSSProperties, JSX } from 'react'
+import type { CSSProperties, JSX, MouseEvent } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { UpdateStatus } from '../../../shared/update'
 import { useAppStore } from '../../state/store'
 import { normalizeTrainingPreset } from '../../state/types'
 import AboutMiniGame from './AboutMiniGame'
+import { hasEpochRunnerSession } from './about-game-session'
 import {
   EPOCH_RUNNER_COMMAND,
   EPOCH_RUNNER_COMMAND_ALIAS,
@@ -46,6 +47,9 @@ interface TerminalHistoryEntry {
   cmd: string
   responses: string[]
 }
+
+// Keep the command that opened a suspended game available when returning from Jobs.
+let savedTerminalHistory: TerminalHistoryEntry[] = []
 
 interface BootSequenceBreak {
   type: 'break'
@@ -153,10 +157,10 @@ function createBootSequence(updateStatus: UpdateStatus): BootSequenceItem[] {
 const epochRunnerLoaderLines = [
   'Launching EPOCHRUNNER.EXE',
   'Staging five training runs',
-  'Allocating waveform terrain',
+  'Aligning capture buffers',
   'Calibrating jump physics',
   'Loading NAM-BOT recovery buffer',
-  'Indexing +1 and +5 epoch packets',
+  'Indexing epoch packets and feature caches',
   'Loading reward preset manifest',
   'Ready. Press SPACE.'
 ]
@@ -290,18 +294,21 @@ export default function About() {
   const presets = useAppStore((state) => state.presets)
   const updateStatus = useAppStore((state) => state.updateStatus)
   const loadPresets = useAppStore((state) => state.loadPresets)
-  const [history, setHistory] = useState<TerminalHistoryEntry[]>([])
+  const [history, setHistory] = useState<TerminalHistoryEntry[]>(() => savedTerminalHistory)
   const [currentInput, setCurrentInput] = useState<string>('')
   const [visibleChars, setVisibleChars] = useState<number>(0)
-  const [isBootComplete, setIsBootComplete] = useState<boolean>(false)
-  const [mode, setMode] = useState<TerminalMode>('prompt')
+  const [isBootComplete, setIsBootComplete] = useState<boolean>(hasEpochRunnerSession)
+  const [mode, setMode] = useState<TerminalMode>(() => hasEpochRunnerSession() ? 'game' : 'prompt')
   const [loaderLineIndex, setLoaderLineIndex] = useState<number>(0)
   const [loaderVisibleChars, setLoaderVisibleChars] = useState<number>(0)
   const [aboutMessage, setAboutMessage] = useState<string | null>(null)
-  const [responseVisibleChars, setResponseVisibleChars] = useState<Record<string, number>>({})
+  const [responseVisibleChars, setResponseVisibleChars] = useState<Record<string, number>>(() => Object.fromEntries(
+    savedTerminalHistory.flatMap((entry) => entry.responses.map((response, index) => [entry.id + '-' + index, response.length]))
+  ))
+  const terminalRef = useRef<HTMLDivElement | null>(null)
   const terminalEndRef = useRef<HTMLDivElement | null>(null)
   const gameContainerRef = useRef<HTMLDivElement | null>(null)
-  const nextHistoryEntryIdRef = useRef<number>(1)
+  const nextHistoryEntryIdRef = useRef<number>(savedTerminalHistory.length + 1)
   const bootSequence = useMemo<BootSequenceItem[]>(() => createBootSequence(updateStatus), [updateStatus])
   const hasUpdateAvailable = updateStatus.state === 'update-available'
 
@@ -322,12 +329,21 @@ export default function About() {
   )
 
   useEffect(() => {
+    savedTerminalHistory = history
+  }, [history])
+
+  useEffect(() => {
+    if (mode === 'prompt') terminalRef.current?.focus({ preventScroll: true })
+  }, [mode])
+
+  useEffect(() => {
     if (presets.length === 0) {
       void loadPresets()
     }
   }, [loadPresets, presets.length])
 
   useEffect(() => {
+    if (mode === 'game') return
     if (visibleChars < totalLength) {
       const timer = window.setTimeout(() => {
         const burst = Math.floor(Math.random() * 30) + 20
@@ -338,7 +354,7 @@ export default function About() {
 
     setIsBootComplete(true)
     return undefined
-  }, [totalLength, visibleChars])
+  }, [totalLength, visibleChars, mode])
 
   useEffect(() => {
     if (mode !== 'game-loading') {
@@ -406,14 +422,13 @@ export default function About() {
   }, [history, unfinishedResponseKeys])
 
   useEffect(() => {
-    if (!isBootComplete) {
-      return
-    }
-
     const handleKeyDown = (event: KeyboardEvent): void => {
-      if (document.activeElement?.tagName === 'A') {
-        return
-      }
+      // The game owns its input, including editable score initials and native buttons.
+      if (mode === 'game') return
+      if (event.ctrlKey || event.altKey || event.metaKey || event.isComposing) return
+      const focused = document.activeElement
+      if (!terminalRef.current?.contains(focused)) return
+      if (focused instanceof HTMLElement && focused.closest('a, button, input, textarea, select, [contenteditable="true"]')) return
 
       if (mode !== 'prompt') {
         if (
@@ -427,6 +442,12 @@ export default function About() {
           event.preventDefault()
         }
         return
+      }
+
+      // Typing can finish the boot animation, but must keep the first character.
+      if (!isBootComplete && (event.key.length === 1 || event.key === 'Enter' || event.key === 'Backspace')) {
+        setVisibleChars(totalLength)
+        setIsBootComplete(true)
       }
 
       if (event.key === 'Enter') {
@@ -484,7 +505,7 @@ export default function About() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [currentInput, isBootComplete, mode])
+  }, [currentInput, isBootComplete, mode, totalLength])
 
   useEffect(() => {
     if (mode === 'game') {
@@ -495,7 +516,10 @@ export default function About() {
     terminalEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [currentInput, history, isBootComplete, loaderLineIndex, loaderVisibleChars, mode, unfinishedResponseKeys, visibleChars])
 
-  const handleSkip = (): void => {
+  const handleSkip = (event: MouseEvent<HTMLDivElement>): void => {
+    if (mode === 'game') return
+    if (event.target instanceof HTMLElement && event.target.closest('a, button, input, textarea, select, [contenteditable="true"]')) return
+    terminalRef.current?.focus({ preventScroll: true })
     if (!isBootComplete) {
       setVisibleChars(totalLength)
       setIsBootComplete(true)
@@ -503,6 +527,8 @@ export default function About() {
   }
 
   const handleExitGame = (): void => {
+    setVisibleChars(totalLength)
+    setIsBootComplete(true)
     setMode('prompt')
     setAboutMessage('EPOCHRUNNER.EXE returned control to the terminal.')
   }
@@ -525,71 +551,74 @@ export default function About() {
   const charOffsetRef = { current: 0 }
 
   return (
-    <div className="layout-main terminal-container" onClick={handleSkip}>
+    <div className={'layout-main terminal-container' + (mode === 'game' ? ' terminal-game-active' : '')}
+      ref={terminalRef} tabIndex={0} role="region" aria-label="About terminal" onClick={handleSkip}>
       <div className="terminal-screen">
         <div className="terminal-scroll-area">
           <div className="terminal-content">
-            {bootSequence.map((item, index) => renderBootItem(item, index, visibleChars, charOffsetRef))}
-
-            {isBootComplete && (
+            {mode === 'game' ? (
+              <div className="terminal-game-container" ref={gameContainerRef}>
+                <AboutMiniGame isRewardUnlocked={isRewardUnlocked} onExit={handleExitGame} onUnlockReward={handleUnlockReward} />
+              </div>
+            ) : (
               <>
-                {history.map((item) => (
-                  <div key={item.id} className="terminal-history-item">
-                    <div className="terminal-prompt">
-                      <span className="neon-green">C:\NAM-BOT&gt;</span>
-                      <span className="terminal-input">{item.cmd}</span>
-                    </div>
-                    {item.responses.map((response, responseIndex) => (
-                      <div key={`${item.id}-${responseIndex}`} className="terminal-output-line">
-                        <span className="terminal-output-prefix neon-green">&gt;</span>
-                        <span className="terminal-output-text">
-                          {response.slice(0, responseVisibleChars[`${item.id}-${responseIndex}`] ?? 0)}
-                          {unfinishedResponseKeys.includes(`${item.id}-${responseIndex}`) && <span className="terminal-cursor">█</span>}
-                        </span>
+                {bootSequence.map((item, index) => renderBootItem(item, index, visibleChars, charOffsetRef))}
+
+                {isBootComplete && (
+                  <>
+                    {history.map((item) => (
+                      <div key={item.id} className="terminal-history-item">
+                        <div className="terminal-prompt">
+                          <span className="neon-green">C:\NAM-BOT&gt;</span>
+                          <span className="terminal-input">{item.cmd}</span>
+                        </div>
+                        {item.responses.map((response, responseIndex) => (
+                          <div key={`${item.id}-${responseIndex}`} className="terminal-output-line">
+                            <span className="terminal-output-prefix neon-green">&gt;</span>
+                            <span className="terminal-output-text">
+                              {response.slice(0, responseVisibleChars[`${item.id}-${responseIndex}`] ?? 0)}
+                              {unfinishedResponseKeys.includes(`${item.id}-${responseIndex}`) && <span className="terminal-cursor">█</span>}
+                            </span>
+                          </div>
+                        ))}
                       </div>
                     ))}
-                  </div>
-                ))}
 
-                {mode === 'game-loading' && (
-                  <div className="terminal-loader">
-                    {epochRunnerLoaderLines.slice(0, loaderLineIndex).map((line) => (
-                      <p key={line} className="terminal-loader-line neon-cyan">{line}</p>
-                    ))}
-                    {epochRunnerLoaderLines[loaderLineIndex] && (
-                      <p className="terminal-loader-line neon-cyan">
-                        {epochRunnerLoaderLines[loaderLineIndex].slice(0, loaderVisibleChars)}
-                        <span className="terminal-cursor">█</span>
-                      </p>
+                    {mode === 'game-loading' && (
+                      <div className="terminal-loader">
+                        {epochRunnerLoaderLines.slice(0, loaderLineIndex).map((line) => (
+                          <p key={line} className="terminal-loader-line neon-cyan">{line}</p>
+                        ))}
+                        {epochRunnerLoaderLines[loaderLineIndex] && (
+                          <p className="terminal-loader-line neon-cyan">
+                            {epochRunnerLoaderLines[loaderLineIndex].slice(0, loaderVisibleChars)}
+                            <span className="terminal-cursor">█</span>
+                          </p>
+                        )}
+                      </div>
                     )}
-                  </div>
-                )}
 
-                {mode === 'game' ? (
-                  <div ref={gameContainerRef}>
-                    <AboutMiniGame
-                      isRewardUnlocked={isRewardUnlocked}
-                      onExit={handleExitGame}
-                      onUnlockReward={handleUnlockReward}
-                    />
-                  </div>
-                ) : (
-                  <div className="terminal-prompt" ref={terminalEndRef}>
-                    <span className="neon-green">C:\NAM-BOT&gt;</span>
-                    <span className="terminal-input">{currentInput}</span>
-                    <span className="terminal-cursor">█</span>
-                  </div>
-                )}
+                    <div className="terminal-prompt">
+                      <span className="neon-green">C:\NAM-BOT&gt;</span>
+                      <span className="terminal-input">{currentInput}</span>
+                      <span className="terminal-cursor">█</span>
+                    </div>
 
-                {aboutMessage && <p className="terminal-status-message neon-green">{aboutMessage}</p>}
+                    {aboutMessage && <p className="terminal-status-message neon-green">{aboutMessage}</p>}
+                  </>
+                )}
+                <div className="terminal-end" ref={terminalEndRef} aria-hidden="true" />
               </>
             )}
-            {!isBootComplete && <div ref={terminalEndRef} />}
           </div>
         </div>
       </div>
 
       <style>{`
+        .terminal-game-active { padding: 14px !important; cursor: default !important; }
+        .terminal-game-active .terminal-scroll-area { padding: 0; overflow: auto; min-height: 0; }
+        .terminal-game-active .terminal-content { flex: 1; display: flex; min-height: 0; }
+        .terminal-game-container { flex: 1; min-width: 0; display: flex; }
         .terminal-container {
           background-color: var(--bg-void);
           padding: 24px;
@@ -603,6 +632,8 @@ export default function About() {
           overflow: hidden;
           cursor: pointer;
         }
+
+        .terminal-container:focus { outline: none; }
 
         .terminal-screen {
           border: 2px solid var(--border-dim);
@@ -640,6 +671,11 @@ export default function About() {
         .terminal-content {
           position: relative;
           z-index: 3;
+        }
+
+        .terminal-end {
+          height: 1.5em;
+          font-size: 20px;
         }
 
         .terminal-logo {

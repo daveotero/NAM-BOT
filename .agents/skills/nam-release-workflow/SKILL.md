@@ -10,8 +10,8 @@ Use this skill to turn the current thread's completed repo changes into a clean 
 ## Release Rules
 
 - Treat requests like `update changelog`, `patch update`, `release this`, or `commit and push` as a release workflow request for this repo.
-- Default to a patch bump for docs, UX polish, copy, bug fixes, small workflow improvements, and project-maintenance changes.
-- Use a minor bump only when the repo gained a clearly new user-facing capability or a larger workflow surface.
+- The user chooses patch, minor, or major. An explicit increment request authorizes the corresponding next version; calculate it from the current version without asking for exact-number confirmation. An explicitly requested version number is also approved.
+- If neither an increment nor an exact version was specified, ask which increment the user wants. Do not select one automatically, and do not infer a version bump from a commit or push request alone.
 - Keep prerelease formatting consistent with the repo's current scheme, e.g. `0.0.5-alpha`.
 - When promoting a tested release candidate to a stable release, consolidate the prerelease notes into the stable version section and remove the RC sections from the final public changelog unless the user explicitly wants prerelease entries preserved.
 - Treat pushing `main` and pushing a release tag as separate decisions.
@@ -33,7 +33,7 @@ Use this skill to turn the current thread's completed repo changes into a clean 
 ## Workflow
 
 1. Inspect `git status`, the latest commits, `package.json`, and the top of `CHANGELOG.md`.
-2. Decide the next version bump from the work completed since the last versioned changelog entry.
+2. Calculate the next version using the user's requested increment, or use their exact version. Ask for the increment only if neither was specified.
 3. Convert `Unreleased` notes into a dated versioned section for the new release.
 4. If the release notes are missing the current thread's changes, add concise bullets before finalizing the versioned section.
 5. Bump the version in `package.json` and `package-lock.json`.
@@ -52,6 +52,7 @@ Use this skill to turn the current thread's completed repo changes into a clean 
 - Put the new version directly under `Unreleased`.
 - Use the current local date in `YYYY-MM-DD` format.
 - Keep notes concise and grouped under `Added`, `Changed`, and `Fixed` when applicable.
+- Refer to unlisted terminal behavior only through oblique BBS wordplay; omit names, entry sequences, controls, and outcomes.
 - Prefer shipping one coherent release entry rather than stacking many tiny `Unreleased` bullets across threads.
 - For stable releases that follow one or more RCs, prefer one coherent stable changelog section instead of public RC sections.
 

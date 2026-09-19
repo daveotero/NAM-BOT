@@ -21,7 +21,7 @@ Jobs, Presets, Settings, Diagnostics, and Setup Guide share `PropertySheet` sect
 - **Other platforms:** retain their native window frame and menu, with a compact content header.
 - **Fullscreen:** the header remains useful for section/activity and Windows menu access, but removes the native-control reservations and drag behavior. Exiting fullscreen restores the platform's spacing.
 
-Windows uses Electron's `titlebar-area-x`, `titlebar-area-width`, and `titlebar-area-height` CSS environment variables, with conservative initial fallbacks. The shell bridge reports focus, fullscreen, and application zoom; it does not implement minimize/maximize/close commands.
+Windows uses Electron's `titlebar-area-x`, `titlebar-area-y`, `titlebar-area-width`, and `titlebar-area-height` CSS environment variables, with conservative initial fallbacks. The header reserves the full native overlay area, then draws its bottom divider outside that area so the caption controls cannot paint over it. The shell bridge reports focus, fullscreen, and application zoom; it does not implement minimize/maximize/close commands.
 
 ## Menu and keyboard
 

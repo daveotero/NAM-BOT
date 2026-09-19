@@ -21,8 +21,11 @@
 }
 
 .app-title-bar[data-platform='win32'][data-fullscreen='false'] {
-  height: env(titlebar-area-height, var(--shell-height));
-  flex-basis: env(titlebar-area-height, var(--shell-height));
+  /* Windows paints the entire overlay. Reserve the divider below it rather
+     than letting native buttons cover the bottom border of a border-box. */
+  box-sizing: content-box;
+  height: calc(env(titlebar-area-y, 0px) + env(titlebar-area-height, var(--shell-height)));
+  flex-basis: calc(env(titlebar-area-y, 0px) + env(titlebar-area-height, var(--shell-height)));
 }
 
 .app-title-bar[data-platform='win32'][data-fullscreen='false'] .app-title-bar-safe-area {

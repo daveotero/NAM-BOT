@@ -55,6 +55,7 @@ function buildOverlappingCollectible(
     y: state.player.y + 10,
     width: value === 5 ? 30 : 22,
     height: value === 5 ? 30 : 22,
+    isBonus: false,
     bobPhase: 0
   }
 }
@@ -270,7 +271,7 @@ describe('Epoch Runner engine', () => {
     expect(finalCrash.status).toBe('game-over')
     expect(finalCrash.livesRemaining).toBe(0)
     expect(finalCrash.resultHeadline).toBe('TRAINING RUN FAILED')
-    expect(finalCrash.resultDetail).toContain('NAM-BOT dissolved')
+    expect(finalCrash.resultDetail).toBe(firstCrash.resultDetail)
   })
 
   it('requires duck dash to clear signal beams after the upgrade', () => {

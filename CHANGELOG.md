@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.8] - 2026-09-19
+
 ### Added
 
 - Lifetime training totals and recent completed runs on the dashboard, preserved when Jobs history is cleared.
@@ -16,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Retuned the terminal's after-hours circuits.
 - Reorganized the app into compact desktop workspaces with fixed commands, grouped navigation, and a persistent status footer.
 - Unified Jobs, Presets, Settings, Diagnostics, and Setup Guide with shared section navigation, smooth scrolling, muted field borders, and responsive layouts.
 - Themed About, update, and exit dialogs to match the app; removed the duplicate title-bar status and the unused Windows Window > Zoom command.
@@ -26,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Windows caption controls no longer overlap the workspace title bar.
+- The About terminal accepts typing immediately, keeps a blank line below the prompt, and no longer draws a focus box around the panel.
 - Canceling an untouched new job no longer asks to discard changes; reverting edits also restores the unchanged state.
 - Preset editor mode controls stay beside the heading, with stable Save Preset and Apply JSON actions when switching modes.
 - macOS menu commands reopen a closed window and wait for saved settings and presets before opening an editor.
@@ -482,20 +487,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Jobs queueing flow so drafts disappear immediately on the Jobs screen after being queued
-- Reward preset epoch default so the unlock now uses `666` epochs
+- Adjusted the defaults for a tucked-away preset
 - Windows app shell icon handling for development and packaged builds
 
 ## [0.2.5] - 2026-03-13
 
 ### Added
 
-- About screen terminal easter egg with a hidden interactive flow
+- A few unlisted extensions on the About terminal switchboard
 - Public-facing desktop shell polish with a real native app menu, About dialog, taskbar progress, notifications, and support-folder shortcuts
 - Application icon assets for development and Windows packaging
 
 ### Changed
 
-- About and Presets polish around the hidden terminal flow and a small unlockable bonus
+- Polished a few connections between the About terminal and the preset cabinet
 - Windows app shell behavior so navigation and support actions are exposed through the Electron menu bar
 
 ### Fixed
@@ -550,7 +555,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- BBS-style About page with CRT styling and a pseudo-terminal easter egg
+- BBS-style About page with CRT styling and a little more beneath the prompt
 - Repository, personal site, studio, and support links inside the About experience
 - Standard MIT license file
 - About-page license and copyright notice

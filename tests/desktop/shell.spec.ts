@@ -138,10 +138,11 @@ async function assertSafeArea(): Promise<void> {
     const scale = Number(getComputedStyle(bar).getPropertyValue('--shell-scale'))
     const fullscreen = bar.getAttribute('data-fullscreen') === 'true'
     const platform = bar.getAttribute('data-platform')
+    const divider = platform === 'win32' && !fullscreen ? Number.parseFloat(getComputedStyle(bar).borderBottomWidth) : 0
     return {
       fits: section.right <= safe.right + 1 && wordmark.left >= safe.left && section.left > wordmark.right,
       // Windows includes the native top resize border; rounding also varies by DPI.
-      height: Math.abs(rect.height / scale - 44) <= 1.25,
+      height: Math.abs((rect.height - divider) / scale - 44) <= 1.25,
       below: main.top >= rect.bottom,
       macSafe: platform !== 'darwin' || fullscreen || wordmark.left / scale >= 90,
       windowsSafe: platform !== 'win32' || fullscreen || (window.innerWidth - safe.right) / scale >= 120,
@@ -1174,6 +1175,60 @@ test('shell requests reject foreign windows and report native focus changes', as
   await foreignWindow.evaluate((win) => win.close())
   await main.evaluate((win) => win.focus())
   await expect(page.locator('.app-title-bar')).toHaveAttribute('data-focused', 'true')
+})
+
+test('Windows caption controls stay above the workspace toolbar', async ({}, info) => {
+  test.skip(process.platform !== 'win32', 'Windows nonclient hit testing only')
+  for (const maximized of [false, true]) {
+    if (maximized) await transitionNativeWindow('maximize')
+    for (const zoom of [0.75, 1, 1.25, 1.5]) {
+      await app.evaluate(({ BrowserWindow }, factor) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(factor), zoom)
+      await assertSafeArea()
+      const geometry = await page.evaluate(() => {
+        const header = document.querySelector('.app-title-bar')!
+        const bar = header.getBoundingClientRect()
+        const safe = document.querySelector('.app-title-bar-safe-area')!.getBoundingClientRect()
+        const toolbar = document.querySelector('.workspace-toolbar')!.getBoundingClientRect()
+        const probe = document.createElement('div')
+        probe.style.cssText = 'position:fixed;top:env(titlebar-area-y,0px);height:env(titlebar-area-height,0px)'
+        document.body.append(probe)
+        const overlay = probe.getBoundingClientRect()
+        probe.remove()
+        return {
+          bar: bar.toJSON(), overlay: overlay.toJSON(), toolbar: toolbar.toJSON(),
+          dividerTop: bar.bottom - Number.parseFloat(getComputedStyle(header).borderBottomWidth),
+          nativeBottom: overlay.bottom,
+          points: [1, 3, 5].map((column) => ({
+            name: 'toolbar-below-control-' + column,
+            x: safe.right + (window.innerWidth - safe.right) * column / 6,
+            y: toolbar.top
+          }))
+        }
+      })
+      await writeFile(info.outputPath('caption-edge-' + maximized + '-' + zoom + '.json'), JSON.stringify(geometry, null, 2))
+      expect(geometry.dividerTop, 'Divider must remain below the native painted area').toBeGreaterThanOrEqual(geometry.nativeBottom - 0.02)
+      // Forced Chromium DPI does not change Windows DPI. In those runs, inspect
+      // overlay geometry only; DIP-to-screen conversion cannot locate OS hits.
+      if (process.env.NAM_BOT_TEST_SCALE) continue
+      const native = await app.evaluate(({ BrowserWindow, screen }, points) => {
+        const win = BrowserWindow.getAllWindows()[0]
+        const bounds = win.getContentBounds()
+        const factor = win.webContents.getZoomFactor()
+        return {
+          handle: win.getNativeWindowHandle().readBigUInt64LE().toString(),
+          points: points.map((point) => ({ name: point.name, ...screen.dipToScreenPoint({
+            x: Math.round(bounds.x + point.x * factor), y: Math.round(bounds.y + point.y * factor)
+          }) }))
+        }
+      }, geometry.points)
+      const result = await promisify(execFile)('powershell.exe', ['-NoProfile', '-NonInteractive', '-File',
+        resolve('tests/desktop/windows-hit-test.ps1'), '-WindowHandle', native.handle, '-PointsJson', JSON.stringify(native.points)], { windowsHide: true })
+      await info.attach('caption-edge-' + maximized + '-' + zoom, { body: JSON.stringify({ geometry, native, hits: JSON.parse(result.stdout) }), contentType: 'application/json' })
+      expect(JSON.parse(result.stdout), 'maximized=' + maximized + ', zoom=' + zoom + ': ' + JSON.stringify(geometry)).toEqual(
+        geometry.points.map((point) => ({ name: point.name, hit: 1 }))
+      )
+    }
+  }
 })
 
 test('Windows native hit regions distinguish drag, menu and caption controls', async () => {

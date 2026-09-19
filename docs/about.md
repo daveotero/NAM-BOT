@@ -24,10 +24,17 @@ The About screen doubles as NAM-BOT's in-app credits and lightweight update surf
 
 ## Terminal Diagnostics
 
-- The About terminal includes a few undocumented responses for curious operators who try commands outside the visible menu.
-- Some hidden diagnostics use short CRT-style loading sequences and should preserve the same terminal aesthetic as the rest of the screen.
-- Any tucked-away NAM-BOT recovery protocol should keep input forgiving, avoid accidental prompt skips, and return cleanly to the normal About terminal.
-- If a hidden terminal path grants a reward preset, the final action should still use the existing preset-library flow and report clearly when that preset is already available in Jobs.
+- Opening About focuses its terminal immediately. Typing during the boot animation reveals the prompt and preserves the first character. Returning to the prompt restores terminal focus, and auto-scrolling leaves a blank line below it. Links, other controls, and application shortcuts keep their normal keyboard behavior.
+- The BBS has a few unlisted extensions. Keep their names, entry sequences, controls, and outcomes out of public guides and release notes; an occasional nod to the after-hours switchboard is enough.
+- Terminal sequences use the same CRT styling as the rest of About. Keep input forgiving, require a fresh keypress after transitions, and return cleanly to the prompt.
+- Local activity pauses when focus is lost or the user leaves About. Timers and optional audio stop when the screen is closed, and reduced-motion preferences are respected.
+- Keep terminal copy brief: useful feedback and a little personality, without redundant system labels or simulated status chatter.
+
+## Verification
+
+- Run `npm exec -- vitest run src/renderer/features/about/` for the About screen's local state, input, and persistence checks.
+- Run `npm run build` followed by `npm run test:desktop-shell` for isolated Electron checks of keyboard focus, navigation, local persistence, and window layouts. Inspect the captured images as well as the test results.
+- Run `npm run check` for all type checks, unit/integration tests, and the production build.
 
 ## Development And Packaging
 

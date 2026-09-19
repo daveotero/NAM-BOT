@@ -17,7 +17,10 @@ const JUMP_RELEASE_GRAVITY_MULTIPLIER = 2.35
 const JUMP_VELOCITY = -610
 const JUMP_BUFFER_MS = 120
 const COYOTE_TIME_MS = 92
-const DUCK_DASH_DURATION_MS = 540
+export const DUCK_DASH_DURATION_MS = 540
+export const AIR_DASH_DURATION_MS = 360
+const AIR_DASH_SPEED = 500
+export const EPOCH_RUNNER_STEP_MS = 1000 / 60
 const DUCK_DASH_COOLDOWN_MS = 0
 const MAX_DELTA_MS = 40
 const PATTERN_RETRY_MS = 90
@@ -30,14 +33,15 @@ export const EPOCH_RUNNER_TARGET_EPOCHS = STAGE_TARGET_EPOCHS.reduce(
 )
 
 export type EpochRunnerOutcome = 'none' | 'crashed' | 'won'
-export type EpochRunnerStateStatus = 'ready' | 'running' | 'stage-complete' | 'cutscene' | 'crashed' | 'game-over' | 'won'
-export type EpochRunnerObstacleType = 'amp-stack' | 'noise-burst' | 'cab-wall' | 'signal-beam' | 'signal-tunnel'
-export type EpochRunnerCollectibleType = 'epoch' | 'epoch-bundle'
+export type EpochRunnerStateStatus = 'ready' | 'running' | 'paused' | 'stage-complete' | 'cutscene' | 'crashed' | 'game-over' | 'won'
+export type EpochRunnerObstacleType = 'amp-stack' | 'noise-burst' | 'cab-wall' | 'signal-beam' | 'signal-tunnel' | 'loss-plateau'
+export type EpochRunnerCollectibleType = 'epoch' | 'epoch-bundle' | 'feature-cache'
 
-type EpochRunnerPatternKind =
+export type EpochRunnerPatternKind =
   | 'single-hop'
   | 'low-burst'
   | 'staggered-hop'
+  | 'rising-hop'
   | 'cab-hop'
   | 'epoch-line'
   | 'epoch-bundle'
@@ -45,13 +49,17 @@ type EpochRunnerPatternKind =
   | 'duck-beam'
   | 'dash-tunnel'
   | 'dash-cache'
+  | 'jump-dash'
   | 'mixed-gate'
   | 'final-sprint'
 
-type CollectibleLane = 'ground' | 'hop' | 'high'
+type CollectibleLane = 'ground' | 'hop' | 'high' | 'air-dash'
 type EpochRunnerRandom = () => number
 
-interface StageConfig {
+export interface EpochRunnerStageDefinition {
+  name: string
+  instruction: string
+  patterns: EpochRunnerPatternKind[]
   baseSpeed: number
   maxSpeedBonus: number
   speedRamp: number
@@ -60,7 +68,7 @@ interface StageConfig {
   cooldownMaxMs: number
 }
 
-interface PatternBuildResult {
+export interface EpochRunnerPattern {
   obstacles: EpochRunnerObstacle[]
   collectibles: EpochRunnerCollectible[]
   nextSpawnId: number
@@ -89,6 +97,8 @@ export interface EpochRunnerPlayer {
   coyoteTimeMs: number
   duckDashMs: number
   duckCooldownMs: number
+  airDashMs: number
+  airDashUsed: boolean
 }
 
 export interface EpochRunnerObstacle {
@@ -109,6 +119,17 @@ export interface EpochRunnerCollectible {
   type: EpochRunnerCollectibleType
   value: number
   bobPhase: number
+  isBonus: boolean
+}
+
+export type EpochRunnerEventKind = 'pickup' | 'chain' | 'chain-broken' | 'dash' | 'crash' | 'stage-complete' | 'upgrade' | 'won'
+
+export interface EpochRunnerEvent {
+  kind: EpochRunnerEventKind
+  x: number
+  y: number
+  value: number
+  label: string
 }
 
 export interface EpochRunnerRunStats {
@@ -139,6 +160,11 @@ export interface EpochRunnerState extends EpochRunnerRunStats {
   nextSpawnId: number
   resultHeadline: string
   resultDetail: string
+  chain: number
+  maxChain: number
+  stageDeaths: number
+  failureObstacleId: number | null
+  events: EpochRunnerEvent[]
 }
 
 const idleInput: EpochRunnerInput = {
@@ -160,7 +186,9 @@ function createInitialPlayer(): EpochRunnerPlayer {
     jumpBufferMs: 0,
     coyoteTimeMs: COYOTE_TIME_MS,
     duckDashMs: 0,
-    duckCooldownMs: 0
+    duckCooldownMs: 0,
+    airDashMs: 0,
+    airDashUsed: false
   }
 }
 
@@ -169,35 +197,44 @@ function getStageTargetEpochs(stage: number): number {
   return target ?? STAGE_TARGET_EPOCHS[STAGE_TARGET_EPOCHS.length - 1]
 }
 
-function getStageConfig(stage: number): StageConfig {
+export function getEpochRunnerStage(stage: number): EpochRunnerStageDefinition {
   if (stage === 1) {
     return {
-      baseSpeed: 232,
-      maxSpeedBonus: 68,
+      name: 'INPUT CALIBRATION',
+      instruction: 'SPACE to jump. Hold for height; release for a short hop.',
+      patterns: ['single-hop', 'low-burst', 'staggered-hop'],
+      baseSpeed: 248,
+      maxSpeedBonus: 72,
       speedRamp: 2.2,
-      minPatternGapPx: 218,
-      cooldownMinMs: 1180,
-      cooldownMaxMs: 1580
+      minPatternGapPx: 314,
+      cooldownMinMs: 1100,
+      cooldownMaxMs: 1450
     }
   }
 
   if (stage === 2) {
     return {
-      baseSpeed: 252,
-      maxSpeedBonus: 82,
+      name: 'FEATURE LEARNING',
+      instruction: 'Tall activation blocks need a held jump. Double-outline caches are optional.',
+      patterns: ['staggered-hop', 'rising-hop', 'cab-hop', 'epoch-bundle'],
+      baseSpeed: 264,
+      maxSpeedBonus: 80,
       speedRamp: 2.45,
-      minPatternGapPx: 202,
-      cooldownMinMs: 1040,
-      cooldownMaxMs: 1440
+      minPatternGapPx: 290,
+      cooldownMinMs: 980,
+      cooldownMaxMs: 1320
     }
   }
 
   if (stage === 3) {
     return {
+      name: 'GRADIENT DESCENT',
+      instruction: 'Hold S / DOWN to phase-slide under beams. Release to end the slide.',
+      patterns: ['duck-beam', 'single-hop', 'low-burst', 'epoch-bundle'],
       baseSpeed: 264,
       maxSpeedBonus: 90,
       speedRamp: 2.55,
-      minPatternGapPx: 192,
+      minPatternGapPx: 332,
       cooldownMinMs: 990,
       cooldownMaxMs: 1340
     }
@@ -205,20 +242,26 @@ function getStageConfig(stage: number): StageConfig {
 
   if (stage === 4) {
     return {
+      name: 'VALIDATION',
+      instruction: 'Slide through tall gates, then release and jump the next spike.',
+      patterns: ['dash-tunnel', 'dash-cache', 'mixed-gate', 'duck-beam', 'staggered-hop', 'epoch-bundle'],
       baseSpeed: 282,
       maxSpeedBonus: 104,
       speedRamp: 2.7,
-      minPatternGapPx: 178,
+      minPatternGapPx: 318,
       cooldownMinMs: 900,
       cooldownMaxMs: 1240
     }
   }
 
   return {
+    name: 'CONVERGENCE',
+    instruction: 'Wide floor hazards: hold SPACE, then S / DOWN in the air.',
+    patterns: ['jump-dash', 'final-sprint', 'dash-tunnel', 'dash-cache', 'mixed-gate', 'duck-beam', 'staggered-hop', 'epoch-bundle'],
     baseSpeed: 300,
     maxSpeedBonus: 118,
     speedRamp: 2.85,
-    minPatternGapPx: 166,
+    minPatternGapPx: 306,
     cooldownMinMs: 800,
     cooldownMaxMs: 1120
   }
@@ -250,6 +293,10 @@ function buildObstacle(
   type: EpochRunnerObstacleType,
   x: number
 ): EpochRunnerObstacle {
+  if (type === 'loss-plateau') {
+    return { id, type, x, y: GROUND_Y - 30, width: 300, height: 30 }
+  }
+
   if (type === 'amp-stack') {
     return {
       id,
@@ -304,206 +351,91 @@ function buildObstacle(
   }
 }
 
-function getCollectibleY(lane: CollectibleLane, value: number): number {
-  if (lane === 'ground') {
-    return GROUND_Y - (value === 5 ? 48 : 44)
-  }
-
-  if (lane === 'hop') {
-    return GROUND_Y - (value === 5 ? 88 : 82)
-  }
-
-  return GROUND_Y - (value === 5 ? 122 : 116)
-}
-
 function buildCollectible(
-  id: number,
-  x: number,
-  lane: CollectibleLane,
-  value: number,
-  rng: EpochRunnerRandom
+  id: number, x: number, lane: CollectibleLane, value: number,
+  rng: EpochRunnerRandom, isBonus: boolean = false
 ): EpochRunnerCollectible {
-  const type: EpochRunnerCollectibleType = value === 5 ? 'epoch-bundle' : 'epoch'
-  const size = value === 5 ? 30 : 22
-
+  const size = value >= 5 ? 26 : 20
+  const top = lane === 'ground' ? GROUND_Y - 32 : lane === 'hop' ? GROUND_Y - 98
+    : lane === 'air-dash' ? GROUND_Y - 130 : GROUND_Y - 160
   return {
-    id,
-    type,
-    value,
-    x,
-    y: getCollectibleY(lane, value),
-    width: size,
-    height: size,
+    id, x, y: top, width: size, height: size, value, isBonus,
+    type: isBonus ? 'feature-cache' : value >= 5 ? 'epoch-bundle' : 'epoch',
     bobPhase: rng() * Math.PI * 2
   }
 }
 
-function addObstacle(
-  obstacles: EpochRunnerObstacle[],
-  nextId: number,
-  type: EpochRunnerObstacleType,
-  x: number
-): number {
-  obstacles.push(buildObstacle(nextId, type, x))
-  return nextId + 1
-}
-
-function addCollectible(
-  collectibles: EpochRunnerCollectible[],
-  nextId: number,
-  x: number,
-  lane: CollectibleLane,
-  value: number,
-  rng: EpochRunnerRandom
-): number {
-  collectibles.push(buildCollectible(nextId, x, lane, value, rng))
-  return nextId + 1
-}
-
-function buildPattern(
-  pattern: EpochRunnerPatternKind,
-  nextSpawnId: number,
-  rng: EpochRunnerRandom
-): PatternBuildResult {
+/** Space actions for the stage's fastest speed, not its entry speed. */
+export function buildEpochRunnerPattern(
+  pattern: EpochRunnerPatternKind, nextSpawnId: number, rng: EpochRunnerRandom, stage: number = 1
+): EpochRunnerPattern {
   const obstacles: EpochRunnerObstacle[] = []
   const collectibles: EpochRunnerCollectible[] = []
   const startX = GAME_WIDTH + 24
+  const config = getEpochRunnerStage(stage)
+  const stride = Math.max(260, (config.baseSpeed + config.maxSpeedBonus) * 0.95)
   let nextId = nextSpawnId
+  const packet = (offset: number, lane: CollectibleLane, value: number, bonus: boolean = false): void => {
+    collectibles.push(buildCollectible(nextId++, startX + offset, lane, value, rng, bonus))
+  }
+  const hazard = (offset: number, type: EpochRunnerObstacleType): void => {
+    obstacles.push(buildObstacle(nextId++, type, startX + offset))
+  }
+  const primaryValue = 1
+  const first = 180
 
   if (pattern === 'epoch-line') {
-    nextId = addCollectible(collectibles, nextId, startX + 80, 'ground', 1, rng)
-    nextId = addCollectible(collectibles, nextId, startX + 150, 'hop', 1, rng)
-    nextId = addCollectible(collectibles, nextId, startX + 220, 'ground', 1, rng)
-    return { obstacles, collectibles, nextSpawnId: nextId }
-  }
+    packet(50, 'ground', primaryValue)
+    packet(170, 'ground', primaryValue)
+    packet(300, 'ground', primaryValue)
+    if (stage >= 2) packet(180, 'high', 10, true)
+  } else if (pattern === 'jump-dash') {
+    packet(45, 'ground', primaryValue)
+    hazard(first, 'loss-plateau')
+    packet(first + 20, 'air-dash', 1)
+    packet(first + 145, 'air-dash', 5)
+    packet(first + 265, 'air-dash', 1)
+    packet(first + 460, 'ground', primaryValue)
+  } else {
+    packet(45, 'ground', primaryValue)
+    const types: EpochRunnerObstacleType[] =
+      pattern === 'staggered-hop' ? ['amp-stack', 'noise-burst']
+      : pattern === 'rising-hop' ? ['noise-burst', 'cab-wall']
+      : pattern === 'duck-beam' ? ['signal-beam', 'signal-beam']
+      : pattern === 'dash-cache' ? ['signal-tunnel', 'noise-burst']
+      : pattern === 'mixed-gate' ? ['signal-beam', 'amp-stack']
+      : pattern === 'final-sprint' ? ['amp-stack', 'signal-beam', 'noise-burst']
+      : pattern === 'cab-hop' ? ['cab-wall']
+      : pattern === 'low-burst' ? ['noise-burst']
+      : pattern === 'duck-beam-tutorial' ? ['signal-beam']
+      : pattern === 'dash-tunnel' ? ['signal-tunnel']
+      : ['amp-stack']
 
-  if (pattern === 'single-hop') {
-    nextId = addCollectible(collectibles, nextId, startX + 86, 'ground', 1, rng)
-    nextId = addObstacle(obstacles, nextId, pickOne(['amp-stack', 'noise-burst'], rng), startX + 168)
-    nextId = addCollectible(collectibles, nextId, startX + 182, 'hop', 1, rng)
-    nextId = addCollectible(collectibles, nextId, startX + 270, 'ground', 1, rng)
-    return { obstacles, collectibles, nextSpawnId: nextId }
+    types.forEach((type, index) => {
+      const offset = first + index * stride
+      const isBeam = type === 'signal-beam' || type === 'signal-tunnel'
+      hazard(offset, type)
+      packet(offset + 15, isBeam ? 'ground' : 'hop', 5)
+      // A high cache asks for a held jump; the primary is on the shorter safe arc.
+      if (stage >= 2 && !isBeam && (pattern === 'epoch-bundle' || pattern === 'dash-cache')) packet(offset + 8, 'high', 10, true)
+    })
+    const last = first + (types.length - 1) * stride
+    packet(last + 180, 'ground', primaryValue)
   }
-
-  if (pattern === 'low-burst') {
-    nextId = addCollectible(collectibles, nextId, startX + 90, 'ground', 1, rng)
-    nextId = addObstacle(obstacles, nextId, 'noise-burst', startX + 156)
-    nextId = addCollectible(collectibles, nextId, startX + 162, 'hop', 1, rng)
-    nextId = addCollectible(collectibles, nextId, startX + 238, 'ground', 1, rng)
-    return { obstacles, collectibles, nextSpawnId: nextId }
-  }
-
-  if (pattern === 'staggered-hop') {
-    nextId = addObstacle(obstacles, nextId, 'amp-stack', startX + 126)
-    nextId = addCollectible(collectibles, nextId, startX + 144, 'hop', 1, rng)
-    nextId = addCollectible(collectibles, nextId, startX + 230, 'ground', 5, rng)
-    nextId = addObstacle(obstacles, nextId, 'noise-burst', startX + 328)
-    nextId = addCollectible(collectibles, nextId, startX + 342, 'hop', 1, rng)
-    return { obstacles, collectibles, nextSpawnId: nextId }
-  }
-
-  if (pattern === 'cab-hop') {
-    nextId = addCollectible(collectibles, nextId, startX + 86, 'ground', 1, rng)
-    nextId = addObstacle(obstacles, nextId, 'cab-wall', startX + 164)
-    nextId = addCollectible(collectibles, nextId, startX + 178, 'high', 5, rng)
-    nextId = addCollectible(collectibles, nextId, startX + 284, 'ground', 1, rng)
-    return { obstacles, collectibles, nextSpawnId: nextId }
-  }
-
-  if (pattern === 'epoch-bundle') {
-    nextId = addCollectible(collectibles, nextId, startX + 94, 'ground', 1, rng)
-    nextId = addObstacle(obstacles, nextId, 'amp-stack', startX + 176)
-    nextId = addCollectible(collectibles, nextId, startX + 188, 'hop', 5, rng)
-    nextId = addCollectible(collectibles, nextId, startX + 296, 'ground', 1, rng)
-    return { obstacles, collectibles, nextSpawnId: nextId }
-  }
-
-  if (pattern === 'duck-beam-tutorial') {
-    nextId = addCollectible(collectibles, nextId, startX + 76, 'ground', 1, rng)
-    nextId = addObstacle(obstacles, nextId, 'signal-beam', startX + 156)
-    nextId = addCollectible(collectibles, nextId, startX + 174, 'ground', 5, rng)
-    nextId = addCollectible(collectibles, nextId, startX + 276, 'ground', 1, rng)
-    return { obstacles, collectibles, nextSpawnId: nextId }
-  }
-
-  if (pattern === 'duck-beam') {
-    nextId = addObstacle(obstacles, nextId, 'signal-beam', startX + 126)
-    nextId = addCollectible(collectibles, nextId, startX + 150, 'ground', 1, rng)
-    nextId = addCollectible(collectibles, nextId, startX + 232, 'ground', 5, rng)
-    nextId = addObstacle(obstacles, nextId, 'signal-beam', startX + 338)
-    nextId = addCollectible(collectibles, nextId, startX + 364, 'ground', 1, rng)
-    return { obstacles, collectibles, nextSpawnId: nextId }
-  }
-
-  if (pattern === 'dash-tunnel') {
-    nextId = addCollectible(collectibles, nextId, startX + 74, 'ground', 1, rng)
-    nextId = addObstacle(obstacles, nextId, 'signal-tunnel', startX + 148)
-    nextId = addCollectible(collectibles, nextId, startX + 174, 'ground', 5, rng)
-    nextId = addCollectible(collectibles, nextId, startX + 300, 'ground', 1, rng)
-    return { obstacles, collectibles, nextSpawnId: nextId }
-  }
-
-  if (pattern === 'dash-cache') {
-    nextId = addObstacle(obstacles, nextId, 'signal-tunnel', startX + 112)
-    nextId = addCollectible(collectibles, nextId, startX + 136, 'ground', 5, rng)
-    nextId = addCollectible(collectibles, nextId, startX + 244, 'ground', 5, rng)
-    nextId = addObstacle(obstacles, nextId, 'noise-burst', startX + 392)
-    nextId = addCollectible(collectibles, nextId, startX + 408, 'hop', 1, rng)
-    return { obstacles, collectibles, nextSpawnId: nextId }
-  }
-
-  if (pattern === 'mixed-gate') {
-    nextId = addObstacle(obstacles, nextId, 'signal-beam', startX + 126)
-    nextId = addCollectible(collectibles, nextId, startX + 154, 'ground', 1, rng)
-    nextId = addCollectible(collectibles, nextId, startX + 230, 'ground', 5, rng)
-    nextId = addObstacle(obstacles, nextId, pickOne(['amp-stack', 'noise-burst'], rng), startX + 330)
-    nextId = addCollectible(collectibles, nextId, startX + 344, 'hop', 1, rng)
-    return { obstacles, collectibles, nextSpawnId: nextId }
-  }
-
-  nextId = addObstacle(obstacles, nextId, 'amp-stack', startX + 110)
-  nextId = addCollectible(collectibles, nextId, startX + 126, 'hop', 1, rng)
-  nextId = addObstacle(obstacles, nextId, 'signal-beam', startX + 296)
-  nextId = addCollectible(collectibles, nextId, startX + 318, 'ground', 5, rng)
-  nextId = addObstacle(obstacles, nextId, 'noise-burst', startX + 492)
-  nextId = addCollectible(collectibles, nextId, startX + 506, 'hop', 1, rng)
   return { obstacles, collectibles, nextSpawnId: nextId }
 }
 
 function choosePattern(state: EpochRunnerState, rng: EpochRunnerRandom): EpochRunnerPatternKind {
-  if (state.currentStage === 1 && state.patternsSpawnedInStage === 0) {
-    return 'epoch-line'
-  }
-
-  if (state.currentStage === 3 && state.patternsSpawnedInStage === 0) {
-    return 'duck-beam-tutorial'
-  }
-
-  if (state.currentStage === 1) {
-    return pickOne(['single-hop', 'low-burst', 'epoch-line'], rng)
-  }
-
-  if (state.currentStage === 2) {
-    return pickOne(['single-hop', 'staggered-hop', 'cab-hop', 'epoch-bundle'], rng)
-  }
-
-  if (state.currentStage === 3) {
-    return pickOne(['duck-beam', 'single-hop', 'low-burst', 'epoch-bundle'], rng)
-  }
-
-  if (state.currentStage === 4) {
-    return pickOne(['dash-tunnel', 'dash-cache', 'mixed-gate', 'duck-beam', 'staggered-hop', 'epoch-bundle'], rng)
-  }
-
-  return pickOne(['final-sprint', 'dash-tunnel', 'dash-cache', 'mixed-gate', 'duck-beam', 'staggered-hop', 'epoch-bundle'], rng)
-}
-
-function getRightmostObstacleX(obstacles: EpochRunnerObstacle[]): number {
-  return obstacles.reduce((rightmost, obstacle) => Math.max(rightmost, obstacle.x + obstacle.width), -Infinity)
+  if (state.currentStage === 1 && state.patternsSpawnedInStage === 0) return 'epoch-line'
+  if (state.currentStage === 1 && state.patternsSpawnedInStage === 1) return 'single-hop'
+  if (state.currentStage === 3 && state.patternsSpawnedInStage === 0) return 'duck-beam-tutorial'
+  if (state.currentStage === 5 && state.patternsSpawnedInStage === 0) return 'jump-dash'
+  if (state.currentStage === 5 && state.stageEpochs >= state.stageTargetEpochs * 0.75) return 'final-sprint'
+  return pickOne(getEpochRunnerStage(state.currentStage).patterns, rng)
 }
 
 function getNextPatternCooldownMs(state: EpochRunnerState, rng: EpochRunnerRandom): number {
-  const config = getStageConfig(state.currentStage)
+  const config = getEpochRunnerStage(state.currentStage)
   const rampReduction = Math.min(160, state.stageDistance * 1.35)
   const min = Math.max(680, config.cooldownMinMs - rampReduction)
   const max = Math.max(min + 120, config.cooldownMaxMs - (rampReduction * 0.65))
@@ -548,26 +480,47 @@ function getObstacleHitBox(
   }
 }
 
-function getFailureCopy(rng: EpochRunnerRandom): [string, string] {
-  const failureLines: [string, string][] = [
-    ['MODEL DIVERGED', 'Gradient spike detected in the signal path.'],
-    ['SIGNAL LOST', 'The capture rig vanished into the noise floor.'],
-    ['TRAINING ABORTED', 'Waveform terrain exceeded safe limits.'],
-    ['LOW-PROFILE MISS', 'The signal beam clipped NAM-BOT on the way through.']
-  ]
-
-  return pickOne(failureLines, rng)
+function getFailureCopy(type: EpochRunnerObstacleType): [string, string] {
+  switch (type) {
+    case 'signal-beam': return ['PHASE ALIGNMENT LOST', 'Hold S / DOWN as the beam reaches you. Watch the phase timer.']
+    case 'signal-tunnel': return ['INTERFERENCE GATE HIT', 'Phase-slide through the tall gate. Start closer so the slide lasts through it.']
+    case 'cab-wall': return ['ACTIVATION BLOCK HIT', 'Hold SPACE for a higher jump over the activation block.']
+    case 'noise-burst': return ['CLIPPING SPIKE HIT', 'Jump the clipping spike. Release SPACE for a short hop.']
+    case 'amp-stack': return ['GRADIENT COLLISION', 'Jump over the gradient block. Sliding only clears overhead interference.']
+    case 'loss-plateau': return ['LOSS PLATEAU HIT', 'Hold SPACE, then hold S / DOWN near the top of your jump to dash across.']
+  }
 }
 
-function resolveStageComplete(state: EpochRunnerState): EpochRunnerState {
+export function getEpochRunnerMultiplier(chain: number): number {
+  return Math.min(4, 1 + Math.floor(chain / 5))
+}
+
+function createEvent(kind: EpochRunnerEventKind, label: string, value: number = 0, x: number = PLAYER_X, y: number = 100): EpochRunnerEvent {
+  return { kind, label, value, x, y }
+}
+
+export function pauseEpochRunner(state: EpochRunnerState): EpochRunnerState {
+  return state.status === 'running' ? { ...state, status: 'paused', events: [] } : state
+}
+
+export function resumeEpochRunner(state: EpochRunnerState): EpochRunnerState {
+  return state.status === 'paused'
+    ? { ...state, status: 'running', player: { ...state.player, jumpBufferMs: 0 }, events: [] }
+    : state
+}
+
+function resolveStageComplete(previousState: EpochRunnerState): EpochRunnerState {
+  const state = { ...previousState, score: previousState.score + 500 + (previousState.stageDeaths === 0 ? 500 : 0) }
+
   if (state.currentStage >= EPOCH_RUNNER_STAGE_COUNT) {
     return {
       ...state,
       status: 'won',
       outcome: 'won',
       score: state.score + 1400,
-      resultHeadline: 'TRAINING CONVERGED',
-      resultDetail: 'CAPTURE COMPLETE. Reward preset manifest unlocked.'
+      events: [...state.events, createEvent('won', 'MODEL CONVERGED')],
+      resultHeadline: 'MODEL CONVERGED',
+      resultDetail: 'Reward preset unlocked.'
     }
   }
 
@@ -575,17 +528,25 @@ function resolveStageComplete(state: EpochRunnerState): EpochRunnerState {
     return {
       ...state,
       status: 'cutscene',
-      resultHeadline: 'RELIC DISCOVERED',
-      resultDetail: 'NAM-BOT enters the hallowed hall and claims the ancient phase relic.'
+      events: [...state.events, createEvent('upgrade', 'OPTIMIZER UPGRADE')],
+      resultHeadline: 'OPTIMIZER UPGRADE',
+      resultDetail: 'Phase dash unlocked.'
     }
   }
 
   return {
     ...state,
     status: 'stage-complete',
-    resultHeadline: `TRAINING RUN ${state.currentStage} COMPLETE`,
-    resultDetail: 'Epoch buffer synchronized. Stand by for the next pass.'
+    events: [...state.events, createEvent('stage-complete', 'CHECKPOINT WRITTEN')],
+    resultHeadline: `${getEpochRunnerStage(state.currentStage).name} COMPLETE`,
+    resultDetail: ''
   }
+}
+
+interface PlayerStep {
+  player: EpochRunnerPlayer
+  airDashSeconds: number
+  airDashStarted: boolean
 }
 
 function stepPlayer(
@@ -594,7 +555,7 @@ function stepPlayer(
   deltaSeconds: number,
   deltaMs: number,
   duckDashUnlocked: boolean
-): EpochRunnerPlayer {
+): PlayerStep {
   const player = { ...previousPlayer }
   const groundPlayerY = GROUND_Y - player.height
 
@@ -604,7 +565,7 @@ function stepPlayer(
   player.duckDashMs = Math.max(0, player.duckDashMs - deltaMs)
 
   const canDuckDash = duckDashUnlocked && player.isGrounded && player.duckCooldownMs === 0
-  if (input.duckPressed && canDuckDash) {
+  if (input.duckPressed && canDuckDash && !input.jumpPressed) {
     player.duckDashMs = DUCK_DASH_DURATION_MS
     player.duckCooldownMs = DUCK_DASH_COOLDOWN_MS
   }
@@ -624,20 +585,34 @@ function stepPlayer(
     player.coyoteTimeMs = 0
   }
 
+  const airDashStarted = duckDashUnlocked && input.duckPressed && input.duckHeld
+    && !player.isGrounded && player.y < groundPlayerY && !player.airDashUsed
+  if (airDashStarted) {
+    player.airDashMs = AIR_DASH_DURATION_MS
+    player.airDashUsed = true
+    player.velocityY = 0
+  }
+  if (!input.duckHeld) player.airDashMs = 0
+  const airDashSeconds = Math.min(deltaMs, player.airDashMs) / 1000
+  player.airDashMs = Math.max(0, player.airDashMs - deltaMs)
+  const gravitySeconds = deltaSeconds - airDashSeconds
+
   const gravityMultiplier = player.velocityY < 0 && !input.jumpHeld
     ? JUMP_RELEASE_GRAVITY_MULTIPLIER
     : player.velocityY > 0
       ? FALL_GRAVITY_MULTIPLIER
       : 1
 
-  player.velocityY += GRAVITY * gravityMultiplier * deltaSeconds
-  player.y += player.velocityY * deltaSeconds
+  player.velocityY += GRAVITY * gravityMultiplier * gravitySeconds
+  player.y += player.velocityY * gravitySeconds
 
   if (player.y >= groundPlayerY) {
     player.y = groundPlayerY
     player.velocityY = 0
     player.isGrounded = true
     player.coyoteTimeMs = COYOTE_TIME_MS
+    player.airDashMs = 0
+    player.airDashUsed = false
   }
 
   if (player.isGrounded && player.jumpBufferMs > 0 && !player.isDucking) {
@@ -655,7 +630,7 @@ function stepPlayer(
     player.isDucking = false
   }
 
-  return player
+  return { player, airDashSeconds, airDashStarted }
 }
 
 export function createInitialEpochRunnerState(): EpochRunnerState {
@@ -676,14 +651,19 @@ export function createInitialEpochRunnerState(): EpochRunnerState {
     stageStartEpochs: 0,
     stageStartScore: 0,
     timeMs: 0,
-    speed: getStageConfig(1).baseSpeed,
+    speed: getEpochRunnerStage(1).baseSpeed,
     currentStage: 1,
     duckDashUnlocked: false,
     patternCooldownMs: 520,
     patternsSpawnedInStage: 0,
     nextSpawnId: 1,
     resultHeadline: '',
-    resultDetail: ''
+    resultDetail: '',
+    chain: 0,
+    maxChain: 0,
+    stageDeaths: 0,
+    failureObstacleId: null,
+    events: []
   }
 }
 
@@ -716,12 +696,16 @@ export function advanceEpochRunner(previousState: EpochRunnerState): EpochRunner
     stageDistance: 0,
     stageStartEpochs: previousState.epochsCollected,
     stageStartScore: previousState.score,
-    speed: getStageConfig(nextStage).baseSpeed,
+    speed: getEpochRunnerStage(nextStage).baseSpeed,
     duckDashUnlocked: previousState.duckDashUnlocked || previousState.status === 'cutscene',
     patternCooldownMs: previousState.status === 'cutscene' ? 520 : 440,
     patternsSpawnedInStage: 0,
     resultHeadline: '',
-    resultDetail: ''
+    resultDetail: '',
+    chain: 0,
+    stageDeaths: 0,
+    failureObstacleId: null,
+    events: []
   }
 }
 
@@ -742,11 +726,14 @@ export function retryEpochRunnerStage(previousState: EpochRunnerState): EpochRun
     stageTimeMs: 0,
     stageDistance: 0,
     score: previousState.stageStartScore,
-    speed: getStageConfig(previousState.currentStage).baseSpeed,
+    speed: getEpochRunnerStage(previousState.currentStage).baseSpeed,
     patternCooldownMs: previousState.currentStage === 3 ? 520 : 440,
     patternsSpawnedInStage: 0,
     resultHeadline: '',
-    resultDetail: ''
+    resultDetail: '',
+    chain: 0,
+    failureObstacleId: null,
+    events: []
   }
 }
 
@@ -761,28 +748,34 @@ export function stepEpochRunner(
   }
 
   const rng = options.rng ?? Math.random
-  const clampedDeltaMs = Math.max(0, Math.min(MAX_DELTA_MS, deltaMs))
+  const clampedDeltaMs = Number.isFinite(deltaMs) ? Math.max(0, Math.min(MAX_DELTA_MS, deltaMs)) : 0
+  const events: EpochRunnerEvent[] = []
   const deltaSeconds = clampedDeltaMs / 1000
-  const stageConfig = getStageConfig(previousState.currentStage)
+  const stageConfig = getEpochRunnerStage(previousState.currentStage)
   const speed = stageConfig.baseSpeed + Math.min(stageConfig.maxSpeedBonus, previousState.stageDistance * stageConfig.speedRamp)
-  const distanceGain = speed * deltaSeconds * 0.12
+  const { player, airDashSeconds, airDashStarted } = stepPlayer(previousState.player, input, deltaSeconds, clampedDeltaMs, previousState.duckDashUnlocked)
+  // The camera follows the forward burst, keeping the runner in the same lane.
+  const travelPx = speed * deltaSeconds + AIR_DASH_SPEED * airDashSeconds
+  const distanceGain = travelPx * 0.12
   const distance = previousState.distance + distanceGain
   const stageDistance = previousState.stageDistance + distanceGain
   const stageTimeMs = previousState.stageTimeMs + clampedDeltaMs
-  const player = stepPlayer(previousState.player, input, deltaSeconds, clampedDeltaMs, previousState.duckDashUnlocked)
 
+  if (airDashStarted || player.duckDashMs > previousState.player.duckDashMs) {
+    events.push(createEvent('dash', 'PHASE SHIFT'))
+  }
   let nextSpawnId = previousState.nextSpawnId
   const obstacles = previousState.obstacles
     .map((obstacle) => ({
       ...obstacle,
-      x: obstacle.x - (speed * deltaSeconds)
+      x: obstacle.x - travelPx
     }))
     .filter((obstacle) => obstacle.x + obstacle.width > -20)
 
   const collectibles = previousState.collectibles
     .map((collectible) => ({
       ...collectible,
-      x: collectible.x - (speed * deltaSeconds),
+      x: collectible.x - travelPx,
       bobPhase: collectible.bobPhase + (deltaSeconds * 4)
     }))
     .filter((collectible) => collectible.x + collectible.width > -20)
@@ -790,12 +783,12 @@ export function stepEpochRunner(
   let patternCooldownMs = previousState.patternCooldownMs - clampedDeltaMs
   let patternsSpawnedInStage = previousState.patternsSpawnedInStage
   if (patternCooldownMs <= 0) {
-    const rightmostObstacleX = getRightmostObstacleX(obstacles)
+    const rightmostObstacleX = [...obstacles, ...collectibles].reduce((right, item) => Math.max(right, item.x + item.width), -Infinity)
     if (rightmostObstacleX > GAME_WIDTH - stageConfig.minPatternGapPx) {
       patternCooldownMs = PATTERN_RETRY_MS
     } else {
       const pattern = choosePattern(previousState, rng)
-      const buildResult = buildPattern(pattern, nextSpawnId, rng)
+      const buildResult = buildEpochRunnerPattern(pattern, nextSpawnId, rng, previousState.currentStage)
       obstacles.push(...buildResult.obstacles)
       collectibles.push(...buildResult.collectibles)
       nextSpawnId = buildResult.nextSpawnId
@@ -814,8 +807,8 @@ export function stepEpochRunner(
   const playerHitBox = getPlayerHitBox(player)
   const collidedObstacle = obstacles.find((obstacle) => rectsOverlap(playerHitBox, getObstacleHitBox(obstacle)))
   if (collidedObstacle) {
-    const [headline, detail] = getFailureCopy(rng)
-    const score = Math.max(previousState.score, Math.round(distance * 8) + (previousState.epochsCollected * 150))
+    const [headline, detail] = getFailureCopy(collidedObstacle.type)
+    const score = previousState.score
     const livesRemaining = Math.max(0, previousState.livesRemaining - 1)
     const isGameOver = livesRemaining === 0
 
@@ -837,30 +830,49 @@ export function stepEpochRunner(
       patternsSpawnedInStage,
       nextSpawnId,
       resultHeadline: isGameOver ? 'TRAINING RUN FAILED' : headline,
-      resultDetail: isGameOver ? 'NAM-BOT dissolved into the noise floor. Reboot sequence required.' : detail
+      resultDetail: detail,
+      stageDeaths: previousState.stageDeaths + 1,
+      chain: 0,
+      failureObstacleId: collidedObstacle.id,
+      events: [createEvent('crash', headline)]
     }
   }
 
   let epochsCollected = previousState.epochsCollected
   let stageEpochs = previousState.stageEpochs
   let score = previousState.score
+  let chain = previousState.chain
+  let maxChain = previousState.maxChain
   const remainingCollectibles: EpochRunnerCollectible[] = []
 
-  for (const collectible of collectibles) {
+  for (const collectible of collectibles.sort((left, right) => left.x - right.x || left.id - right.id)) {
     if (rectsOverlap(playerHitBox, collectible)) {
       const remainingStageEpochs = Math.max(0, previousState.stageTargetEpochs - stageEpochs)
       const remainingTotalEpochs = Math.max(0, EPOCH_RUNNER_TARGET_EPOCHS - epochsCollected)
       const earnedEpochs = Math.min(collectible.value, remainingStageEpochs, remainingTotalEpochs)
       epochsCollected += earnedEpochs
       stageEpochs += earnedEpochs
-      score += collectible.value * 140
+      score += earnedEpochs * 100 * getEpochRunnerMultiplier(chain)
+      events.push(createEvent('pickup', `${collectible.isBonus ? 'FEATURE CACHE' : 'EPOCH BUFFER'} +${String(earnedEpochs).padStart(3, '0')}`, earnedEpochs, collectible.x, collectible.y))
+      if (!collectible.isBonus && earnedEpochs > 0) {
+        const oldMultiplier = getEpochRunnerMultiplier(chain)
+        chain += 1
+        maxChain = Math.max(maxChain, chain)
+        if (getEpochRunnerMultiplier(chain) > oldMultiplier) events.push(createEvent('chain', `GRADIENT STABLE / x${getEpochRunnerMultiplier(chain)}`))
+      }
       continue
     }
 
+    if (collectible.x + collectible.width < PLAYER_X + 6) {
+      if (!collectible.isBonus && chain > 0) {
+        chain = 0
+        events.push(createEvent('chain-broken', 'SIGNAL CHAIN RESET'))
+      }
+      continue
+    }
     remainingCollectibles.push(collectible)
   }
 
-  score = Math.max(score, Math.round(distance * 8) + (epochsCollected * 150) + (previousState.currentStage * 90))
 
   const runningState: EpochRunnerState = {
     ...previousState,
@@ -871,6 +883,9 @@ export function stepEpochRunner(
     stageEpochs,
     stageTimeMs,
     score,
+    chain,
+    maxChain,
+    events,
     distance,
     stageDistance,
     timeMs: previousState.timeMs + clampedDeltaMs,
