@@ -150,6 +150,29 @@ async function assertSafeArea(): Promise<void> {
   })).toEqual({ fits: true, height: true, below: true, macSafe: true, windowsSafe: true, fullscreenSafe: true })
 }
 
+async function transitionNativeWindow(action: 'minimize' | 'restore' | 'maximize' | 'unmaximize'): Promise<void> {
+  await test.step(`Wait for native ${action}`, async () => {
+    const window = await app.browserWindow(page)
+    await window.evaluate((win, event) => new Promise<void>((resolve, reject) => {
+      const complete = (): void => {
+        clearTimeout(timeout)
+        resolve()
+      }
+      const timeout = setTimeout(() => {
+        win.removeListener(event, complete)
+        reject(new Error(`Native ${event} event did not arrive: ${JSON.stringify({
+          minimized: win.isMinimized(), maximized: win.isMaximized(),
+          visible: win.isVisible(), focused: win.isFocused(), bounds: win.getBounds()
+        })}`))
+      }, 10_000)
+      // Register before the action: native events may arrive synchronously on Windows.
+      // AppKit focus/state changes alone do not establish that restoration finished.
+      win.once(event, complete)
+      win[event]()
+    }), action)
+  })
+}
+
 test('isolated launch, preload, fixed header, zoom, resize and fullscreen', async () => {
   expect(await app.evaluate(({ app }) => app.getPath('userData'))).toBe(dataPath)
   expect(await page.evaluate(() => ({ require: typeof Reflect.get(window, 'require'), process: typeof Reflect.get(window, 'process') })))
@@ -175,14 +198,23 @@ test('isolated launch, preload, fixed header, zoom, resize and fullscreen', asyn
 
 test('native window lifecycle and application menu commands', async () => {
   const window = await app.browserWindow(page)
-  await window.evaluate((win) => win.minimize())
+  await expect.poll(() => window.evaluate((win) => win.isVisible() && win.isFocused())).toBe(true)
+  // Keep a distinct normal size so maximize/unmaximize both perform a transition.
+  await window.evaluate((win) => win.setSize(1000, 700))
+  await expect.poll(() => window.evaluate((win) => win.getBounds())).toMatchObject({ width: 1000, height: 700 })
+  await expect.poll(() => window.evaluate((win) => win.isMaximized())).toBe(false)
+  await transitionNativeWindow('minimize')
   await expect.poll(() => window.evaluate((win) => win.isMinimized())).toBe(true)
-  await window.evaluate((win) => { win.restore(); win.show(); win.focus() })
+  await transitionNativeWindow('restore')
+  await window.evaluate((win) => { win.show(); win.focus() })
+  await expect.poll(() => window.evaluate((win) => ({
+    minimized: win.isMinimized(), visible: win.isVisible(), focused: win.isFocused()
+  }))).toEqual({ minimized: false, visible: true, focused: true })
   await expect(page.locator('.app-title-bar')).toHaveAttribute('data-focused', 'true')
-  await window.evaluate((win) => win.maximize())
+  await transitionNativeWindow('maximize')
   await expect.poll(() => window.evaluate((win) => win.isMaximized())).toBe(true)
   await assertSafeArea()
-  await window.evaluate((win) => win.unmaximize())
+  await transitionNativeWindow('unmaximize')
   await expect.poll(() => window.evaluate((win) => win.isMaximized())).toBe(false)
   if (process.platform === 'win32') {
     expect(await window.evaluate((win) => win.isMenuBarVisible())).toBe(false)
