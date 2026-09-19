@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Unified Jobs, Presets, Settings, Diagnostics, and Setup Guide with shared section navigation, smooth scrolling, muted field borders, and responsive layouts.
 - Themed About, update, and exit dialogs to match the app; removed the duplicate title-bar status and the unused Windows Window > Zoom command.
 - macOS uses standard application-menu placement for Settings, About, and updates, native Help and Window menus, and platform-appropriate dialog buttons and path examples.
+- Replaced working indicators with a pulsing 3×3 LED grid, with a natural startup sequence, gentle fade-out, and reduced-motion support.
 
 ### Fixed
 

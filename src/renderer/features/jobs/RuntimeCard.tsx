@@ -6,6 +6,7 @@ import {
   formatPresetArchitectureTag
 } from '../../state/types'
 import { handleCardToggleKeyDown, shouldIgnoreCardToggle } from '../../utils/card-toggle'
+import WorkingIndicator from '../../components/WorkingIndicator'
 import EsrHistoryChart from './EsrHistoryChart'
 import { getEsrSeriesColor } from './esr-chart-data'
 import {
@@ -169,8 +170,9 @@ function getLatencyDelayTitle(runtime: JobRuntimeState): string {
 
 export function renderDisplayBadge(displayState: QueueDisplayState) {
   return (
-    <span className={`queue-status-badge ${displayState.toLowerCase()}${displayState === 'Running' ? ' processing-text' : ''}`}>
+    <span className={`queue-status-badge ${displayState.toLowerCase()}`}>
       {displayState}
+      <WorkingIndicator active={displayState === 'Running'} />
     </span>
   )
 }

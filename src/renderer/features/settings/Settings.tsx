@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useAppStore, AppSettings } from '../../state/store'
 import WorkspaceToolbar from '../../components/WorkspaceToolbar'
 import PropertySheet, { PropertySection } from '../../components/PropertySheet'
+import WorkingIndicator from '../../components/WorkingIndicator'
 
 const SETTINGS_SECTIONS = [
   { id: 'settings-backend', label: 'Backend' },
@@ -131,7 +132,7 @@ export default function Settings() {
         <WorkspaceToolbar title="Settings">{null}</WorkspaceToolbar>
         <div className="panel">
           {settingsLoadError ? <p role="alert">Could not load settings: {settingsLoadError} <button className="btn btn-secondary" onClick={() => void loadSettings()}>Retry</button></p>
-            : <p className="processing-text" style={{ color: 'var(--text-steel)' }}>Loading</p>}
+            : <p style={{ color: 'var(--text-steel)' }}>Loading<WorkingIndicator /></p>}
         </div>
       </div>
     )
@@ -265,11 +266,12 @@ export default function Settings() {
 
           <div style={{ marginTop: '16px' }}>
             <button
-              className={`btn btn-green ${isBackendBusy ? 'processing-text' : ''}`}
+              className="btn btn-green"
               onClick={handleValidate}
               disabled={isBackendBusy}
             >
               {isBackendValidationLoading ? 'Validating' : (!hasUnsavedChanges && validation?.overallOk ? '✓ Backend Ready' : 'Validate Backend')}
+              <WorkingIndicator active={isBackendBusy} />
             </button>
             {validationError && (
               <p style={{ marginTop: '8px', color: 'var(--neon-magenta)', fontSize: '13px' }}>

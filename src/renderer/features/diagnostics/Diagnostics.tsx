@@ -15,6 +15,7 @@ import { MIN_A2_NAM_VERSION } from '../../state/types'
 import PropertySheet, { PropertySection } from '../../components/PropertySheet'
 import WorkspaceToolbar from '../../components/WorkspaceToolbar'
 import CopyableCodeBlock from '../../components/CopyableCodeBlock'
+import WorkingIndicator from '../../components/WorkingIndicator'
 
 const DIAGNOSTICS_SECTIONS = [
   { id: 'diagnostics-overview', label: 'Overview' },
@@ -1512,8 +1513,9 @@ export default function Diagnostics() {
       <div className="layout-main">
         <WorkspaceToolbar title="Diagnostics">{null}</WorkspaceToolbar>
         <div className="panel">
-          <p className="processing-text" style={{ color: 'var(--text-steel)', textAlign: 'center', padding: '32px' }}>
+          <p style={{ color: 'var(--text-steel)', textAlign: 'center', padding: '32px' }}>
             Running setup, accelerator, and launch diagnostics
+            <WorkingIndicator />
           </p>
         </div>
       </div>
@@ -1523,8 +1525,9 @@ export default function Diagnostics() {
   return (
     <PropertySheet sections={DIAGNOSTICS_SECTIONS} navigationLabel="Diagnostics sections" className="reference-workspace diagnostics-workspace">
       <WorkspaceToolbar title="Diagnostics">
-        <button className={`btn btn-sm btn-green ${isChecking ? 'processing-text' : ''}`} onClick={handleRecheck} disabled={isChecking}>
+        <button className="btn btn-sm btn-green" onClick={handleRecheck} disabled={isChecking}>
           {isChecking ? 'Checking' : 'Re-check All'}
+          <WorkingIndicator active={isChecking} />
         </button>
       </WorkspaceToolbar>
       <div className="panel editor-sheet">

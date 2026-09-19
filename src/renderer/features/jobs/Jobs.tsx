@@ -31,6 +31,7 @@ import { buildModelFilename } from '../../../shared/model-filename'
 import ConfirmDialog from '../../components/ConfirmDialog'
 import WorkspaceToolbar from '../../components/WorkspaceToolbar'
 import PropertySheet from '../../components/PropertySheet'
+import WorkingIndicator from '../../components/WorkingIndicator'
 import { useTerminalLogs } from '../../hooks/useTerminalLogs'
 import {
   DEFAULT_PRESET_ID,
@@ -212,8 +213,9 @@ function DraftCard({ job, presets, onEdit, onQueue, onDuplicate, onBatchFromTemp
         <button className="btn btn-sm btn-blue" onClick={() => onEdit(job)} disabled={isQueueing}>
           Edit
         </button>
-        <button className={`btn btn-sm btn-green${isQueueing ? ' processing-text' : ''}`} onClick={() => void onQueue(job.id)} disabled={isQueueing}>
+        <button className="btn btn-sm btn-green" onClick={() => void onQueue(job.id)} disabled={isQueueing}>
           {isQueueing ? 'Queueing...' : 'Queue'}
+          <WorkingIndicator active={isQueueing} />
         </button>
         <button className="btn btn-sm btn-secondary" onClick={() => void onDuplicate(job.id)} disabled={isQueueing}>
           Copy
@@ -1087,8 +1089,9 @@ export default function Jobs() {
               <div className="job-list jobs-section" id="jobs-drafts">
               <div className="panel-header" style={{ marginBottom: '0px' }}>
                 <h3>Drafts ({visualDrafts.length})</h3>
-                <button className={`btn btn-sm btn-secondary${isAnyDraftQueueing ? ' processing-text' : ''}`} onClick={() => void handleQueueAll()} disabled={isFiltering || isAnyDraftQueueing} title={isFiltering ? 'Clear search to queue all drafts' : undefined}>
+                <button className="btn btn-sm btn-secondary" onClick={() => void handleQueueAll()} disabled={isFiltering || isAnyDraftQueueing} title={isFiltering ? 'Clear search to queue all drafts' : undefined}>
                   {isAnyDraftQueueing ? 'Queueing...' : 'Queue All'}
+                  <WorkingIndicator active={isAnyDraftQueueing} />
                 </button>
               </div>
               <DndContext

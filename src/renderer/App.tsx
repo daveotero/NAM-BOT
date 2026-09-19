@@ -21,6 +21,7 @@ import { buildJobEditorSession, createNewJobDraft, serializeJobEditorSession } f
 import { buildNewPresetDraft, buildPresetEditorSession } from './features/presets/presetEditorSession'
 import ConfirmDialog from './components/ConfirmDialog'
 import AppTitleBar from './components/AppTitleBar'
+import WorkingIndicator from './components/WorkingIndicator'
 import { WorkspaceToolbarContext } from './components/WorkspaceToolbar'
 import { isActiveRuntime } from './features/jobs/job-helpers'
 
@@ -204,8 +205,9 @@ function AppShell() {
             <NavLink to="/" onClick={buildGuardedNavClick('/')} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
               Dashboard
             </NavLink>
-            <NavLink to="/jobs" onClick={buildGuardedNavClick('/jobs')} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''} ${isTraining ? 'processing-text' : ''}`}>
+            <NavLink to="/jobs" onClick={buildGuardedNavClick('/jobs')} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
               Jobs
+              <WorkingIndicator active={isTraining} />
             </NavLink>
             <NavLink to="/presets" onClick={buildGuardedNavClick('/presets')} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
               Presets
@@ -215,8 +217,9 @@ function AppShell() {
               <NavLink to="/settings" onClick={buildGuardedNavClick('/settings')} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
                 Settings
               </NavLink>
-              <NavLink to="/diagnostics" onClick={buildGuardedNavClick('/diagnostics')} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''} ${isDiagnosticsChecking ? 'processing-text' : ''}`}>
+              <NavLink to="/diagnostics" onClick={buildGuardedNavClick('/diagnostics')} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
                 Diagnostics
+                <WorkingIndicator active={isDiagnosticsChecking} />
               </NavLink>
               <NavLink to="/help" onClick={buildGuardedNavClick('/help')} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
                 Setup Guide
