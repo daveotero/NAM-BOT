@@ -588,6 +588,9 @@ test('Diagnostics and Setup Guide share section navigation and command styling',
 })
 
 test('settings property sections retain auto-save, browsing, validation, and defaults', async ({}, info) => {
+  // Windows CI uses a compact display; Author and Application share the final
+  // scroll position, which must not override the section the user selected.
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1024, 768))
   await chooseMenu(await settingsMenu(), 'Settings')
   const toolbar = page.locator('.workspace-toolbar')
   const sections = page.getByRole('navigation', { name: 'Settings sections' })
@@ -626,6 +629,28 @@ test('settings property sections retain auto-save, browsing, validation, and def
   await expect.poll(() => page.locator('.property-workspace').evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
   await expect(toolbar.getByRole('button', { name: 'Save Settings', exact: true })).toBeInViewport()
   await captureRenderer(info, 'settings-folders-small.png')
+  expect(errors).toEqual([])
+})
+
+test('property navigation retains the chosen section within one pixel of the scroll limit', async () => {
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1024, 768))
+  await chooseMenu(await settingsMenu(), 'Settings')
+  const editor = page.locator('.property-workspace')
+  const sections = page.getByRole('navigation', { name: 'Settings sections' })
+  const motionPreferences: Array<'reduce' | 'no-preference'> = ['reduce', 'no-preference']
+  for (const reducedMotion of motionPreferences) {
+    await page.emulateMedia({ reducedMotion })
+    await sections.getByRole('button', { name: 'Application', exact: true }).click()
+    await waitForPropertyScroll()
+    await editor.evaluate(element => { element.scrollTop = element.scrollHeight - element.clientHeight - 1 })
+    await waitForPropertyScroll()
+    await sections.getByRole('button', { name: 'Author', exact: true }).click()
+    await waitForPropertyScroll()
+    await expect(sections.getByRole('button', { name: 'Author', exact: true })).toHaveAttribute('aria-current', 'location')
+    await page.locator('#settings-author-heading').press(process.platform === 'darwin' ? 'Meta+ArrowUp' : 'Control+Home')
+    await waitForPropertyScroll()
+    await expect(sections.getByRole('button', { name: 'Backend', exact: true })).toHaveAttribute('aria-current', 'location')
+  }
   expect(errors).toEqual([])
 })
 

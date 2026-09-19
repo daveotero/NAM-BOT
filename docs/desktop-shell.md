@@ -8,7 +8,7 @@ Jobs, Presets, Settings, and Diagnostics render their own actions into the share
 
 Field styling is shared through `global.css`: text inputs, selects, and JSON editors use a muted one-pixel `--border-field` outline, with cyan focus and magenta validation states. Preset search and the filename preview use the same border color. Section dividers use the stronger `--border-dim` color independently of fields.
 
-Jobs, Presets, Settings, Diagnostics, and Setup Guide share `PropertySheet` section navigation in `feature-workspace.css`. The current section has a muted gray background, with no colored underline. Section buttons smoothly scroll and focus their headings; reduced-motion preferences switch to immediate navigation. The selected destination stays highlighted during animation, and ordinary scrolling updates it by position. Forms use shared property-row styles and become single-column at narrow widths. Diagnostics and Setup Guide also share `CopyableCodeBlock`. Section navigation does not hide fields or change saved data.
+Jobs, Presets, Settings, Diagnostics, and Setup Guide share `PropertySheet` section navigation in `feature-workspace.css`. The current section has a muted gray background, with no colored underline. Section buttons smoothly scroll and focus their headings; reduced-motion preferences switch to immediate navigation. The selected destination stays highlighted during animation and at the scroll limit, including a final one-pixel adjustment; ordinary scrolling resumes position tracking. Forms use shared property-row styles and become single-column at narrow widths. Diagnostics and Setup Guide also share `CopyableCodeBlock`. Section navigation does not hide fields or change saved data.
 
 ## Platform behavior
 

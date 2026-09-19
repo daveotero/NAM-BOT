@@ -96,7 +96,9 @@ export default function PropertySheet({ sections, navigationLabel, className = '
     const desiredTop = editor.scrollTop + heading.getBoundingClientRect().top - navigation.getBoundingClientRect().bottom - 12
     const top = Math.max(0, Math.min(desiredTop, editor.scrollHeight - editor.clientHeight))
     scrollTargetRef.current = Math.abs(top - editor.scrollTop) > 1 ? sectionId : null
-    selectedScrollTopRef.current = scrollTargetRef.current ? null : editor.scrollTop
+    // Even a one-pixel jump can emit a scroll event. Pin the destination,
+    // not the starting position, so that event keeps the chosen section.
+    selectedScrollTopRef.current = scrollTargetRef.current ? null : top
     setActiveSection(sectionId)
     editor.scrollTo({ top, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' })
     heading.focus({ preventScroll: true })
