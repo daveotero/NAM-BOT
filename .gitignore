@@ -30,6 +30,8 @@ Thumbs.db
 
 # Test
 coverage/
+test-results/
+playwright-report/
 
 # Temp
 tmp/

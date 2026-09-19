@@ -27,7 +27,11 @@ import {
 } from '../../state/store'
 import { AUDIO_FILE_ACCEPT, isSupportedAudioFile } from '../../../shared/audio'
 import { getEffectiveJobEpochs, getEffectiveJobLatency } from '../../../shared/training'
+import { buildModelFilename } from '../../../shared/model-filename'
 import ConfirmDialog from '../../components/ConfirmDialog'
+import WorkspaceToolbar from '../../components/WorkspaceToolbar'
+import PropertySheet from '../../components/PropertySheet'
+import WorkingIndicator from '../../components/WorkingIndicator'
 import { useTerminalLogs } from '../../hooks/useTerminalLogs'
 import {
   DEFAULT_PRESET_ID,
@@ -67,12 +71,14 @@ import { handleCardToggleKeyDown, shouldIgnoreCardToggle } from '../../utils/car
 import { formatPresetNameWithRewardTag } from '../about/aboutRewardPreset'
 import {
   buildJobEditorSession,
+  serializeJobEditorSession,
   applyStoredReusableDefaults,
   getStoredAppendEsrToModelFileNamePreference,
   createNewJobDraft,
   getStoredAppendPresetToModelFileNamePreference,
   getOutputRootModeForJob,
   getPreferredOutputRootSelection,
+  getPreferredJobPreset,
   LAST_APPEND_ESR_STORAGE_KEY,
   LAST_APPEND_PRESET_NAME_STORAGE_KEY,
   LAST_COPY_FINAL_MODEL_TO_OUTPUT_AUDIO_FOLDER_STORAGE_KEY,
@@ -185,7 +191,7 @@ function DraftCard({ job, presets, onEdit, onQueue, onDuplicate, onBatchFromTemp
   const presetTag = preset ? formatPresetArchitectureTag(preset) : 'CUSTOM'
 
   return (
-    <div className="job-card">
+    <div className="job-card draft-card">
       <div className="job-info">
         <h4>{job.name}</h4>
         <div className="job-meta">
@@ -208,8 +214,9 @@ function DraftCard({ job, presets, onEdit, onQueue, onDuplicate, onBatchFromTemp
         <button className="btn btn-sm btn-blue" onClick={() => onEdit(job)} disabled={isQueueing}>
           Edit
         </button>
-        <button className={`btn btn-sm btn-green${isQueueing ? ' processing-text' : ''}`} onClick={() => void onQueue(job.id)} disabled={isQueueing}>
+        <button className="btn btn-sm btn-green" onClick={() => void onQueue(job.id)} disabled={isQueueing}>
           {isQueueing ? 'Queueing...' : 'Queue'}
+          <WorkingIndicator active={isQueueing} />
         </button>
         <button className="btn btn-sm btn-secondary" onClick={() => void onDuplicate(job.id)} disabled={isQueueing}>
           Copy
@@ -226,20 +233,19 @@ function DraftCard({ job, presets, onEdit, onQueue, onDuplicate, onBatchFromTemp
 }
 
 const JOB_EDITOR_FORM_ID = 'job-editor-form'
-
-function serializeJobEditorSession(session: JobEditorSession): string {
-  return JSON.stringify({
-    job: session.job,
-    inputMode: session.inputMode,
-    outputRootMode: session.outputRootMode
-  })
-}
+const JOB_EDITOR_SECTIONS = [
+  { id: 'job-audio', label: 'Name & audio' },
+  { id: 'job-training', label: 'Training' },
+  { id: 'job-model-output', label: 'Model output' },
+  { id: 'job-metadata', label: 'Metadata' }
+]
 
 interface SortableDraftItemProps extends DraftCardProps {
   id: string
+  reorderDisabled: boolean
 }
 
-function SortableDraftItem({ id, ...props }: SortableDraftItemProps) {
+function SortableDraftItem({ id, reorderDisabled, ...props }: SortableDraftItemProps) {
   const {
     attributes,
     listeners,
@@ -247,19 +253,19 @@ function SortableDraftItem({ id, ...props }: SortableDraftItemProps) {
     transform,
     transition,
     isDragging
-  } = useSortable({ id })
+  } = useSortable({ id, disabled: reorderDisabled })
 
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.4 : 1,
-    cursor: isDragging ? 'grabbing' : 'grab',
+    cursor: reorderDisabled ? 'default' : isDragging ? 'grabbing' : 'grab',
     position: 'relative' as const,
     zIndex: isDragging ? 1000 : 1
   }
 
   return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+    <div ref={setNodeRef} style={style} {...(reorderDisabled ? {} : attributes)} {...listeners}>
       <DraftCard {...props} />
     </div>
   )
@@ -270,11 +276,12 @@ interface SortableQueueItemProps {
   queue: JobRuntimeState[]
   presets: TrainingPresetFile[]
   index: number
+  reorderDisabled: boolean
   onUnqueue: (jobId: string) => Promise<void>
   onBatchFromRuntime: (runtime: JobRuntimeState) => void
 }
 
-function SortableQueueItem({ runtime, queue, presets, index, onUnqueue, onBatchFromRuntime }: SortableQueueItemProps) {
+function SortableQueueItem({ runtime, queue, presets, index, reorderDisabled, onUnqueue, onBatchFromRuntime }: SortableQueueItemProps) {
   const preset = runtime.frozenPreset ?? presets.find(p => p.id === runtime.frozenJob.presetId)
   const presetName = preset?.name || runtime.frozenJob.presetId || 'Unknown'
   const presetTag = preset ? formatPresetArchitectureTag(preset) : 'CUSTOM'
@@ -291,13 +298,13 @@ function SortableQueueItem({ runtime, queue, presets, index, onUnqueue, onBatchF
     transform,
     transition,
     isDragging
-  } = useSortable({ id: runtime.jobId })
+  } = useSortable({ id: runtime.jobId, disabled: reorderDisabled })
 
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.4 : 1,
-    cursor: isDragging ? 'grabbing' : 'grab',
+    cursor: reorderDisabled ? 'default' : isDragging ? 'grabbing' : 'grab',
     position: 'relative' as const,
     zIndex: isDragging ? 1000 : 1
   }
@@ -307,7 +314,7 @@ function SortableQueueItem({ runtime, queue, presets, index, onUnqueue, onBatchF
       ref={setNodeRef}
       style={style}
       className="job-card queue-card queue-card-queued"
-      {...attributes}
+      {...(reorderDisabled ? {} : attributes)}
       {...listeners}
     >
       <div className="queue-card-summary">
@@ -362,6 +369,9 @@ export default function Jobs() {
     setIsTraining(active)
   }, [queue, setIsTraining])
   const [isDragOver, setIsDragOver] = useState(false)
+  const [search, setSearch] = useState('')
+  const searchQuery = search.trim().toLocaleLowerCase()
+  const isFiltering = searchQuery.length > 0
   const [queueError, setQueueError] = useState<string | null>(null)
   const [expandedJobs, setExpandedJobs] = useState<Record<string, boolean>>({})
   const [openLogs, setOpenLogs] = useState<Record<string, boolean>>({})
@@ -542,14 +552,10 @@ export default function Jobs() {
     }
 
     const defaultInputRef = await window.namBot.jobs.getDefaultInputAudioPath() as string | null
-    const visiblePresets = presets.filter((preset) => preset.visible)
-    const storedPresetId = window.localStorage.getItem(LAST_USED_PRESET_STORAGE_KEY)
     const appendPresetToModelFileName = getStoredAppendPresetToModelFileNamePreference()
     const appendEsrToModelFileName = getStoredAppendEsrToModelFileNamePreference()
     const copyFinalModelToOutputAudioFolder = window.localStorage.getItem(LAST_COPY_FINAL_MODEL_TO_OUTPUT_AUDIO_FOLDER_STORAGE_KEY) === 'true'
-    const fallbackPreset = visiblePresets.find((preset) => preset.id === DEFAULT_PRESET_ID)
-      ?? visiblePresets.find((preset) => preset.id === storedPresetId)
-      ?? visiblePresets[0]
+    const fallbackPreset = getPreferredJobPreset({ presets, settings })
     const createdJobs: JobSpec[] = []
 
     for (const file of audioFiles) {
@@ -583,6 +589,7 @@ export default function Jobs() {
 
     if (createdJobs.length > 0) {
       setDrafts((prev) => [...prev, ...createdJobs])
+      setSearch('')
     }
   }
 
@@ -612,6 +619,7 @@ export default function Jobs() {
   const handleCreateDraftFromRuntime = async (runtime: JobRuntimeState): Promise<void> => runAction('Create draft', async () => {
     const newJob = await window.namBot.jobs.createDraft(buildDraftFromFrozenJob(runtime.frozenJob)) as JobSpec
     setDrafts((prev) => [...prev, newJob])
+    setSearch('')
   })
 
   const handleBatchFilesSelected = async (files: FileList | null): Promise<void> => {
@@ -642,6 +650,7 @@ export default function Jobs() {
       setDrafts((current) => current.map((draft) => draft.id === updated.id ? updated : draft))
     }
     clearJobEditorSession()
+    setSearch('')
   }
 
   const handleSaveBatch = async (job: JobSpec): Promise<void> => {
@@ -685,6 +694,7 @@ export default function Jobs() {
     })
 
     setBatchEditorState(null)
+    setSearch('')
     await loadData()
   }
 
@@ -733,7 +743,7 @@ export default function Jobs() {
   }
 
   const handleQueueAll = async () => {
-    if (drafts.length === 0 || queueingDraftIdsRef.current.size > 0) {
+    if (isFiltering || drafts.length === 0 || queueingDraftIdsRef.current.size > 0) {
       return
     }
 
@@ -783,6 +793,7 @@ export default function Jobs() {
   )
 
   const handleDraftDragEnd = async (event: DragEndEvent): Promise<void> => runAction('Reorder drafts', async () => {
+    if (isFiltering) return
     const { active, over } = event
 
     if (over && active.id !== over.id) {
@@ -805,6 +816,7 @@ export default function Jobs() {
   })
 
   const handleQueueDragEnd = async (event: DragEndEvent): Promise<void> => runAction('Reorder queue', async () => {
+    if (isFiltering) return
     const { active, over } = event
 
     if (over && active.id !== over.id) {
@@ -832,6 +844,7 @@ export default function Jobs() {
   })
 
   const handleUnqueueAll = async (): Promise<void> => runAction('Unqueue all', async () => {
+    if (isFiltering) return
     await window.namBot.jobs.unqueueAll()
     await loadData()
   })
@@ -859,10 +872,12 @@ export default function Jobs() {
     const newJob = await window.namBot.jobs.duplicate(jobId) as JobSpec | null
     if (newJob) {
       setDrafts((prev) => [...prev, newJob])
+      setSearch('')
     }
   })
 
   const handleClearFinished = async (): Promise<void> => runAction('Clear finished jobs', async () => {
+    if (isFiltering) return
     await window.namBot.jobs.clearFinished()
     await loadData()
   })
@@ -900,14 +915,23 @@ export default function Jobs() {
     setOpenLogs((current) => ({ ...current, [jobId]: true }))
   }
 
+  const matchesJob = (job: JobSpec, presetName: string, runtimeName = job.name): boolean => !isFiltering
+    || [runtimeName, job.name, job.metadata.name, job.batchSourceName, presetName, job.inputAudioPath, job.outputAudioPath]
+      .some(value => value?.toLocaleLowerCase().includes(searchQuery))
+  const matchesRuntime = (runtime: JobRuntimeState): boolean => matchesJob(runtime.frozenJob,
+    runtime.frozenPreset?.name ?? presets.find(preset => preset.id === runtime.frozenJob.presetId)?.name ?? '', runtime.jobName)
   const queuedJobs = queue.filter((runtime) => runtime.status === 'queued' || runtime.status === 'validating')
-  const visualDrafts = [...drafts].reverse()
+  const visualDrafts = drafts.filter(job => matchesJob(job, presets.find(preset => preset.id === job.presetId)?.name ?? '')).reverse()
+  const visualQueuedJobs = queuedJobs.filter(matchesRuntime).reverse()
   const trainingJobs = [...queue.filter((runtime) => isActiveRuntime(runtime.status))]
     .sort((left, right) => Date.parse(right.startedAt || right.queuedAt || '0') - Date.parse(left.startedAt || left.queuedAt || '0'))
   const finishedJobs = [...queue.filter((runtime) => isFinishedTraining(runtime))]
     .sort((left, right) => {
       return Date.parse(right.finishedAt || right.startedAt || right.queuedAt || '0') - Date.parse(left.finishedAt || left.startedAt || left.queuedAt || '0')
     })
+  const visibleTrainingJobs = trainingJobs.filter(matchesRuntime)
+  const visibleFinishedJobs = finishedJobs.filter(matchesRuntime)
+  const hasMatches = visualDrafts.length + visualQueuedJobs.length + visibleTrainingJobs.length + visibleFinishedJobs.length > 0
 
   const isEmpty = drafts.length === 0 && queue.length === 0
   const isAnyDraftQueueing = queueingDraftIds.size > 0
@@ -942,10 +966,43 @@ export default function Jobs() {
   }
 
   return (
-    <div className="layout-main">
+    <div className="layout-main feature-workspace jobs-workspace">
+      <WorkspaceToolbar title="Jobs">
+        <button className="btn btn-secondary" onClick={() => fileInputRef.current?.click()}>Add audio files</button>
+        <button className="btn btn-green" onClick={() => void handleCreateJob()}>New Job</button>
+      </WorkspaceToolbar>
+      <input
+        type="file"
+        ref={fileInputRef}
+        multiple
+        accept={AUDIO_FILE_ACCEPT}
+        style={{ display: 'none' }}
+        onChange={(e) => {
+          const files = e.target.files
+          if (files) void runAction('Import audio', () => handleDropFiles(files))
+          e.target.value = ''
+        }}
+      />
+      <div className="feature-summary-strip" aria-label="Job sections">
+        {[
+          { id: 'drafts', label: 'Drafts', count: visualDrafts.length },
+          { id: 'queue', label: 'Queue', count: visualQueuedJobs.length },
+          { id: 'training', label: 'Training', count: visibleTrainingJobs.length },
+          { id: 'finished', label: 'Finished', count: visibleFinishedJobs.length }
+        ].map(section => (
+          <button key={section.id} disabled={section.count === 0}
+            onClick={() => document.getElementById(`jobs-${section.id}`)?.scrollIntoView({ block: 'start' })}>
+            <span>{section.label}</span><strong>{section.count}</strong>
+          </button>
+        ))}
+        <label className="library-search">
+          <span className="sr-only">Search jobs</span>
+          <input type="search" placeholder="Search jobs…" value={search} onChange={event => setSearch(event.target.value)} />
+        </label>
+      </div>
       <div
-        className={`panel drop-zone-panel${isDragOver ? ' drop-zone-active' : ''}`}
-        style={{ marginBottom: '16px', position: 'relative' }}
+        className={`panel drop-zone-panel jobs-drop-target${isDragOver ? ' drop-zone-active' : ''}`}
+        style={{ position: 'relative' }}
         onDragOver={(event) => { event.preventDefault(); setIsDragOver(true) }}
         onDragLeave={(event) => {
           if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
@@ -978,13 +1035,6 @@ export default function Jobs() {
           </div>
         )}
 
-        <div className="panel-header">
-          <h3>Jobs</h3>
-          <button className="btn btn-green" onClick={() => void handleCreateJob()}>
-            New Job
-          </button>
-        </div>
-
         {jobsLoadError && <p role="alert">Could not load jobs: {jobsLoadError} <button className="btn btn-sm btn-secondary" onClick={() => void loadJobs()}>Retry</button></p>}
         {presetWarnings.map((warning) => <p role="status" key={warning} style={{ color: 'var(--neon-gold)' }}>{warning}</p>)}
         {(queueControl.pauseReason || (queuedJobs.length > 0 && trainingJobs.length === 0)) && (
@@ -1006,26 +1056,20 @@ export default function Jobs() {
           </div>
         )}
 
+        {isFiltering && (
+          <div className="jobs-search-status" role="status">
+            <span>{visualDrafts.length + visualQueuedJobs.length + visibleTrainingJobs.length + visibleFinishedJobs.length} of {drafts.length + queue.length} jobs</span>
+            <button className="btn btn-sm btn-secondary" onClick={() => setSearch('')}>Clear search</button>
+          </div>
+        )}
         {isEmpty ? (
-          <div className="drop-zone-empty">
-            <input
-              type="file"
-              ref={fileInputRef}
-              multiple
-              accept={AUDIO_FILE_ACCEPT}
-              style={{ display: 'none' }}
-              onChange={(e) => {
-                const files = e.target.files
-                if (files) void runAction('Import audio', () => handleDropFiles(files))
-                e.target.value = ''
-              }}
-            />
+          <div className="drop-zone-empty jobs-empty">
             <div className="drop-zone-icon-container">
-              <svg width="84" height="67" viewBox="0 0 48 38" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <svg width="38" height="30" viewBox="0 0 48 38" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M18 2H4C2.9 2 2.01 2.9 2.01 4L2 34C2 35.1 2.9 36 4 36H44C45.1 36 46 35.1 46 34V8C46 6.9 45.1 6 44 6H22L18 2Z" fill="var(--neon-gold)" />
               </svg>
             </div>
-            <h2 className="drop-zone-headline">DRAG AND DROP YOUR AUDIO HERE</h2>
+            <h2 className="drop-zone-headline">Drop output audio files</h2>
             <button
               className="btn btn-secondary"
               style={{ fontSize: '18px', padding: '10px 20px' }}
@@ -1034,14 +1078,17 @@ export default function Jobs() {
               CLICK TO BROWSE FILES
             </button>
           </div>
+        ) : !hasMatches ? (
+          <div className="library-empty">No matching jobs.</div>
         ) : (
           <div className="job-sections">
-            {drafts.length > 0 && (
-              <div className="job-list">
+            {visualDrafts.length > 0 && (
+              <div className="job-list jobs-section" id="jobs-drafts">
               <div className="panel-header" style={{ marginBottom: '0px' }}>
-                <h3>Drafts ({drafts.length})</h3>
-                <button className={`btn btn-sm btn-secondary${isAnyDraftQueueing ? ' processing-text' : ''}`} onClick={() => void handleQueueAll()} disabled={drafts.length === 0 || isAnyDraftQueueing}>
+                <h3>Drafts ({visualDrafts.length})</h3>
+                <button className="btn btn-sm btn-secondary" onClick={() => void handleQueueAll()} disabled={isFiltering || isAnyDraftQueueing} title={isFiltering ? 'Clear search to queue all drafts' : undefined}>
                   {isAnyDraftQueueing ? 'Queueing...' : 'Queue All'}
+                  <WorkingIndicator active={isAnyDraftQueueing} />
                 </button>
               </div>
               <DndContext
@@ -1057,6 +1104,7 @@ export default function Jobs() {
                     <SortableDraftItem
                       key={job.id}
                       id={job.id}
+                      reorderDisabled={isFiltering}
                       job={job}
                       presets={presets}
                       onEdit={(j) => setJobEditorSession(buildJobEditorSession('Edit Job', j, settings))}
@@ -1072,11 +1120,11 @@ export default function Jobs() {
               </div>
             )}
 
-            {queuedJobs.length > 0 && (
-              <div>
+            {visualQueuedJobs.length > 0 && (
+              <div className="jobs-section" id="jobs-queue">
               <div className="panel-header" style={{ marginBottom: '12px' }}>
-                <h3>Queue ({queuedJobs.length})</h3>
-                <button className="btn btn-sm btn-secondary" onClick={() => void handleUnqueueAll()} disabled={queuedJobs.length === 0}>
+                <h3>Queue ({visualQueuedJobs.length})</h3>
+                <button className="btn btn-sm btn-secondary" onClick={() => void handleUnqueueAll()} disabled={isFiltering} title={isFiltering ? 'Clear search to unqueue all jobs' : undefined}>
                   Unqueue All
                 </button>
               </div>
@@ -1087,16 +1135,17 @@ export default function Jobs() {
                   onDragEnd={handleQueueDragEnd}
                 >
                   <SortableContext
-                    items={[...queuedJobs].reverse().map(j => j.jobId)}
+                    items={visualQueuedJobs.map(job => job.jobId)}
                     strategy={verticalListSortingStrategy}
                   >
-                    {[...queuedJobs].reverse().map((runtime, index) => (
+                    {visualQueuedJobs.map((runtime) => (
                       <SortableQueueItem
                         key={runtime.jobId}
                         runtime={runtime}
                         queue={queuedJobs} // Logical queue for index calculation
                         presets={presets}
-                        index={queuedJobs.length - 1 - index} // Logical index
+                        index={queuedJobs.findIndex(job => job.jobId === runtime.jobId)}
+                        reorderDisabled={isFiltering}
                         onUnqueue={handleUnqueue}
                         onBatchFromRuntime={handleUseRuntimeAsTemplate}
                       />
@@ -1107,13 +1156,13 @@ export default function Jobs() {
               </div>
             )}
 
-            {trainingJobs.length > 0 && (
-              <div>
+            {visibleTrainingJobs.length > 0 && (
+              <div className="jobs-section" id="jobs-training">
               <div className="panel-header" style={{ marginBottom: '12px' }}>
-                <h3>Training ({trainingJobs.length})</h3>
+                <h3>Training ({visibleTrainingJobs.length})</h3>
               </div>
               <div className="job-list">
-                {trainingJobs.map((runtime) => {
+                {visibleTrainingJobs.map((runtime) => {
                   return (
                     <RuntimeCard
                       key={runtime.jobId}
@@ -1142,16 +1191,16 @@ export default function Jobs() {
               </div>
             )}
 
-            {finishedJobs.length > 0 && (
-              <div>
+            {visibleFinishedJobs.length > 0 && (
+              <div className="jobs-section" id="jobs-finished">
               <div className="panel-header" style={{ marginBottom: '12px' }}>
-                <h3>Finished ({finishedJobs.length})</h3>
-                <button className="btn btn-sm btn-secondary" onClick={() => void handleClearFinished()}>
+                <h3>Finished ({visibleFinishedJobs.length})</h3>
+                <button className="btn btn-sm btn-secondary" onClick={() => void handleClearFinished()} disabled={isFiltering} title={isFiltering ? 'Clear search to clear all finished jobs' : undefined}>
                   Clear Finished
                 </button>
               </div>
               <div className="job-list">
-                {finishedJobs.map((runtime) => {
+                {visibleFinishedJobs.map((runtime) => {
                   return (
                     <RuntimeCard
                       key={runtime.jobId}
@@ -1385,6 +1434,11 @@ function JobEditor({
   }
 
   const outputFilenameStem = filenameWithoutExt(editedJob.outputAudioPath).trim()
+  const previewNames = isBatchMode
+    ? batchOutputFiles.map(file => filenameWithoutExt(file.outputFileName || file.outputAudioPath).trim() || 'New Job')
+    : editedJob.name.trim() ? [editedJob.name] : []
+  const modelFilenamePreviews = previewNames.map(name => buildModelFilename({ ...editedJob, name }, selectedPreset?.name, 'pending'))
+
 
   const isNameValid = editedJob.name.trim().length > 0
   const isInputValid = editedJob.inputAudioPath.trim().length > 0
@@ -1511,315 +1565,157 @@ function JobEditor({
   }
 
   return (
-    <div className="layout-main">
-      <div className="panel">
-        <div className="panel-header">
-          <h3>{title}</h3>
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-            <button
-              type="submit"
-              form={JOB_EDITOR_FORM_ID}
-              className={`btn btn-sm ${canSave ? 'btn-green' : 'btn-secondary'}`}
-              disabled={!canSave || isSaving}
-            >
-              {isSaving ? 'Saving...' : saveLabel}
-            </button>
-            <button type="button" className="btn btn-sm btn-secondary" onClick={handleAttemptExit} disabled={isSaving}>
-              Cancel
-            </button>
-          </div>
-        </div>
+    <PropertySheet sections={JOB_EDITOR_SECTIONS} navigationLabel="Job editor sections" className="job-editor-workspace">
+      <div className="panel editor-sheet">
+        <WorkspaceToolbar title={title}>
+          <button
+            type="submit"
+            form={JOB_EDITOR_FORM_ID}
+            className={`btn btn-sm ${canSave ? 'btn-green' : 'btn-secondary'}`}
+            disabled={!canSave || isSaving}
+          >
+            {isSaving ? 'Saving...' : saveLabel}
+          </button>
+          <button type="button" className="btn btn-sm btn-secondary" onClick={handleAttemptExit} disabled={isSaving}>
+            Cancel
+          </button>
+        </WorkspaceToolbar>
 
         {saveError && <p role="alert" className="operation-error">{saveError}</p>}
         {!selectedPreset && <p role="alert" className="operation-error">The selected preset is unavailable. Choose an available preset before saving this job.</p>}
-        <form id={JOB_EDITOR_FORM_ID} onSubmit={handleSubmit}>
+        <form className="workspace-editor-form" id={JOB_EDITOR_FORM_ID} onSubmit={handleSubmit}>
 
-          {/* ── Job Name ── */}
-          <div className="form-group">
-            <div className="form-label-row">
+          <section className="property-section" aria-labelledby="job-audio-heading">
+            <h2 id="job-audio-heading" tabIndex={-1}>Name & audio</h2>
+            <div className="property-row">
               <label className="form-label" htmlFor="job-name">
                 {isBatchMode ? 'Batch Label' : 'Job Name'} {showValidationErrors && !isNameValid && <span style={{ color: 'var(--neon-magenta)', fontSize: '12px' }}>(Required)</span>}
               </label>
-              {!isBatchMode && (
-                <button
-                  type="button"
-                  className="btn btn-xs btn-secondary"
-                  disabled={!outputFilenameStem}
-                  onClick={() => onSessionChange({
-                    ...session,
-                    job: { ...editedJob, name: outputFilenameStem }
-                  })}
-                >
-                  Use Output Filename
-                </button>
-              )}
-            </div>
-            <input
-              id="job-name"
-              type="text"
-              className={`form-input${showValidationErrors && !isNameValid ? ' input-error' : ''}`}
-              style={showValidationErrors && !isNameValid ? { borderColor: 'var(--neon-magenta)' } : {}}
-              value={editedJob.name}
-              onChange={(e) => onSessionChange({
-                ...session,
-                job: { ...editedJob, name: e.target.value }
-              })}
-            />
-            {isBatchMode && (
-              <p style={{ color: 'var(--text-steel)', fontSize: '12px', marginTop: '6px' }}>
-                Generated drafts still use each output filename as their job name. This label identifies the batch.
-              </p>
-            )}
-          </div>
-
-          {/* ── Input Audio ── */}
-          <div className="form-group">
-            <label className="form-label" htmlFor="input-audio-path">
-              Input Audio (Training Signal) {showValidationErrors && !isInputValid && <span style={{ color: 'var(--neon-magenta)', fontSize: '12px' }}>(Required)</span>}
-            </label>
-
-            {/* Toggle buttons */}
-            <div className="toggle-group" style={{ marginBottom: '10px' }}>
-              <button
-                type="button"
-                className={`btn btn-sm ${inputMode === 'default' ? 'btn-green' : 'btn-secondary'}`}
-                onClick={() => handleInputModeChange('default')}
-              >
-                Default
-              </button>
-              <button
-                type="button"
-                className={`btn btn-sm ${inputMode === 'custom' ? 'btn-blue' : 'btn-secondary'}`}
-                onClick={() => handleInputModeChange('custom')}
-              >
-                Custom
-              </button>
-              {inputMode === 'default' && (
-                <button
-                  type="button"
-                  className="btn btn-sm btn-secondary"
-                  onClick={handleSaveDefaultAudio}
-                  disabled={savingDefault}
-                  title="Save the bundled v3_0_0.wav training signal to your system"
-                >
-                  {savingDefault ? 'Saving...' : 'Save Default to Disk'}
-                </button>
-              )}
-            </div>
-
-            <FilePickerRow
-              id="input-audio-path"
-              value={editedJob.inputAudioPath}
-              displayValue={getBasename(editedJob.inputAudioPath)}
-              onChange={(val) => onSessionChange({
-                ...session,
-                job: { ...editedJob, inputAudioPath: val }
-              })}
-              placeholder="C:\path\to\v3_0_0.wav"
-              disabled={inputMode === 'default'}
-              onBrowse={() => window.namBot.jobs.chooseAudioFile() as Promise<string | null>}
-              error={showValidationErrors && !isInputValid}
-            />
-            {inputMode === 'default' && (
-              <p style={{ color: 'var(--text-steel)', fontSize: '12px', marginTop: '6px' }}>
-                Using the bundled NAM v3 standard training signal. Switch to "Custom" to point to your own file.
-              </p>
-            )}
-          </div>
-
-          {/* ── Output Audio ── */}
-          <div className="form-group">
-            <label className="form-label" htmlFor="output-audio-path">
-              {isBatchMode ? `Output Audio Files (${batchOutputFiles?.length ?? 0})` : 'Output Audio (Re-amped Signal)'} {showValidationErrors && !isOutputValid && <span style={{ color: 'var(--neon-magenta)', fontSize: '12px' }}>(Required)</span>}
-            </label>
-            {isBatchMode ? (
-              <div className="batch-output-list">
-                {batchOutputFiles?.map((outputFile, index) => (
-                  <div className="batch-output-item" key={`${outputFile.outputAudioPath}:${index}`}>
-                    <span className="batch-output-index">{index + 1}</span>
-                    <span className="batch-output-name">{getBasename(outputFile.outputAudioPath) || outputFile.outputFileName}</span>
-                    <span className="batch-output-path">{outputFile.outputAudioPath}</span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <FilePickerRow
-                id="output-audio-path"
-                value={editedJob.outputAudioPath}
-                displayValue={getBasename(editedJob.outputAudioPath)}
-                onChange={(val) => onSessionChange({
-                  ...session,
-                  job: { ...editedJob, outputAudioPath: val }
-                })}
-                placeholder="C:\path\to\reamped.wav"
-                onBrowse={() => window.namBot.jobs.chooseAudioFile() as Promise<string | null>}
-                error={showValidationErrors && !isOutputValid}
-              />
-            )}
-          </div>
-
-          {/* ── Output Root Dir ── */}
-          <div className="form-group">
-            <label className="form-label" htmlFor="output-root-dir">
-              Output Root Directory {showValidationErrors && !isRootDirValid && <span style={{ color: 'var(--neon-magenta)', fontSize: '12px' }}>(Required)</span>}
-            </label>
-
-            {/* Toggle buttons */}
-            <div className="toggle-group" style={{ marginBottom: '10px' }}>
-              <button
-                type="button"
-                className={`btn btn-sm ${outputRootMode === 'settings-default' ? 'btn-green' : 'btn-secondary'}`}
-                onClick={() => {
-                  if (!settingsDefaultOutputRoot) {
-                    return
-                  }
-                  onSessionChange({
-                    ...session,
-                    outputRootMode: 'settings-default',
-                    job: {
-                      ...editedJob,
-                      outputRootDirIsDefault: false,
-                      outputRootDir: settingsDefaultOutputRoot
-                    }
-                  })
-                }}
-                disabled={!settingsDefaultOutputRoot}
-                title={
-                  settingsDefaultOutputRoot
-                    ? `Use Settings > Default Model Output Root (${settingsDefaultOutputRoot})`
-                    : 'Set Settings > Default Model Output Root to enable this option'
-                }
-              >
-                Settings Default
-              </button>
-              <button
-                type="button"
-                className={`btn btn-sm ${outputRootMode === 'output-audio' ? 'btn-blue' : 'btn-secondary'}`}
-                onClick={() => {
-                  const dir = getDirname(editedJob.outputAudioPath)
-                  onSessionChange({
-                    ...session,
-                    outputRootMode: 'output-audio',
-                    job: {
-                      ...editedJob,
-                      outputRootDirIsDefault: true,
-                      outputRootDir: dir
-                    }
-                  })
-                }}
-              >
-                Training Output File Folder
-              </button>
-              <button
-                type="button"
-                className={`btn btn-sm ${outputRootMode === 'custom' ? 'btn-blue' : 'btn-secondary'}`}
-                onClick={() => {
-                  onSessionChange({
-                    ...session,
-                    outputRootMode: 'custom',
-                    job: { ...editedJob, outputRootDirIsDefault: false }
-                  })
-                }}
-              >
-                Custom Folder
-              </button>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', minHeight: '30px', color: 'var(--text-steel)', fontSize: '13px' }}>
-                <input
-                  type="checkbox"
-                  checked={editedJob.copyFinalModelToOutputAudioFolder}
-                  onChange={(event) => {
-                    window.localStorage.setItem(
-                      LAST_COPY_FINAL_MODEL_TO_OUTPUT_AUDIO_FOLDER_STORAGE_KEY,
-                      event.target.checked ? 'true' : 'false'
-                    )
-                    onSessionChange({
+              <div className="property-control">
+                <div className="property-input-action">
+                  <input
+                    id="job-name"
+                    type="text"
+                    className={`form-input${showValidationErrors && !isNameValid ? ' input-error' : ''}`}
+                    style={showValidationErrors && !isNameValid ? { borderColor: 'var(--neon-magenta)' } : {}}
+                    value={editedJob.name}
+                    onChange={(e) => onSessionChange({
                       ...session,
-                      job: {
-                        ...editedJob,
-                        copyFinalModelToOutputAudioFolder: event.target.checked
-                      }
-                    })
-                  }}
-                />
-                <span>Copy model to output audio folder</span>
-              </label>
-            </div>
-
-            <p style={{ color: 'var(--text-steel)', fontSize: '12px', marginTop: '0', marginBottom: '10px' }}>
-              Uses the Settings default first when configured. Otherwise it can follow the training output file folder, or you can lock this draft to a custom folder. The copy option adds a convenient `.nam` copy next to the selected output audio file.
-            </p>
-
-            <FilePickerRow
-              id="output-root-dir"
-              value={editedJob.outputRootDir}
-              onChange={(val) => onSessionChange({
-                ...session,
-                job: { ...editedJob, outputRootDir: val }
-              })}
-              placeholder="C:\Users\...\NAM\outputs"
-              disabled={outputRootMode !== 'custom'}
-              onBrowse={() => window.namBot.settings.chooseDirectory() as Promise<string | null>}
-              error={showValidationErrors && !isRootDirValid}
-            />
-
-            <div style={{ marginTop: '12px', padding: '12px', border: '1px solid var(--border-dim)', borderRadius: '8px', background: 'rgba(5, 17, 24, 0.45)' }}>
-              <p style={{ margin: 0, fontFamily: 'var(--font-arcade)', color: 'var(--neon-cyan)', fontSize: '12px', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                Final Model Filename
-              </p>
-              <div style={{ marginTop: '10px' }}>
-                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', color: 'var(--text-steel)', fontSize: '13px' }}>
-                  <input
-                    type="checkbox"
-                    checked={editedJob.appendPresetToModelFileName}
-                    onChange={(event) => {
-                      window.localStorage.setItem(
-                        LAST_APPEND_PRESET_NAME_STORAGE_KEY,
-                        event.target.checked ? 'true' : 'false'
-                      )
-                      onSessionChange({
-                        ...session,
-                        job: {
-                          ...editedJob,
-                          appendPresetToModelFileName: event.target.checked
-                        }
-                      })
-                    }}
+                      job: { ...editedJob, name: e.target.value }
+                    })}
                   />
-                  <span>Append preset name</span>
-                </label>
-                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginTop: '10px', color: 'var(--text-steel)', fontSize: '13px' }}>
-                  <input
-                    type="checkbox"
-                    checked={editedJob.appendEsrToModelFileName}
-                    onChange={(event) => {
-                      window.localStorage.setItem(
-                        LAST_APPEND_ESR_STORAGE_KEY,
-                        event.target.checked ? 'true' : 'false'
-                      )
-                      onSessionChange({
+                  {!isBatchMode && (
+                    <button
+                      type="button"
+                      className="btn btn-xs btn-secondary"
+                      disabled={!outputFilenameStem}
+                      onClick={() => onSessionChange({
                         ...session,
-                        job: {
-                          ...editedJob,
-                          appendEsrToModelFileName: event.target.checked
-                        }
-                      })
-                    }}
-                  />
-                  <span>Append final ESR</span>
-                </label>
+                        job: { ...editedJob, name: outputFilenameStem }
+                      })}
+                    >
+                      Use Output Filename
+                    </button>
+                  )}
+                </div>
+                {isBatchMode && (
+                  <p className="property-hint">
+                    Generated drafts still use each output filename as their job name. This label identifies the batch.
+                  </p>
+                )}
               </div>
             </div>
-          </div>
+            <div className="property-row">
+              <label className="form-label" htmlFor="input-audio-path">
+                Input Audio <span className="job-label-detail">(Training Signal)</span>
+                {showValidationErrors && !isInputValid && <span style={{ color: 'var(--neon-magenta)', fontSize: '12px' }}>(Required)</span>}
+              </label>
+              <div className="property-control">
+                {/* Toggle buttons */}
+                <div className="toggle-group job-mode-controls" role="group" aria-label="Input audio source">
+                  <button
+                    type="button"
+                    className={`btn btn-sm ${inputMode === 'default' ? 'btn-green' : 'btn-secondary'}`}
+                    aria-pressed={inputMode === 'default'}
+                    onClick={() => handleInputModeChange('default')}
+                  >
+                    Default
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn btn-sm ${inputMode === 'custom' ? 'btn-blue' : 'btn-secondary'}`}
+                    aria-pressed={inputMode === 'custom'}
+                    onClick={() => handleInputModeChange('custom')}
+                  >
+                    Custom
+                  </button>
+                  {inputMode === 'default' && (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-secondary"
+                      onClick={handleSaveDefaultAudio}
+                      disabled={savingDefault}
+                      title="Save the bundled v3_0_0.wav training signal to your system"
+                    >
+                      {savingDefault ? 'Saving...' : 'Save Default to Disk'}
+                    </button>
+                  )}
+                </div>
 
-          {/* ── Training Settings ── */}
-          <div style={{ borderTop: '2px solid var(--border-dim)', marginTop: '16px', paddingTop: '16px' }}>
-            <h4 style={{ fontFamily: 'var(--font-arcade)', color: 'var(--neon-cyan)', marginBottom: '12px' }}>
-              Training Settings
-            </h4>
+                <FilePickerRow
+                  id="input-audio-path"
+                  value={editedJob.inputAudioPath}
+                  displayValue={getBasename(editedJob.inputAudioPath)}
+                  onChange={(val) => onSessionChange({
+                    ...session,
+                    job: { ...editedJob, inputAudioPath: val }
+                  })}
+                  placeholder={window.namBot.platform === 'win32' ? 'C:\\path\\to\\v3_0_0.wav' : '/path/to/v3_0_0.wav'}
+                  disabled={inputMode === 'default'}
+                  onBrowse={() => window.namBot.jobs.chooseAudioFile() as Promise<string | null>}
+                  error={showValidationErrors && !isInputValid}
+                />
+              </div>
+            </div>
+            <div className="property-row">
+              <label className="form-label" htmlFor="output-audio-path">
+                {isBatchMode ? `Output Audio Files (${batchOutputFiles?.length ?? 0})` : <>Output Audio <span className="job-label-detail">(Re-amped Signal)</span></>}
+                {showValidationErrors && !isOutputValid && <span style={{ color: 'var(--neon-magenta)', fontSize: '12px' }}>(Required)</span>}
+              </label>
+              <div className="property-control">
+                {isBatchMode ? (
+                  <div className="batch-output-list">
+                    {batchOutputFiles?.map((outputFile, index) => (
+                      <div className="batch-output-item" key={`${outputFile.outputAudioPath}:${index}`}>
+                        <span className="batch-output-index">{index + 1}</span>
+                        <span className="batch-output-name">{getBasename(outputFile.outputAudioPath) || outputFile.outputFileName}</span>
+                        <span className="batch-output-path">{outputFile.outputAudioPath}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <FilePickerRow
+                    id="output-audio-path"
+                    value={editedJob.outputAudioPath}
+                    displayValue={getBasename(editedJob.outputAudioPath)}
+                    onChange={(val) => onSessionChange({
+                      ...session,
+                      job: { ...editedJob, outputAudioPath: val }
+                    })}
+                    placeholder={window.namBot.platform === 'win32' ? 'C:\\path\\to\\reamped.wav' : '/path/to/reamped.wav'}
+                    onBrowse={() => window.namBot.jobs.chooseAudioFile() as Promise<string | null>}
+                    error={showValidationErrors && !isOutputValid}
+                  />
+                )}
+              </div>
+            </div>
 
-            <div className="training-settings-grid">
-              <div className="form-group">
-                <label className="form-label" htmlFor="preset-select">Preset</label>
+          </section>
+          <section className="property-section" aria-labelledby="job-training-heading">
+            <h2 id="job-training-heading" tabIndex={-1}>Training</h2>
+            <div className="property-row">
+              <label className="form-label" htmlFor="preset-select">Preset</label>
+              <div className="property-control">
                 <select
                   id="preset-select"
                   className="form-select"
@@ -1853,48 +1749,15 @@ function JobEditor({
                   ))}
                 </select>
                 {selectedPreset && (
-                  <p style={{ color: 'var(--text-steel)', fontSize: '12px', marginTop: '6px' }}>
+                  <details className="job-field-help"><summary>Preset details</summary><p className="property-hint">
                     <span className="queue-status-badge queued">{formatPresetArchitectureTag(selectedPreset)}</span> {selectedPreset.values.modelFamily} / {selectedPreset.values.architectureSize}. {selectedPreset.description}
-                  </p>
+                  </p></details>
                 )}
               </div>
-
-              {showPackedSubmodelSelector && (
-                <div className="form-group packed-submodel-panel">
-                  <label className="form-label">Advanced Packed Submodels</label>
-                  <p className="packed-submodel-helper">
-                    Choose the packed tiers written into this run's <code>model.json</code>. All tiers are selected by default.
-                  </p>
-                  <div className="packed-submodel-options">
-                    {packedSubmodelOptions.map((submodel) => {
-                      const selection = toPackedSubmodelSelection(submodel)
-                      const selectionKey = getPackedSubmodelSelectionKey(selection)
-                      const isSelected = selectedPackedSubmodelKeys.has(selectionKey)
-                      const isLastSelected = isSelected && selectedPackedSubmodelOptionCount === 1
-
-                      return (
-                        <label key={selectionKey} className="packed-submodel-option">
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            disabled={isLastSelected}
-                            onChange={(event) => updatePackedSubmodelSelection(submodel, event.target.checked)}
-                          />
-                          <span>{formatPackedSubmodelDisplayName(submodel)}</span>
-                        </label>
-                      )
-                    })}
-                  </div>
-                  {!isPackedSubmodelSelectionValid && (
-                    <p style={{ color: 'var(--neon-magenta)', fontSize: '12px', marginBottom: 0 }}>
-                      Select at least one packed submodel.
-                    </p>
-                  )}
-                </div>
-              )}
-
-              <div className="form-group">
-                <label className="form-label" htmlFor="epochs">Epochs</label>
+            </div>
+            <div className="property-row">
+              <label className="form-label" htmlFor="epochs">Epochs</label>
+              <div className="property-control">
                 <input
                   id="epochs"
                   type="number"
@@ -1913,19 +1776,21 @@ function JobEditor({
                   })}
                 />
                 {epochsLocked && (
-                  <p style={{ color: 'var(--text-steel)', fontSize: '12px', marginTop: '6px' }}>
+                  <p className="property-hint">
                     This preset locks epoch count through its expert learning config.
                   </p>
                 )}
               </div>
-
-              <div className="form-group">
-                <label className="form-label" htmlFor="latency-samples">Latency / Delay (samples)</label>
-                <div className="toggle-group" style={{ marginBottom: '10px' }}>
+            </div>
+            <div className="property-row">
+              <label className="form-label" htmlFor="latency-samples">Latency (samples)</label>
+              <div className="property-control">
+                <div className="job-latency-controls"><div className="toggle-group job-mode-controls" role="group" aria-label="Latency mode">
                   <button
                     type="button"
                     className={`btn btn-sm ${latencyMode === 'manual' ? 'btn-blue' : 'btn-secondary'}`}
                     disabled={latencyLocked}
+                    aria-pressed={latencyMode === 'manual'}
                     onClick={() => updateLatencyMode('manual')}
                   >
                     Manual
@@ -1934,53 +1799,258 @@ function JobEditor({
                     type="button"
                     className={`btn btn-sm ${latencyMode === 'auto' ? 'btn-green' : 'btn-secondary'}`}
                     disabled={latencyLocked}
+                    aria-pressed={latencyMode === 'auto'}
                     onClick={() => updateLatencyMode('auto')}
                   >
                     Auto-align
                   </button>
                 </div>
-                <input
-                  id="latency-samples"
-                  type="number"
-                  className="form-input"
-                  value={displayedLatency}
-                  disabled={latencyInputDisabled}
-                  onChange={(e) => onSessionChange({
-                    ...session,
-                    job: {
-                      ...editedJob,
-                      trainingOverrides: {
-                        ...editedJob.trainingOverrides,
-                        latencySamples: parseInt(e.target.value, 10) || 0
+                  <input
+                    id="latency-samples"
+                    type="number"
+                    className="form-input"
+                    value={displayedLatency}
+                    disabled={latencyInputDisabled}
+                    onChange={(e) => onSessionChange({
+                      ...session,
+                      job: {
+                        ...editedJob,
+                        trainingOverrides: {
+                          ...editedJob.trainingOverrides,
+                          latencySamples: parseInt(e.target.value, 10) || 0
+                        }
                       }
-                    }
-                  })}
-                />
-                <p style={{ color: 'var(--text-steel)', fontSize: '12px', marginTop: '6px' }}>
-                  Manual writes this exact value to `data.common.delay`; `0` means no latency correction. Auto-align runs NAM's standard-input analyzer before training and fills in the calculated delay.
+                    })}
+                  /></div>
+                <p className="property-hint">
+                  {latencyMode === 'auto' ? 'Analyzes the training signal before the run and applies the measured delay.' : 'Delay in samples. Use 0 for no latency correction.'}
                 </p>
                 {latencyLocked && (
-                  <p style={{ color: 'var(--text-steel)', fontSize: '12px', marginTop: '6px' }}>
+                  <p className="property-hint">
                     This preset locks delay through its expert data config, so NAM-BOT will not run auto-align for this job.
                   </p>
                 )}
               </div>
             </div>
-          </div>
+            {showPackedSubmodelSelector && (
+              <div className="property-row"><span className="form-label" id="job-packed-models-label">Packed models</span><div className="property-control property-option-panel" role="group" aria-labelledby="job-packed-models-label">
 
-          {/* ── NAM Embedded Metadata ── */}
-          <div style={{ borderTop: '2px solid var(--border-dim)', marginTop: '16px', paddingTop: '16px' }}>
-            <h4 style={{ fontFamily: 'var(--font-arcade)', color: 'var(--neon-cyan)', marginBottom: '4px' }}>
-              NAM Metadata
-            </h4>
-            <p style={{ color: 'var(--text-steel)', fontSize: '12px', marginBottom: '16px' }}>
-              These fields are written back into the final `.nam` file after `nam-full` finishes.
-            </p>
+                <p className="packed-submodel-helper">
+                  Choose which model tiers to include. At least one must remain selected.
+                </p>
+                <div className="packed-submodel-options">
+                  {packedSubmodelOptions.map((submodel) => {
+                    const selection = toPackedSubmodelSelection(submodel)
+                    const selectionKey = getPackedSubmodelSelectionKey(selection)
+                    const isSelected = selectedPackedSubmodelKeys.has(selectionKey)
+                    const isLastSelected = isSelected && selectedPackedSubmodelOptionCount === 1
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                    return (
+                      <label key={selectionKey} className="packed-submodel-option">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          disabled={isLastSelected}
+                          onChange={(event) => updatePackedSubmodelSelection(submodel, event.target.checked)}
+                        />
+                        <span>{formatPackedSubmodelDisplayName(submodel)}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+                {!isPackedSubmodelSelectionValid && (
+                  <p style={{ color: 'var(--neon-magenta)', fontSize: '12px', marginBottom: 0 }}>
+                    Select at least one packed submodel.
+                  </p>
+                )}
+              </div></div>
+            )}
+
+
+          </section>
+          <section className="property-section" aria-labelledby="job-model-output-heading">
+            <h2 id="job-model-output-heading" tabIndex={-1}>Model output</h2>
+            <div className="property-row">
+              <label className="form-label" htmlFor="output-root-dir">
+                Output folder {showValidationErrors && !isRootDirValid && <span style={{ color: 'var(--neon-magenta)', fontSize: '12px' }}>(Required)</span>}
+              </label>
+              <div className="property-control">
+                {/* Toggle buttons */}
+                <div className="toggle-group job-mode-controls" role="group" aria-label="Model output folder source">
+                  <button
+                    type="button"
+                    className={`btn btn-sm ${outputRootMode === 'settings-default' ? 'btn-green' : 'btn-secondary'}`}
+                    aria-pressed={outputRootMode === 'settings-default'}
+                    onClick={() => {
+                      if (!settingsDefaultOutputRoot) {
+                        return
+                      }
+                      onSessionChange({
+                        ...session,
+                        outputRootMode: 'settings-default',
+                        job: {
+                          ...editedJob,
+                          outputRootDirIsDefault: false,
+                          outputRootDir: settingsDefaultOutputRoot
+                        }
+                      })
+                    }}
+                    disabled={!settingsDefaultOutputRoot}
+                    title={
+                      settingsDefaultOutputRoot
+                        ? `Use Settings > Default Model Output Root (${settingsDefaultOutputRoot})`
+                        : 'Set Settings > Default Model Output Root to enable this option'
+                    }
+                  >
+                    Settings Default
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn btn-sm ${outputRootMode === 'output-audio' ? 'btn-blue' : 'btn-secondary'}`}
+                    aria-pressed={outputRootMode === 'output-audio'}
+                    onClick={() => {
+                      const dir = getDirname(editedJob.outputAudioPath)
+                      onSessionChange({
+                        ...session,
+                        outputRootMode: 'output-audio',
+                        job: {
+                          ...editedJob,
+                          outputRootDirIsDefault: true,
+                          outputRootDir: dir
+                        }
+                      })
+                    }}
+                  >
+                    Output audio folder
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn btn-sm ${outputRootMode === 'custom' ? 'btn-blue' : 'btn-secondary'}`}
+                    aria-pressed={outputRootMode === 'custom'}
+                    onClick={() => {
+                      onSessionChange({
+                        ...session,
+                        outputRootMode: 'custom',
+                        job: { ...editedJob, outputRootDirIsDefault: false }
+                      })
+                    }}
+                  >
+                    Custom Folder
+                  </button>
+
+                </div>
+
+
+                <FilePickerRow
+                  id="output-root-dir"
+                  value={editedJob.outputRootDir}
+                  onChange={(val) => onSessionChange({
+                    ...session,
+                    job: { ...editedJob, outputRootDir: val }
+                  })}
+                  placeholder={window.namBot.platform === 'win32' ? 'C:\\Users\\...\\NAM\\outputs' : '/path/to/NAM/outputs'}
+                  disabled={outputRootMode !== 'custom'}
+                  onBrowse={() => window.namBot.settings.chooseDirectory() as Promise<string | null>}
+                  error={showValidationErrors && !isRootDirValid}
+                />
+              </div>
+            </div>
+            <div className="property-row">
+              <span className="form-label" id="job-file-naming-label">File naming</span>
+              <div className="property-control">
+                <div className="job-check-options property-option-panel" role="group" aria-labelledby="job-file-naming-label">
+                  <label className="job-check-option">
+                    <input
+                      type="checkbox"
+                      checked={editedJob.appendPresetToModelFileName}
+                      onChange={(event) => {
+                        window.localStorage.setItem(
+                          LAST_APPEND_PRESET_NAME_STORAGE_KEY,
+                          event.target.checked ? 'true' : 'false'
+                        )
+                        onSessionChange({
+                          ...session,
+                          job: {
+                            ...editedJob,
+                            appendPresetToModelFileName: event.target.checked
+                          }
+                        })
+                      }}
+                    />
+                    <span>Append preset name</span>
+                  </label>
+                  <label className="job-check-option">
+                    <input
+                      type="checkbox"
+                      checked={editedJob.appendEsrToModelFileName}
+                      onChange={(event) => {
+                        window.localStorage.setItem(
+                          LAST_APPEND_ESR_STORAGE_KEY,
+                          event.target.checked ? 'true' : 'false'
+                        )
+                        onSessionChange({
+                          ...session,
+                          job: {
+                            ...editedJob,
+                            appendEsrToModelFileName: event.target.checked
+                          }
+                        })
+                      }}
+                    />
+                    <span>Append final ESR</span>
+                  </label>
+                </div>
+                <div className="model-filename-preview">
+                  <span id="model-filename-preview-label">{isBatchMode ? 'Filename previews' : 'Filename preview'}</span>
+                  <output aria-labelledby="model-filename-preview-label" className="model-filename-output">
+                    {modelFilenamePreviews.map((filename, index) => <span key={index}>{filename}</span>)}
+                    {modelFilenamePreviews.length === 0 && <span className="model-filename-empty">Enter a job name</span>}
+                  </output>
+                </div>
+              </div>
+            </div>
+            <div className="property-row">
+              <span className="form-label">Extra copy</span>
+              <div className="property-control">
+                <label className="job-check-option property-option-panel">
+                  <input
+                    type="checkbox"
+                    checked={editedJob.copyFinalModelToOutputAudioFolder}
+                    onChange={(event) => {
+                      window.localStorage.setItem(
+                        LAST_COPY_FINAL_MODEL_TO_OUTPUT_AUDIO_FOLDER_STORAGE_KEY,
+                        event.target.checked ? 'true' : 'false'
+                      )
+                      onSessionChange({
+                        ...session,
+                        job: {
+                          ...editedJob,
+                          copyFinalModelToOutputAudioFolder: event.target.checked
+                        }
+                      })
+                    }}
+                  />
+                  <span>Copy model to output audio folder</span>
+                </label>
+              </div>
+            </div>
+
+          </section>
+          <section className="property-section" aria-labelledby="job-metadata-heading">
+            <h2 id="job-metadata-heading" tabIndex={-1}>Metadata</h2>
+            <p className="property-note">Embedded in the .nam file. Model name is independent of the filename.</p>
+            <div className="editor-metadata-grid">
               <div className="form-group">
-                <div className="form-label-row">
-                  <label className="form-label" htmlFor="meta-name">{isBatchMode ? 'Shared Model Name' : 'Model Name'}</label>
+                <label className="form-label" htmlFor="meta-name">{isBatchMode ? 'Shared Model Name' : 'Model Name'}</label>
+                <div className="property-input-action">
+                  <input
+                    id="meta-name"
+                    type="text"
+                    className="form-input"
+                    value={editedJob.metadata?.name || ''}
+                    placeholder={isBatchMode ? 'Leave blank to use each output filename' : 'e.g. My Plexi'}
+                    onChange={(e) => updateMeta({ name: e.target.value })}
+                  />
                   {!isBatchMode && (
                     <button
                       type="button"
@@ -1992,16 +2062,8 @@ function JobEditor({
                     </button>
                   )}
                 </div>
-                <input
-                  id="meta-name"
-                  type="text"
-                  className="form-input"
-                  value={editedJob.metadata?.name || ''}
-                  placeholder={isBatchMode ? 'Leave blank to use each output filename' : 'e.g. My Plexi'}
-                  onChange={(e) => updateMeta({ name: e.target.value })}
-                />
                 {isBatchMode && (
-                  <p style={{ color: 'var(--text-steel)', fontSize: '12px', marginTop: '6px', marginBottom: 0 }}>
+                  <p className="property-hint">
                     Leave blank to embed each output filename as that model's metadata name. Type a value here only if every generated model should share the same embedded name.
                   </p>
                 )}
@@ -2103,10 +2165,10 @@ function JobEditor({
                 />
               </div>
             </div>
-          </div>
 
+          </section>
           {/* ── Actions ── */}
-          <div style={{ marginTop: '24px', display: 'flex', gap: '12px', alignItems: 'center' }}>
+          <div className="property-actions">
             <button
               type="submit"
               className={`btn ${canSave ? 'btn-green' : 'btn-secondary'}`}
@@ -2140,6 +2202,6 @@ function JobEditor({
         onAlternate={() => void handleSaveAndExit()}
         onCancel={() => setIsUnsavedConfirmOpen(false)}
       />
-    </div>
+    </PropertySheet>
   )
 }

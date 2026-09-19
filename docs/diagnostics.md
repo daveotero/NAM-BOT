@@ -23,6 +23,10 @@ The screen is intentionally split into compact readiness areas so users can tell
 
 ## User Experience
 
+### Section Navigation
+
+The fixed workspace toolbar contains `Re-check All`. Shared section navigation links Overview, Actions, Checks, and Details, with the same muted gray active state, smooth scrolling, heading focus, reduced-motion behavior, and section dividers as the editors. Details remain collapsed until requested. The readiness tiles, ordered repair actions, check matrix, and troubleshooting exports retain their existing behavior. Copyable command blocks share their typography, spacing, and border styling with Setup Guide; copy failures are reported inline.
+
 ### Automatic Loading
 
 The Diagnostics screen auto-loads its checks when the page opens.

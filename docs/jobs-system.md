@@ -34,6 +34,14 @@ The Jobs screen is split into a few major states:
 - a training section for active runs
 - a finished section for completed, failed, and stopped runs
 
+The fixed workspace command bar contains `Add audio files` and `New Job`. A compact strip counts Drafts, Queue, Training, and Finished; selecting a nonempty section scrolls to it. Drafts and runtime entries use compact rows with their existing actions and expanded details. Draft and queue drag ordering is unchanged.
+
+The strip always includes `Search jobs`, even when there are no jobs. Search ignores case and surrounding whitespace and matches job/model names, batch labels, preset names, and input/output audio paths. Runtime preset names come from their frozen recipe. Counts reflect matching jobs; a no-results state and `Clear search` make recovery explicit. Filtering never changes queue order or its position labels. While a search is active, drag reordering and the global Queue All, Unqueue All, and Clear Finished actions are disabled; individual job actions remain available. Saving, copying, or importing drafts, or saving a batch, clears search so the new entries are visible.
+
+`Add audio files` stays available when jobs already exist. Selecting one output file creates a draft; selecting multiple files opens the batch editor. Dropping files onto the Jobs workspace follows the same path.
+
+Single-job and batch editors use the same fixed command bar for Save/Create Batch and Cancel, so these controls remain visible while fields scroll. Existing bottom form actions, validation, unsaved-change confirmations, and all audio, training, filename, and metadata fields remain available. At narrow widths, labels and controls stack.
+
 When the page is empty, it invites the user to either:
 
 - click `New Job`
@@ -53,7 +61,7 @@ Draft jobs are editable saved jobs that have not been frozen into the queue yet.
 - `Queue All` enqueues every valid draft from bottom to top and skips drafts missing required fields.
 - While a draft is being queued, its Queue button changes to `Queueing...` and draft actions are disabled to prevent duplicate enqueue clicks.
 - Draft delete confirmation includes a `Don't show this again` option that bypasses future draft-delete confirmations on that device.
-- New jobs default to the A2 preset and remember the last-used output root mode, the last-used exported-model naming preferences, and a small set of low-risk reusable capture fields.
+- New jobs use **Settings → Application → Default preset** (initially A2 Packed WaveNet) and inherit that preset's epoch count. They remember the last-used output root mode, the last-used exported-model naming preferences, and a small set of low-risk reusable capture fields.
 
 Drafts are where users can iterate safely before they commit a run to the queue.
 
@@ -99,7 +107,7 @@ The Jobs page supports dragging output audio files directly onto the main panel.
 - the NAM model name defaults to the output filename without extension
 - the output root defaults to the dropped file's directory
 - the input audio defaults to the bundled NAM training signal when available
-- the preset defaults to the A2 default preset, then the first visible preset
+- the preset and epoch count come from **Settings → Application → Default preset**, for both single-file drafts and fresh batches; an unavailable selection falls back to A2 Packed WaveNet, then the last-used visible preset or the first visible preset
 
 This is intended to speed up common “I already have my re-amped captures on disk” workflows.
 
@@ -121,6 +129,10 @@ The editor includes:
 - training overrides for epochs and latency
 - NAM metadata fields for the final `.nam` artifact
 
+The job editor uses a continuous property sheet organized into **Name & audio**, **Training**, **Model output**, and **Metadata**. A compact section navigation row smoothly scrolls to and focuses each heading without hiding fields or changing the draft. A muted gray highlight tracks the current section; reduced-motion preferences disable scroll animation. The fixed command strip keeps Save/Cancel available while scrolling.
+
+Labels and controls use consistent rows shared with the Preset editor and Settings. Metadata uses aligned pairs on wide windows and a single column in narrower workspaces. `Use Output Filename` sits beside its input, so it does not change the label or input baseline of neighboring fields. Preset details are available through a disclosure beside the preset control; numeric training controls stay compact. Section dividers retain a stronger outline than editable fields.
+
 The editor shows `Save Job` buttons at both the top and bottom of the form.
 
 - Save buttons stay neutral when the editor is clean.
@@ -131,6 +143,10 @@ The editor shows `Save Job` buttons at both the top and bottom of the form.
 - Batch editors use the same navigation guard. `Keep Editing` retains both the selected files and shared edits.
 - Audio paths can be typed, pasted, or replaced through Browse. Only the bundled default input display is disabled.
 - Save and picker failures are shown in the editor, with the unsaved edits retained for retry. An unavailable preset must be explicitly replaced before saving or queueing a draft.
+
+### Unsaved editor changes
+
+Canceling a newly opened job does not prompt until the user changes a field or selects files. Default input audio and automatically resolved output directories do not count as edits. A shared snapshot function supplies the same check to editor Cancel and shell/menu navigation. Custom paths, selected modes, metadata, and training options remain protected; reverting fields to their original values restores the clean state. Batch file selections remain unsaved work and still require confirmation.
 
 ### Input Audio Modes
 
@@ -169,14 +185,16 @@ The output root directory can be driven in three ways:
 - `Settings Default`
   - uses the `Default Model Output Root` from Settings when configured
   - is the first-choice default for new drafts when no other output-root preference has been saved yet
-- `Training Output File Folder`
+- `Output audio folder`
   - follows the directory of the chosen output audio file
   - becomes the fallback default when no Settings output root is configured
 - `Custom Folder`
   - lets the user browse to a specific directory
   - remembers the last custom folder path after the draft is saved
 
-### Final Model Filename
+### Model Output And Filename Preview
+
+The **Model output** section combines the output folder, file naming options, a live filename preview, and the optional extra copy. This replaces the nested `Final Model Filename` panel.
 
 The final exported `.nam` filename always starts with the job name.
 
@@ -192,6 +210,10 @@ The suffix order is fixed so filenames read consistently:
 - `Job Name`
 - `Job Name - Preset Name`
 - `Job Name - Preset Name - ESR 0.0123`
+
+The preview includes `.nam`, updates when the job name, preset, or naming options change, and shares filename construction/sanitization with the main-process exporter. When ESR naming is enabled, it shows `ESR [pending]` until training supplies the real value; it never displays a made-up score. Batch mode previews each output audio filename separately rather than using the shared batch label. The embedded Model Name metadata is independent of the filename.
+
+The preview describes the final model in the run's output folder. An additional copy beside the audio may receive a numeric collision suffix if that location already contains the filename.
 
 ### Queue View
 
@@ -318,6 +340,7 @@ interface JobSpec {
 Expanded training and finished job cards include an **ESR over time** chart. Each embedded model has its own neon-colored curve and friendly tier label, with matching colors in the ESR summary. The chart uses NAM-BOT's dark panels, pixel typography, thin grid, and square controls; non-packed models have a single curve.
 
 - The horizontal axis shows one-based epochs. The vertical axis shows validation ESR in decimal notation; lower is better.
+- `All` reserves at least 20 epoch positions, leaving room to the right during the first few validations instead of stretching one or two samples across the plot. After that it expands with the recorded history. The 30- and 100-epoch views retain their full selected span, including when only a few measurements exist. Empty space adds no synthetic measurements, and inspection still selects only recorded epochs.
 - Curves show actual validation results, including regressions, rather than the running best checkpoint value shown in the ESR summary.
 - Hover over the chart to inspect exact values; leaving the chart returns to the latest result. Click or tap the chart to pin an epoch, then use `Return to latest` to resume following new results. The readout directly above the model values identifies their epoch and whether it is pinned or latest. A pinned epoch stays selected while it remains in the chosen viewing window.
 - Focus the chart and use arrow keys to inspect and pin adjacent recorded epochs, Home for the first visible epoch, or End/Escape to return to latest. Click a model in the legend to hide/show its curve.
@@ -328,6 +351,10 @@ Expanded training and finished job cards include an **ESR over time** chart. Eac
 NAM-BOT launches the installed `nam-full` entry point through a workspace-local Python wrapper. It adds a Lightning callback to NAM's existing callbacks and records `ESR_packed_<index>` (or `ESR` for non-packed models) at `on_validation_end` into `esr-history.jsonl` in that run's workspace. Names come from the generated model config, so a selected subset of embedded models is labeled correctly. Initial sanity-check validation and non-primary distributed workers are excluded. A metrics-capture error disables collection with a terminal message while allowing training to continue.
 
 The queue tails complete JSONL records incrementally and persists validated `esrHistory` entries with the runtime. This captures every validation epoch rather than reconstructing history from best-checkpoint files, which may be overwritten or removed during training.
+
+### Terminal Log View
+
+`Show Logs` opens the same terminal viewer in Jobs and on the Dashboard. It follows new output by default, including the final log update when training ends. Scrolling up pauses following while new lines continue to load; reaching the bottom resumes following automatically. A compact **Auto-scroll active** / **Auto-scroll paused** label identifies the log-view state separately from training, with no toggle. The paused position is retained while that job card stays mounted, including when its logs are hidden and reopened. Only the log pane scrolls, so following output does not move the surrounding page. The log pane is keyboard-focusable for manual scrolling.
 
 ### Export During Training And Stop Choices
 

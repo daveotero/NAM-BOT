@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Lifetime training totals and recent completed runs on the dashboard, preserved when Jobs history is cleared.
+- Always-visible Jobs search across names, presets, and audio paths, plus a live model filename preview in the job editor.
+- A saved default preset for new jobs and dropped audio, with automatic fallback to A2 if the selected preset is deleted.
+- Terminal logs follow new output automatically, pause following when scrolled up, and resume at the bottom, with an explicit auto-scroll status.
+
+### Changed
+
+- Reorganized the app into compact desktop workspaces with fixed commands, grouped navigation, and a persistent status footer.
+- Unified Jobs, Presets, Settings, Diagnostics, and Setup Guide with shared section navigation, smooth scrolling, muted field borders, and responsive layouts.
+- Themed About, update, and exit dialogs to match the app; removed the duplicate title-bar status and the unused Windows Window > Zoom command.
+- macOS uses standard application-menu placement for Settings, About, and updates, native Help and Window menus, and platform-appropriate dialog buttons and path examples.
+- Replaced working indicators with a pulsing 3×3 LED grid, with a natural startup sequence, gentle fade-out, and reduced-motion support.
+- Grouped packed-model choices and similar checkbox controls in subtly shaded panels.
+- ESR charts reserve at least 20 epochs of horizontal space so early measurements remain readable.
+
+### Fixed
+
+- Canceling an untouched new job no longer asks to discard changes; reverting edits also restores the unchanged state.
+- Preset editor mode controls stay beside the heading, with stable Save Preset and Apply JSON actions when switching modes.
+- macOS menu commands reopen a closed window and wait for saved settings and presets before opening an editor.
+- Selected property sections retain their highlight when scrolling reaches the bottom of a page.
+
+## [0.6.7] - 2026-09-18
+
+### Changed
+
+- Replaced the oversized app header with a compact retro title bar showing the current screen and training activity, while retaining native window controls on Windows and macOS.
+- Windows application commands are available from the title-bar menu or F10, with existing shortcuts and unsaved-editor protections preserved.
+- Window chrome adapts to application zoom, fullscreen, and focus changes while keeping content clear of native controls.
+- Restored the original split-color NAM-BOT logo and its animated hover effect in the compact title bar, with reduced-motion support.
+
+### Added
+
+- Desktop shell smoke tests and Windows/macOS CI coverage for window behavior, menu access, and navigation and quit protections.
+
 ## [0.6.6] - 2026-09-18
 
 ### Added

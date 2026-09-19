@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { defaultSettings } from '../../../main/types'
 
 import {
   A1_STANDARD_PRESET_ID,
@@ -12,6 +13,8 @@ import {
   LAST_LATENCY_SAMPLES_STORAGE_KEY,
   LAST_USED_PRESET_STORAGE_KEY,
   applyStoredReusableDefaults,
+  buildJobEditorSession,
+  serializeJobEditorSession,
   createNewJobDraft
 } from './jobEditorSession'
 
@@ -34,6 +37,34 @@ afterEach(() => {
 })
 
 describe('createNewJobDraft', () => {
+  it('uses the saved default preset and its epochs ahead of the built-in and last-used presets', () => {
+    stubLocalStorage({ [LAST_USED_PRESET_STORAGE_KEY]: A1_STANDARD_PRESET_ID })
+    const preferred = createTrainingPreset({ id: 'studio-preset', name: 'Studio preset', values: { epochs: 37 } })
+    const draft = createNewJobDraft({
+      settings: { ...defaultSettings, defaultPresetId: preferred.id },
+      presets: [
+        createTrainingPreset({ id: DEFAULT_PRESET_ID }),
+        createTrainingPreset({ id: A1_STANDARD_PRESET_ID }),
+        preferred
+      ]
+    })
+
+    expect(draft.presetId).toBe(preferred.id)
+    expect(draft.trainingOverrides.epochs).toBe(37)
+  })
+
+  it.each(['missing', 'hidden'])('falls back to the app default when the saved preset is %s', (availability: string) => {
+    stubLocalStorage()
+    const standard = createTrainingPreset({ id: DEFAULT_PRESET_ID, values: { epochs: 100 } })
+    const draft = createNewJobDraft({
+      settings: { ...defaultSettings, defaultPresetId: 'studio-preset' },
+      presets: [standard, ...(availability === 'hidden' ? [createTrainingPreset({ id: 'studio-preset', visible: false, values: { epochs: 37 } })] : [])]
+    })
+
+    expect(draft.presetId).toBe(DEFAULT_PRESET_ID)
+    expect(draft.trainingOverrides.epochs).toBe(100)
+  })
+
   it('prefers the A2 default preset over a stored A1 last-used preset', () => {
     stubLocalStorage({
       [LAST_USED_PRESET_STORAGE_KEY]: A1_STANDARD_PRESET_ID
@@ -127,5 +158,32 @@ describe('applyStoredReusableDefaults', () => {
 
     expect(job.trainingOverrides.latencyMode).toBe('auto')
     expect(job.trainingOverrides.latencySamples).toBe(0)
+  })
+})
+
+describe('job editor change tracking', () => {
+  it('ignores asynchronously resolved default paths while preserving typed entries', () => {
+    stubLocalStorage()
+    const session = buildJobEditorSession('New Job', createNewJobDraft({ settings: null, presets: [] }), null)
+    const hydrated = { ...session, job: { ...session.job, inputAudioPath: 'C:/bundled/input.wav', outputRootDir: 'C:/derived' } }
+    expect(serializeJobEditorSession(hydrated)).toBe(session.initialSnapshot)
+    expect(serializeJobEditorSession({ ...hydrated, job: { ...hydrated.job, name: 'My amp' } })).not.toBe(session.initialSnapshot)
+    expect(serializeJobEditorSession({ ...hydrated, job: { ...hydrated.job, outputAudioPath: 'C:/capture.wav' } })).not.toBe(session.initialSnapshot)
+    expect(serializeJobEditorSession({ ...hydrated, job: { ...hydrated.job, metadata: { ...hydrated.job.metadata, modeledBy: 'Dave' } } })).not.toBe(session.initialSnapshot)
+    expect(serializeJobEditorSession({ ...hydrated, job: { ...hydrated.job, trainingOverrides: { ...hydrated.job.trainingOverrides, epochs: (hydrated.job.trainingOverrides.epochs ?? 0) + 1 } } })).not.toBe(session.initialSnapshot)
+  })
+
+  it('tracks modes and custom paths, and becomes clean when an edit is reverted', () => {
+    stubLocalStorage()
+    const session = buildJobEditorSession('New Job', createNewJobDraft({ settings: null, presets: [] }), null)
+    const changed = { ...session, job: { ...session.job, name: 'Changed' } }
+    expect(serializeJobEditorSession(changed)).not.toBe(session.initialSnapshot)
+    changed.job.name = session.job.name
+    expect(serializeJobEditorSession(changed)).toBe(session.initialSnapshot)
+    expect(serializeJobEditorSession({ ...session, inputMode: 'custom' })).not.toBe(session.initialSnapshot)
+    expect(serializeJobEditorSession({ ...session, outputRootMode: 'custom' })).not.toBe(session.initialSnapshot)
+    const custom = { ...session, inputMode: 'custom' as const, outputRootMode: 'custom' as const }
+    expect(serializeJobEditorSession({ ...custom, job: { ...custom.job, inputAudioPath: 'C:/custom.wav' } })).not.toBe(serializeJobEditorSession(custom))
+    expect(serializeJobEditorSession({ ...custom, job: { ...custom.job, outputRootDir: 'C:/models' } })).not.toBe(serializeJobEditorSession(custom))
   })
 })

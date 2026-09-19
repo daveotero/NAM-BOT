@@ -1,6 +1,6 @@
 import { useMemo, useState, type JSX, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react'
 import type { JobEsrEpoch } from '../../../shared/training'
-import { buildEsrChartSeries, getEsrChartDomain, selectEsrHistoryWindow, type EsrEpochWindow } from './esr-chart-data'
+import { buildEsrChartSeries, getEsrChartDomain, getEsrEpochDomain, selectEsrHistoryWindow, type EsrEpochWindow } from './esr-chart-data'
 import { formatEsr } from './job-helpers'
 
 interface EsrHistoryChartProps {
@@ -27,8 +27,7 @@ export default function EsrHistoryChart({ history, active }: EsrHistoryChartProp
   const [yMin, yMax] = getEsrChartDomain(visible)
   const firstEpoch = windowHistory[0]?.epoch ?? 1
   const lastEpoch = history.at(-1)?.epoch ?? firstEpoch
-  const xMin = firstEpoch === lastEpoch ? Math.max(0, firstEpoch - 1) : firstEpoch
-  const xMax = firstEpoch === lastEpoch ? firstEpoch + 1 : lastEpoch
+  const [xMin, xMax] = getEsrEpochDomain(windowHistory, epochWindow)
   const pinned = windowHistory.some((record) => record.epoch === selectedEpoch)
   const requestedIndex = windowHistory.findIndex((record) => record.epoch === (pinned ? selectedEpoch : hoveredEpoch))
   const selectionIndex = requestedIndex < 0 ? windowHistory.length - 1 : requestedIndex

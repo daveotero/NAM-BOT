@@ -1,3 +1,4 @@
+import { isDesktopShellSmoke } from './shell/smokeBootstrap'
 import {
   app,
   BrowserWindow,
@@ -27,6 +28,11 @@ import { loadSettings } from './persistence/settingsStore'
 import { getUserPresetsPath } from './persistence/presetStore'
 import type { AppCommand } from '../shared/appShell'
 import { createQuitGuard } from './shell/quitGuard'
+import { getWindowChromeOptions } from './shell/windowChrome'
+import { observeShellWindow, setupWindowShellIpc } from './shell/windowState'
+import { installDesktopSmokeIpc } from './shell/smokeIpc'
+import { createAppDialogs } from './shell/appDialogs'
+import { createAppCommands } from './shell/appCommands'
 
 const ownsInstance = app.requestSingleInstanceLock()
 if (!ownsInstance) app.exit(0)
@@ -83,6 +89,8 @@ interface RendererErrorPayload {
 }
 
 let mainWindow: BrowserWindow | null = null
+const appDialogs = createAppDialogs(() => mainWindow)
+const appCommands = createAppCommands({ getWindow: () => mainWindow, focusWindow: focusMainWindow, hasModal: appDialogs.hasPending })
 let trainingPowerSaveBlockerId: number | null = null
 const reportedFinishedStatuses: Map<string, JobStatus> = new Map()
 const reportedDiagnosticBlocks: Set<string> = new Set()
@@ -106,9 +114,8 @@ const guardQuit = createQuitGuard({
 })
 
 function showMainMessageBox(options: MessageBoxOptions): Promise<MessageBoxReturnValue> {
-  return mainWindow
-    ? dialog.showMessageBox(mainWindow, options)
-    : dialog.showMessageBox(options)
+  if (mainWindow && !mainWindow.isDestroyed()) focusMainWindow()
+  return appDialogs.show(options)
 }
 
 app.setAppUserModelId(APP_ID)
@@ -122,7 +129,7 @@ app.setAboutPanelOptions({
 })
 
 function sendAppCommand(command: AppCommand): void {
-  mainWindow?.webContents.send('app:command', command)
+  appCommands.send(command)
 }
 
 async function openPathInShell(targetPath: string): Promise<void> {
@@ -168,6 +175,7 @@ function resolveWindowIcon(): NativeImage | undefined {
 }
 
 function hasActiveTrainingWork(): boolean {
+  if (isDesktopShellSmoke && process.env.NAM_BOT_DESKTOP_SHELL_ACTIVE === '1') return true
   const queueManager = getQueueManager()
   return queueManager.isQueueProcessing()
     || queueManager.getQueue().some((runtime) => ACTIVE_JOB_STATUSES.includes(runtime.status))
@@ -406,6 +414,7 @@ function createWindow(): void {
   const bundledRendererUrl = pathToFileURL(bundledRendererPath)
 
   mainWindow = new BrowserWindow({
+    ...getWindowChromeOptions(process.platform),
     width: 1400,
     height: 900,
     minWidth: 1000,
@@ -420,6 +429,9 @@ function createWindow(): void {
       sandbox: true
     }
   })
+
+  if (process.platform === 'win32') mainWindow.setMenuBarVisibility(false)
+  observeShellWindow(mainWindow)
 
   mainWindow.on('ready-to-show', () => {
     log.info('Window ready to show')
@@ -487,6 +499,7 @@ function createWindow(): void {
   }
 
   mainWindow.webContents.once('did-finish-load', () => {
+    if (isDesktopShellSmoke) return
     void validateBackendOnStartup()
     void checkForUpdatesOnStartup()
   })
@@ -520,11 +533,16 @@ app.whenReady().then(() => {
   setupPresetIpcHandlers()
   setupLogsIpcHandlers()
   setupUpdateIpcHandlers()
+  installDesktopSmokeIpc()
   setupRendererErrorLogging()
+  setupWindowShellIpc(() => mainWindow)
+  appDialogs.install()
+  appCommands.install()
   setupShellIntegrations()
   installApplicationMenu({
     isDev,
     checkForUpdates: () => {
+      if (isDesktopShellSmoke) return
       void showManualUpdateCheckDialog()
     },
     openLogsFolder: () => {

@@ -49,6 +49,18 @@ jobs:
       - name: Build production app
         run: npm run build
 
+      - name: Launch Windows desktop shell
+        run: npm run test:desktop-shell
+
+      - name: Upload desktop shell evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-shell-windows
+          path: |
+            test-results/
+            playwright-report/
+
   build-macos:
     name: Build macOS App
     runs-on: macos-14
@@ -69,3 +81,15 @@ jobs:
 
       - name: Build production app
         run: npm run build
+
+      - name: Launch macOS desktop shell
+        run: npm run test:desktop-shell
+
+      - name: Upload desktop shell evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-shell-macos
+          path: |
+            test-results/
+            playwright-report/

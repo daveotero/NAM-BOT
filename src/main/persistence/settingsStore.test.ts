@@ -47,4 +47,12 @@ describe('normalizeSettings', () => {
     expect(normalized.autoOpenResultsFolder).toBe(defaultSettings.autoOpenResultsFolder)
     expect(normalized.defaultAuthorName).toBe('Dave')
   })
+
+  it('preserves a saved default preset independently of the current preset library', () => {
+    expect(normalizeSettings({ defaultPresetId: ' studio-preset ' }).defaultPresetId).toBe('studio-preset')
+  })
+
+  it.each([undefined, null, '', '  ', 12, false])('uses the app default for a missing or invalid preset preference (%s)', (defaultPresetId: unknown) => {
+    expect(normalizeSettings({ defaultPresetId }).defaultPresetId).toBe(defaultSettings.defaultPresetId)
+  })
 })

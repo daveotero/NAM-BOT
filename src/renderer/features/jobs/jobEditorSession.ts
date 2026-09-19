@@ -218,6 +218,24 @@ export function persistReusableJobDefaults(job: JobSpec, inputMode: 'default' | 
   }
 }
 
+export function serializeJobEditorSession(
+  session: Pick<JobEditorSession, 'job' | 'inputMode' | 'outputRootMode'>
+): string {
+  // Resolved default paths are automatic values, not edits. Keep the selected
+  // modes and custom paths so changing either still protects unsaved work.
+  return JSON.stringify({
+    job: {
+      ...session.job,
+      inputAudioPath: session.inputMode === 'default' ? '' : session.job.inputAudioPath,
+      inputAudioIsDefault: session.inputMode === 'default',
+      outputRootDir: session.outputRootMode === 'custom' ? session.job.outputRootDir : '',
+      outputRootDirIsDefault: session.outputRootMode === 'output-audio'
+    },
+    inputMode: session.inputMode,
+    outputRootMode: session.outputRootMode
+  })
+}
+
 export function buildJobEditorSession(title: string, job: JobSpec, settings: AppSettings | null): JobEditorSession {
   const sessionContent = {
     job,
@@ -227,18 +245,23 @@ export function buildJobEditorSession(title: string, job: JobSpec, settings: App
 
   return {
     title,
-    initialSnapshot: JSON.stringify(sessionContent),
+    initialSnapshot: serializeJobEditorSession(sessionContent),
     ...sessionContent,
     showValidationErrors: false
   }
 }
 
-export function createNewJobDraft(options: CreateNewJobDraftOptions): JobSpec {
+export function getPreferredJobPreset(options: CreateNewJobDraftOptions): TrainingPresetFile | undefined {
   const visiblePresets = options.presets.filter((preset) => preset.visible)
   const storedPresetId = window.localStorage.getItem(LAST_USED_PRESET_STORAGE_KEY)
-  const fallbackPreset = visiblePresets.find((preset) => preset.id === DEFAULT_PRESET_ID)
+  return visiblePresets.find((preset) => preset.id === options.settings?.defaultPresetId)
+    ?? visiblePresets.find((preset) => preset.id === DEFAULT_PRESET_ID)
     ?? visiblePresets.find((preset) => preset.id === storedPresetId)
     ?? visiblePresets[0]
+}
+
+export function createNewJobDraft(options: CreateNewJobDraftOptions): JobSpec {
+  const fallbackPreset = getPreferredJobPreset(options)
   const preferredOutputRootSelection = getPreferredOutputRootSelection(options.settings, '')
 
   const newJob: JobSpec = {

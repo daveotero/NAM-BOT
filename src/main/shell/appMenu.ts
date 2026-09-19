@@ -1,6 +1,6 @@
-import { app, Menu, type MenuItemConstructorOptions } from 'electron'
+import { app, Menu, type BrowserWindow, type MenuItemConstructorOptions } from 'electron'
 
-import type { AppCommand, AppRoute } from '../../shared/appShell'
+import type { AppCommand, AppMenuAnchor, AppRoute } from '../../shared/appShell'
 
 interface AppMenuOptions {
   isDev: boolean
@@ -22,14 +22,23 @@ function navigateTo(sendAppCommand: AppMenuOptions['sendAppCommand'], path: AppR
   })
 }
 
-export function installApplicationMenu(options: AppMenuOptions): void {
+export function buildApplicationMenuTemplate(options: AppMenuOptions, platform: NodeJS.Platform = process.platform): MenuItemConstructorOptions[] {
   const template: MenuItemConstructorOptions[] = []
+  const settings: MenuItemConstructorOptions = {
+    label: 'Settings', accelerator: 'CmdOrCtrl+,',
+    click: () => navigateTo(options.sendAppCommand, '/settings')
+  }
+  const about: MenuItemConstructorOptions = { label: 'About NAM-BOT', click: () => options.showAboutDialog() }
+  const updates: MenuItemConstructorOptions = { label: 'Check for Updates', click: () => options.checkForUpdates() }
 
-  if (process.platform === 'darwin') {
+  if (platform === 'darwin') {
     template.push({
       label: app.name,
       submenu: [
-        { role: 'about' },
+        about,
+        updates,
+        { type: 'separator' },
+        settings,
         { type: 'separator' },
         { role: 'services' },
         { type: 'separator' },
@@ -64,7 +73,7 @@ export function installApplicationMenu(options: AppMenuOptions): void {
         },
         {
           label: 'Open Workspace Folder',
-          accelerator: 'CmdOrCtrl+Shift+W',
+          accelerator: platform === 'darwin' ? 'Command+Shift+O' : 'Ctrl+Shift+W',
           click: () => options.openWorkspaceFolder()
         },
         {
@@ -73,7 +82,7 @@ export function installApplicationMenu(options: AppMenuOptions): void {
           click: () => options.openPresetsFolder()
         },
         { type: 'separator' },
-        process.platform === 'darwin' ? { role: 'close' } : { role: 'quit' }
+        platform === 'darwin' ? { role: 'close' } : { role: 'quit' }
       ]
     },
     {
@@ -104,11 +113,7 @@ export function installApplicationMenu(options: AppMenuOptions): void {
           accelerator: 'F1',
           click: () => navigateTo(options.sendAppCommand, '/help')
         },
-        {
-          label: 'Settings',
-          accelerator: 'CmdOrCtrl+,',
-          click: () => navigateTo(options.sendAppCommand, '/settings')
-        },
+        ...(platform === 'darwin' ? [] : [settings]),
         {
           label: 'Credits',
           click: () => navigateTo(options.sendAppCommand, '/about')
@@ -124,6 +129,8 @@ export function installApplicationMenu(options: AppMenuOptions): void {
         { role: 'cut' },
         { role: 'copy' },
         { role: 'paste' },
+        ...(platform === 'darwin' ? [{ role: 'pasteAndMatchStyle' as const }] : []),
+        { role: 'delete' },
         { role: 'selectAll' }
       ]
     },
@@ -147,16 +154,17 @@ export function installApplicationMenu(options: AppMenuOptions): void {
     },
     {
       label: 'Window',
+      ...(platform === 'darwin' ? { role: 'windowMenu' as const } : {}),
       submenu: [
         { role: 'minimize' },
-        { role: 'zoom' },
-        ...(process.platform === 'darwin'
-          ? [{ type: 'separator' as const }, { role: 'front' as const }]
+        ...(platform === 'darwin'
+          ? [{ role: 'zoom' as const }, { type: 'separator' as const }, { role: 'front' as const }]
           : [{ role: 'close' as const }])
       ]
     },
     {
       label: 'Help',
+      role: 'help',
       submenu: [
         {
           label: 'Setup Guide',
@@ -179,18 +187,29 @@ export function installApplicationMenu(options: AppMenuOptions): void {
           label: 'Neural Amp Modeler GitHub',
           click: () => options.openNamGitHub()
         },
-        { type: 'separator' },
-        {
-          label: 'Check for Updates',
-          click: () => options.checkForUpdates()
-        },
-        {
-          label: 'About NAM-BOT',
-          click: () => options.showAboutDialog()
-        }
+        ...(platform === 'darwin' ? [] : [{ type: 'separator' as const }, updates, about])
       ]
     }
   )
 
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+  return template
+}
+
+export function installApplicationMenu(options: AppMenuOptions): void {
+  Menu.setApplicationMenu(Menu.buildFromTemplate(buildApplicationMenuTemplate(options)))
+}
+
+export function popupApplicationMenu(window: BrowserWindow, anchor: AppMenuAnchor): Promise<void> {
+  const menu = Menu.getApplicationMenu()
+  if (!menu) return Promise.resolve()
+  const zoom = window.webContents.getZoomFactor()
+  const [width, height] = window.getContentSize()
+  return new Promise((resolve) => {
+    menu.popup({
+      window,
+      x: Math.round(Math.max(0, Math.min(width - 1, anchor.x * zoom))),
+      y: Math.round(Math.max(0, Math.min(height - 1, anchor.y * zoom))),
+      callback: resolve
+    })
+  })
 }

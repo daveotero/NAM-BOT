@@ -1,6 +1,6 @@
 {
   "name": "nam-bot",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "description": "Neural Amp Modeler Training Manager",
   "main": "./out/main/index.js",
   "scripts": {
@@ -13,7 +13,8 @@
     "package": "npm run build && electron-builder --win --config electron-builder.yml",
     "package:mac": "npm run build && electron-builder --mac --config electron-builder.yml && node build/verify-macos-node-pty.cjs release",
     "package:win": "npm run build && electron-builder --win --config electron-builder.yml",
-    "package:local": "npm run build && electron-builder --win --config electron-builder.yml --config.win.signAndEditExecutable=false"
+    "package:local": "npm run build && electron-builder --win --config electron-builder.yml --config.win.signAndEditExecutable=false",
+    "test:desktop-shell": "playwright test --config playwright.desktop.config.ts"
   },
   "build": {
     "npmRebuild": false,
@@ -38,6 +39,7 @@
   },
   "license": "MIT",
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@types/node": "^25.3.5",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",

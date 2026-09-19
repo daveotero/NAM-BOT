@@ -77,6 +77,7 @@ export interface AppSettings {
   environmentPrefixPath: string | null
   defaultOutputRoot: string | null
   defaultWorkspaceRoot: string | null
+  defaultPresetId: string
   autoOpenResultsFolder: boolean
   defaultAuthorName: string
   defaultAuthorUrl: string

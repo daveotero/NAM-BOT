@@ -1,7 +1,28 @@
 import { describe, expect, it } from 'vitest'
-import { buildEsrChartSeries, getEsrChartDomain, selectEsrHistoryWindow } from './esr-chart-data'
+import type { JobEsrEpoch } from '../../../shared/training'
+import { buildEsrChartSeries, getEsrChartDomain, getEsrEpochDomain, selectEsrHistoryWindow } from './esr-chart-data'
+
+function epochHistory(epochs: number[]): JobEsrEpoch[] {
+  return epochs.map((epoch) => ({ epoch, step: epoch, models: [{ submodelIndex: null, esr: 1 / epoch }] }))
+}
 
 describe('ESR chart data', () => {
+  it('reserves 20 epoch positions for early history and grows only when needed', () => {
+    for (const epochs of [[], [1], [1, 2], [1, 19], [1, 20]]) {
+      expect(getEsrEpochDomain(epochHistory(epochs), 'all')).toEqual([1, 20])
+    }
+    expect(getEsrEpochDomain(epochHistory([1, 21]), 'all')).toEqual([1, 21])
+    expect(getEsrEpochDomain(epochHistory([50, 51]), 'all')).toEqual([50, 69])
+    expect(getEsrEpochDomain(epochHistory([1, 150]), 'all')).toEqual([1, 150])
+  })
+
+  it('keeps recent windows at their selected epoch span even with sparse measurements', () => {
+    expect(getEsrEpochDomain(epochHistory([1, 2]), 30)).toEqual([1, 30])
+    expect(getEsrEpochDomain(epochHistory([1, 2]), 100)).toEqual([1, 100])
+    expect(getEsrEpochDomain(epochHistory([150]), 30)).toEqual([121, 150])
+    expect(getEsrEpochDomain(epochHistory([130, 140, 150]), 100)).toEqual([51, 150])
+  })
+
   it('keeps each embedded model separate, including rises in validation error', () => {
     const series = buildEsrChartSeries([
       { epoch: 1, step: 10, models: [

@@ -1,13 +1,23 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
-import type { AppCommand } from '../shared/appShell'
+import type { AppCommand, AppDialogRequest, AppMenuAnchor, ShellWindowState } from '../shared/appShell'
 import type { LogChunk } from '../shared/logs'
 import type { UpdateStatus } from '../shared/update'
 import type { QueueControlState } from '../shared/training'
+import type { TrainingStatistics } from '../shared/training-statistics'
 import type { AppSettings } from '../main/types'
 
 export interface NamBotApi {
   platform: string
+  shell: {
+    setDialogsReady: (ready: boolean) => Promise<void>
+    respondToDialog: (id: string, response: number) => Promise<void>
+    onDialogRequested: (callback: (request: AppDialogRequest) => void) => () => void
+    getWindowState: () => Promise<ShellWindowState>
+    openMenu: (anchor: AppMenuAnchor) => Promise<void>
+    onWindowState: (callback: (state: ShellWindowState) => void) => () => void
+    onMenuRequested: (callback: () => void) => () => void
+  }
   settings: {
     get: () => Promise<unknown>
     save: (settings: unknown) => Promise<AppSettings>
@@ -20,6 +30,7 @@ export interface NamBotApi {
     chooseDirectory: () => Promise<string | null>
   }
   jobs: {
+    getTrainingStatistics: () => Promise<TrainingStatistics>
     getControlState: () => Promise<QueueControlState>
     resumeQueue: (terminationConfirmed?: boolean) => Promise<void>
     createDraft: (input?: unknown) => Promise<unknown>
@@ -80,6 +91,27 @@ export interface NamBotApi {
 
 const api: NamBotApi = {
   platform: process.platform,
+  shell: {
+    setDialogsReady: (ready) => ipcRenderer.invoke('shell:dialogsReady', ready),
+    respondToDialog: (id, response) => ipcRenderer.invoke('shell:respondToDialog', id, response),
+    onDialogRequested: (callback) => {
+      const handler = (_event: Electron.IpcRendererEvent, request: AppDialogRequest): void => callback(request)
+      ipcRenderer.on('shell:dialogRequested', handler)
+      return () => ipcRenderer.removeListener('shell:dialogRequested', handler)
+    },
+    getWindowState: () => ipcRenderer.invoke('shell:getWindowState'),
+    openMenu: (anchor) => ipcRenderer.invoke('shell:openMenu', anchor),
+    onWindowState: (callback) => {
+      const handler = (_event: Electron.IpcRendererEvent, state: ShellWindowState): void => callback(state)
+      ipcRenderer.on('shell:windowState', handler)
+      return () => ipcRenderer.removeListener('shell:windowState', handler)
+    },
+    onMenuRequested: (callback) => {
+      const handler = (): void => callback()
+      ipcRenderer.on('shell:menuRequested', handler)
+      return () => ipcRenderer.removeListener('shell:menuRequested', handler)
+    }
+  },
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),
     save: (settings) => ipcRenderer.invoke('settings:save', settings),
@@ -92,6 +124,7 @@ const api: NamBotApi = {
     chooseDirectory: () => ipcRenderer.invoke('settings:chooseDirectory')
   },
   jobs: {
+    getTrainingStatistics: () => ipcRenderer.invoke('jobs:getTrainingStatistics'),
     getControlState: () => ipcRenderer.invoke('jobs:getControlState'),
     resumeQueue: (terminationConfirmed) => ipcRenderer.invoke('jobs:resumeQueue', terminationConfirmed),
     createDraft: (input) => ipcRenderer.invoke('jobs:createDraft', input),
@@ -169,7 +202,11 @@ const api: NamBotApi = {
     onAppCommand: (callback) => {
       const handler = (_event: Electron.IpcRendererEvent, command: AppCommand) => callback(command)
       ipcRenderer.on('app:command', handler)
-      return () => ipcRenderer.removeListener('app:command', handler)
+      void ipcRenderer.invoke('app:commandsReady', true).catch((error: unknown) => console.error('Could not initialize application commands:', error))
+      return () => {
+        ipcRenderer.removeListener('app:command', handler)
+        void ipcRenderer.invoke('app:commandsReady', false).catch((error: unknown) => console.error('Could not detach application commands:', error))
+      }
     }
   }
 }

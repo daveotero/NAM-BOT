@@ -13,6 +13,7 @@
   --neon-gold: #ffcc00;
   
   --border-dim: #3f3f46;
+  --border-field: #2b2b32;
   
   /* Typography */
   --font-arcade: 'VT323', monospace;
@@ -42,41 +43,6 @@ body {
   flex-direction: column;
   height: 100%;
   width: 100%;
-}
-
-/* Header */
-header {
-  padding: 24px;
-  text-align: center;
-  border-bottom: 2px solid var(--border-dim);
-  background-color: var(--bg-void);
-  position: relative;
-  z-index: 10;
-}
-
-header h1 {
-  font-family: var(--font-arcade);
-  font-size: 64px;
-  color: var(--text-ash);
-  text-shadow: 2px 2px 0px var(--neon-magenta), -2px -2px 0px var(--neon-cyan);
-  letter-spacing: 2px;
-  margin-bottom: 5px;
-  text-transform: uppercase;
-  line-height: 1;
-  display: inline-block;
-}
-
-header h1:hover {
-  animation: titleFlash 0.1s infinite, intenseShake 0.05s infinite;
-  cursor: crosshair;
-}
-
-.subtitle {
-  color: var(--neon-cyan);
-  font-size: 18px;
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  font-family: var(--font-arcade);
 }
 
 main {
@@ -454,7 +420,7 @@ main {
 .form-select:disabled,
 textarea.form-input:disabled {
   color: var(--text-steel);
-  border-color: var(--border-dim);
+  border-color: var(--border-field);
   background: rgba(255, 255, 255, 0.03);
   cursor: not-allowed;
 }
@@ -463,7 +429,7 @@ textarea.form-input:disabled {
   width: 100%;
   padding: 10px 12px;
   background-color: var(--bg-void);
-  border: 2px solid var(--border-dim);
+  border: 1px solid var(--border-field);
   color: var(--text-ash);
   font-family: var(--font-system);
   font-size: 14px;
@@ -497,7 +463,7 @@ input[type="number"] {
 }
 
 .json-code-editor-shell {
-  border: 2px solid var(--border-dim);
+  border: 1px solid var(--border-field);
   background: var(--bg-void);
   transition: border-color 0.1s, box-shadow 0.1s;
 }
@@ -1775,27 +1741,6 @@ input[type="number"] {
 }
 
 /* Animations */
-@keyframes titleFlash {
-  0%   { color: yellow; text-shadow: 4px 4px 0px red, 0 0 20px yellow; }
-  33%  { color: var(--neon-cyan); text-shadow: -4px 4px 0px var(--neon-magenta), 0 0 30px var(--neon-cyan); }
-  66%  { color: var(--neon-green); text-shadow: 4px -4px 0px blue, 0 0 40px var(--neon-green); }
-  100% { color: yellow; text-shadow: 4px 4px 0px red, 0 0 20px yellow; }
-}
-
-@keyframes intenseShake {
-  0%   { transform: translate(2px, 1px) rotate(0deg); }
-  10%  { transform: translate(-1px, -2px) rotate(-1deg); }
-  20%  { transform: translate(-3px, 0px) rotate(1deg); }
-  30%  { transform: translate(0px, 2px) rotate(0deg); }
-  40%  { transform: translate(1px, -1px) rotate(1deg); }
-  50%  { transform: translate(-1px, 2px) rotate(-1deg); }
-  60%  { transform: translate(-3px, 1px) rotate(0deg); }
-  70%  { transform: translate(2px, 1px) rotate(-1deg); }
-  80%  { transform: translate(-1px, -1px) rotate(1deg); }
-  90%  { transform: translate(2px, 2px) rotate(0deg); }
-  100% { transform: translate(1px, -2px) rotate(-1deg); }
-}
-
 @keyframes movePattern {
   0% { background-position: 0 0; }
   100% { background-position: 30px 0; }
@@ -1815,22 +1760,65 @@ input[type="number"] {
 .gap-2 { gap: 8px; }
 .gap-4 { gap: 16px; }
 
-/* Processing Text Cursor (Arcade Spinner) */
-.processing-text::after {
-  content: '▖';
-  animation: arcade-spinner 0.6s step-end infinite;
-  display: inline-block;
-  margin-left: 8px;
-  color: var(--neon-cyan);
-  width: 1em;
-  text-align: center;
+/* Shared 3x3 phosphor activity indicator. */
+.working-indicator {
+  --working-cycle: 1.8s;
+  display: inline-grid;
+  grid-template-columns: repeat(3, 4px);
+  grid-template-rows: repeat(3, 4px);
+  gap: 2px;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  margin-inline-start: 8px;
+  vertical-align: middle;
+  opacity: 1;
+  transition-property: opacity;
+  transition-timing-function: ease-out;
 }
 
-@keyframes arcade-spinner {
-  0% { content: '▖'; }
-  25% { content: '▘'; }
-  50% { content: '▝'; }
-  75% { content: '▗'; }
+@starting-style {
+  .working-indicator { opacity: 0; }
+}
+
+.working-indicator[data-active='false'] { opacity: 0; }
+.working-indicator[data-active='false'] > span::after { animation-play-state: paused; }
+.nav-item > .working-indicator { margin-inline-start: auto; }
+
+.working-indicator > span {
+  --working-step: 0;
+  position: relative;
+  background: color-mix(in srgb, var(--neon-cyan) 14%, #101013);
+}
+
+.working-indicator > span::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--neon-cyan) 68%, #fff);
+  box-shadow: 0 0 2.6px color-mix(in srgb, var(--neon-cyan) 72%, transparent),
+              0 0 7.2px color-mix(in srgb, var(--neon-cyan) 30%, transparent);
+  opacity: 0;
+  animation: phosphor-pulse var(--working-cycle) linear infinite;
+  animation-delay: calc(var(--working-cycle) / 9 * var(--working-step));
+}
+
+.working-indicator > span:nth-child(2) { --working-step: 1; }
+.working-indicator > span:nth-child(3) { --working-step: 2; }
+.working-indicator > span:nth-child(4) { --working-step: 3; }
+.working-indicator > span:nth-child(5) { --working-step: 4; }
+.working-indicator > span:nth-child(6) { --working-step: 5; }
+.working-indicator > span:nth-child(7) { --working-step: 6; }
+.working-indicator > span:nth-child(8) { --working-step: 7; }
+.working-indicator > span:nth-child(9) { --working-step: 8; }
+
+@keyframes phosphor-pulse {
+  0% { opacity: 0; }
+  3% { opacity: 1; }
+  10% { opacity: .76; }
+  20% { opacity: .31; }
+  34% { opacity: .08; }
+  48%, 100% { opacity: 0; }
 }
 
 @keyframes blink {
@@ -1916,6 +1904,8 @@ input[type="number"] {
 
 .queue-inline-log-header {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 12px;
   color: var(--text-steel);
@@ -1923,10 +1913,14 @@ input[type="number"] {
   margin-bottom: 8px;
 }
 
+.queue-inline-log-follow-state { font: 15px var(--font-arcade); }
+.queue-inline-log-follow-state[data-following='true'] { color: var(--neon-cyan); }
+
 .queue-inline-log-body {
   margin: 0;
   max-height: 320px;
   overflow: auto;
+  overflow-anchor: none;
   background: rgba(0, 0, 0, 0.35);
   border: 1px solid var(--border-dim);
   padding: 10px;
@@ -1978,6 +1972,9 @@ input[type="number"] {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .working-indicator > span::after { opacity: .25; }
+  .working-indicator > span:nth-child(5)::after { opacity: .85; }
+
   *, *::before, *::after {
     animation: none !important;
     transition: none !important;

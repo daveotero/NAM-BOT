@@ -265,6 +265,14 @@ export function setupJobIpcHandlers(): void {
   })
 
   ipcMain.handle('jobs:getControlState', async () => queueManager.getControlState())
+  ipcMain.handle('jobs:getTrainingStatistics', async () => {
+    try {
+      return queueManager.getTrainingStatistics()
+    } catch (error) {
+      log.error('Could not load training statistics:', error)
+      throw error
+    }
+  })
   ipcMain.handle('jobs:resumeQueue', async (_event, terminationConfirmed: boolean = false) => {
     await queueManager.resumeQueue(terminationConfirmed === true)
   })

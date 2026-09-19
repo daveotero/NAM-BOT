@@ -15,6 +15,14 @@ export interface EsrChartSeries {
 
 export type EsrEpochWindow = 'all' | 100 | 30
 
+export function getEsrEpochDomain(history: JobEsrEpoch[], window: EsrEpochWindow): [number, number] {
+  const first = history[0]?.epoch ?? 1
+  const last = history.at(-1)?.epoch ?? first
+  if (window !== 'all') return [Math.max(1, last - window + 1), Math.max(window, last)]
+  // Reserve at least 20 epoch positions so early measurements do not fill the plot.
+  return [first, Math.max(last, first + 19)]
+}
+
 export function selectEsrHistoryWindow(history: JobEsrEpoch[], window: EsrEpochWindow): JobEsrEpoch[] {
   if (window === 'all') return history
   const latestEpoch = history.at(-1)?.epoch ?? 0

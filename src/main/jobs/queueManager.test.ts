@@ -116,6 +116,23 @@ afterEach(() => {
   rmSync(mockPaths.userDataPath, { recursive: true, force: true })
 })
 
+describe('QueueManager lifetime statistics', () => {
+  it('preserves totals across individual deletion, clear finished and app restart', () => {
+    const job = buildJobSpec()
+    const finished: JobRuntimeState = { jobId: job.id, jobName: job.name, status: 'succeeded', pid: null, frozenJob: job,
+      frozenPreset: createTrainingPreset({ name: 'Frozen recipe' }), startedAt: '2026-09-18T10:00:00Z', finishedAt: '2026-09-18T11:00:00Z', currentEpoch: 25, userMessages: [] }
+    writeFileSync(join(mockPaths.userDataPath, 'queue.json'), JSON.stringify([finished, { ...finished, jobId: 'second' }]))
+    const manager = createQueueManager()
+    expect(manager.getTrainingStatistics().runs).toHaveLength(2)
+    manager.removeQueueItem(job.id)
+    manager.clearFinished()
+    expect(manager.getQueue()).toHaveLength(0)
+    const restarted = createQueueManager()
+    expect(restarted.getQueue()).toHaveLength(0)
+    expect(restarted.getTrainingStatistics().runs).toHaveLength(2)
+  })
+})
+
 describe('QueueManager A2 diagnostics gate', () => {
   it('emits failure without a success notification state when a clean exit produces no model', async () => {
     const manager = createQueueManager()
