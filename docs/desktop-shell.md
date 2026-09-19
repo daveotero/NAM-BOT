@@ -1,6 +1,14 @@
 # Desktop shell
 
-NAM-BOT uses one compact retro header for the wordmark, current section, and training activity. The sidebar and feature screens retain their existing layout. The header stays above scrolling content, uses the existing pixel font, and becomes subtly muted when the window loses focus. Activity is Idle, Training (including preparation and stopping), Finalizing, or Queue Paused. Active work takes precedence over a pending queue pause. The wordmark restores the original cyan/magenta split shadow and wild color-flash/shake on hover, scaled to the compact header. Reduced-motion preferences disable the animation. The logo has a stable hover area; drag the blank header space to move the window.
+NAM-BOT uses one compact retro header for the wordmark and current section. The header stays above scrolling content, uses the existing pixel font, and becomes subtly muted when the window loses focus. Training activity appears only in the persistent footer: Idle, Training (including preparation and stopping), Finalizing, or Queue Paused. Active work takes precedence over a pending queue pause. The wordmark restores the original cyan/magenta split shadow and wild color-flash/shake on hover, scaled to the compact header. Reduced-motion preferences disable the animation. The logo has a stable hover area; drag the blank header space to move the window.
+
+The workspace fills the window below the title bar. An attached sidebar groups the primary work screens and system tools with a small gap; both groups remain together at the top. A persistent command strip sits above independently scrolling screen content. Its right side contains only page-specific actions, with no generic product label. A bottom status bar opens Diagnostics or Jobs and uses the existing unsaved-editor guard. It shows current backend, accelerator, job, and queue state. Standard controls use compact borders and stationary hover feedback; the logo and About terminal retain their distinctive animation. The Dashboard keeps its job counters, active training cards, diagnostics, and lifetime training record; see [Dashboard](dashboard.md).
+
+Jobs, Presets, Settings, and Diagnostics render their own actions into the shared command strip through a React portal. The buttons retain their feature handlers, including Save/Cancel, batch creation, preset editor modes, Settings save status, and Re-check All. Preset mode controls sit beside the heading on the left; the right-side primary action keeps a fixed width and stays mounted while switching between Save Preset and Apply JSON. Jobs and Presets submit their existing forms by form ID. The feature components own action state and confirmations; the shell does not duplicate their business logic. See [Jobs](jobs-system.md), [Presets](presets-system.md), and [Settings](settings.md).
+
+Field styling is shared through `global.css`: text inputs, selects, and JSON editors use a muted one-pixel `--border-field` outline, with cyan focus and magenta validation states. Preset search and the filename preview use the same border color. Section dividers use the stronger `--border-dim` color independently of fields.
+
+Jobs, Presets, Settings, Diagnostics, and Setup Guide share `PropertySheet` section navigation in `feature-workspace.css`. The current section has a muted gray background, with no colored underline. Section buttons smoothly scroll and focus their headings; reduced-motion preferences switch to immediate navigation. The selected destination stays highlighted during animation, and ordinary scrolling updates it by position. Forms use shared property-row styles and become single-column at narrow widths. Diagnostics and Setup Guide also share `CopyableCodeBlock`. Section navigation does not hide fields or change saved data.
 
 ## Platform behavior
 
@@ -20,6 +28,14 @@ Existing shortcuts remain registered, including Ctrl/Cmd+N for New Job, Ctrl/Cmd
 New Job, New Preset, and navigation still use `AppCommand` and the existing unsaved-editor guard. Native close and application quit still pass through the training-aware quit guard. Single-instance activation and macOS Dock window recreation are preserved.
 
 The shared menu groups commands under File, Navigate, Edit, View, Window, and Help. File includes logs, workspace, and preset folders. Edit retains standard native text editing; View includes application zoom and fullscreen, with reload/devtools available in development. Help includes setup, diagnostics, project links, update checking, and About.
+
+Window contains Minimize and Close on Windows. The native window Zoom role is only included on macOS, where it resizes a window; application content zoom remains under View on every platform.
+
+## Themed app dialogs
+
+About, manual update-check results, and the training-aware exit prompt render as compact dark dialogs using the app's retro type and neon accents. The About dialog preserves version, credits, and project-link actions; opening credits still respects unsaved editor changes. The normal About page and its terminal animation remain available.
+
+The main process owns each request and validates the originating window, request ID, and button index before acting. A native HTML modal dialog contains keyboard focus and makes underlying content inert. Escape selects the cancel action; focus returns to the previous control. App navigation commands are held off while a dialog is open. Reload or renderer loss cancels pending requests, and native message boxes remain a fallback when the renderer is unavailable. OS file/folder pickers and fatal startup error boxes remain native.
 
 ## Existing native integrations
 

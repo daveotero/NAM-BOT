@@ -3,8 +3,7 @@ import { useLocation } from 'react-router-dom'
 import log from 'electron-log/renderer'
 
 import type { ShellWindowState } from '../../shared/appShell'
-import { useAppStore } from '../state/store'
-import { getSectionLabel, getTitleBarActivity } from './title-bar-state'
+import { getSectionLabel } from './title-bar-state'
 import '../styles/title-bar.css'
 
 interface TitleBarStyle extends CSSProperties {
@@ -14,7 +13,6 @@ interface TitleBarStyle extends CSSProperties {
 function AppTitleBar(): ReactElement {
   const { pathname } = useLocation()
   const section = getSectionLabel(pathname)
-  const activity = useAppStore((state) => getTitleBarActivity(state.queue, state.queueControl))
   const [windowState, setWindowState] = useState<ShellWindowState>({ focused: true, fullscreen: false, zoomFactor: 1 })
   const [menuOpen, setMenuOpen] = useState(false)
   const [menuError, setMenuError] = useState(false)
@@ -64,7 +62,7 @@ function AppTitleBar(): ReactElement {
       setMenuOpen(false)
       requestAnimationFrame(() => {
         // Navigation commands may have opened an unsaved-changes dialog.
-        if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return
+        if (document.querySelector('dialog[open], [role="dialog"], [role="alertdialog"]')) return
         if (previousFocus instanceof HTMLElement && previousFocus.isConnected && previousFocus !== document.body) previousFocus.focus()
         else button.focus()
       })
@@ -102,9 +100,6 @@ function AppTitleBar(): ReactElement {
         </span>
         <span className="app-title-bar-divider" aria-hidden="true">/</span>
         <span className="app-title-bar-section">{section}</span>
-        <span className="app-title-bar-activity" data-activity={activity} role="status" aria-live="polite">
-          <span className="app-title-bar-led" aria-hidden="true" />{activity}
-        </span>
         {menuError && <span className="app-title-bar-error" role="alert">Menu unavailable. Try F10 again.</span>}
       </div>
     </header>

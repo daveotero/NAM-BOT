@@ -31,6 +31,7 @@ import { createQuitGuard } from './shell/quitGuard'
 import { getWindowChromeOptions } from './shell/windowChrome'
 import { observeShellWindow, setupWindowShellIpc } from './shell/windowState'
 import { installDesktopSmokeIpc } from './shell/smokeIpc'
+import { createAppDialogs } from './shell/appDialogs'
 
 const ownsInstance = app.requestSingleInstanceLock()
 if (!ownsInstance) app.exit(0)
@@ -87,6 +88,7 @@ interface RendererErrorPayload {
 }
 
 let mainWindow: BrowserWindow | null = null
+const appDialogs = createAppDialogs(() => mainWindow)
 let trainingPowerSaveBlockerId: number | null = null
 const reportedFinishedStatuses: Map<string, JobStatus> = new Map()
 const reportedDiagnosticBlocks: Set<string> = new Set()
@@ -110,9 +112,7 @@ const guardQuit = createQuitGuard({
 })
 
 function showMainMessageBox(options: MessageBoxOptions): Promise<MessageBoxReturnValue> {
-  return mainWindow
-    ? dialog.showMessageBox(mainWindow, options)
-    : dialog.showMessageBox(options)
+  return appDialogs.show(options)
 }
 
 app.setAppUserModelId(APP_ID)
@@ -126,6 +126,7 @@ app.setAboutPanelOptions({
 })
 
 function sendAppCommand(command: AppCommand): void {
+  if (appDialogs.hasPending()) return
   mainWindow?.webContents.send('app:command', command)
 }
 
@@ -533,6 +534,7 @@ app.whenReady().then(() => {
   installDesktopSmokeIpc()
   setupRendererErrorLogging()
   setupWindowShellIpc(() => mainWindow)
+  appDialogs.install()
   setupShellIntegrations()
   installApplicationMenu({
     isDev,

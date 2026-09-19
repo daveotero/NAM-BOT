@@ -85,7 +85,7 @@
 }
 
 .app-title-bar-divider { color: #55555f; }
-.app-title-bar-section, .app-title-bar-activity, .app-title-bar-error {
+.app-title-bar-section, .app-title-bar-error {
   font-size: calc(10px * var(--shell-scale));
   letter-spacing: calc(1.3px * var(--shell-scale));
   text-transform: uppercase;
@@ -93,18 +93,6 @@
   white-space: nowrap;
 }
 .app-title-bar-section { overflow: hidden; text-overflow: ellipsis; }
-.app-title-bar-activity {
-  display: flex;
-  align-items: center;
-  gap: calc(8px * var(--shell-scale));
-  margin-left: auto;
-  flex-shrink: 0;
-  letter-spacing: calc(1px * var(--shell-scale));
-}
-.app-title-bar-led { width: calc(5px * var(--shell-scale)); height: calc(5px * var(--shell-scale)); background: #62626e; }
-.app-title-bar-activity[data-activity='Training'] .app-title-bar-led,
-.app-title-bar-activity[data-activity='Finalizing'] .app-title-bar-led { background: var(--neon-cyan); }
-.app-title-bar-activity[data-activity='Queue Paused'] .app-title-bar-led { background: var(--neon-gold); }
 
 .app-title-bar .app-title-bar-menu {
   -webkit-app-region: no-drag;

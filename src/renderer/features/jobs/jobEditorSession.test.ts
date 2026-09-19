@@ -12,6 +12,8 @@ import {
   LAST_LATENCY_SAMPLES_STORAGE_KEY,
   LAST_USED_PRESET_STORAGE_KEY,
   applyStoredReusableDefaults,
+  buildJobEditorSession,
+  serializeJobEditorSession,
   createNewJobDraft
 } from './jobEditorSession'
 
@@ -127,5 +129,32 @@ describe('applyStoredReusableDefaults', () => {
 
     expect(job.trainingOverrides.latencyMode).toBe('auto')
     expect(job.trainingOverrides.latencySamples).toBe(0)
+  })
+})
+
+describe('job editor change tracking', () => {
+  it('ignores asynchronously resolved default paths while preserving typed entries', () => {
+    stubLocalStorage()
+    const session = buildJobEditorSession('New Job', createNewJobDraft({ settings: null, presets: [] }), null)
+    const hydrated = { ...session, job: { ...session.job, inputAudioPath: 'C:/bundled/input.wav', outputRootDir: 'C:/derived' } }
+    expect(serializeJobEditorSession(hydrated)).toBe(session.initialSnapshot)
+    expect(serializeJobEditorSession({ ...hydrated, job: { ...hydrated.job, name: 'My amp' } })).not.toBe(session.initialSnapshot)
+    expect(serializeJobEditorSession({ ...hydrated, job: { ...hydrated.job, outputAudioPath: 'C:/capture.wav' } })).not.toBe(session.initialSnapshot)
+    expect(serializeJobEditorSession({ ...hydrated, job: { ...hydrated.job, metadata: { ...hydrated.job.metadata, modeledBy: 'Dave' } } })).not.toBe(session.initialSnapshot)
+    expect(serializeJobEditorSession({ ...hydrated, job: { ...hydrated.job, trainingOverrides: { ...hydrated.job.trainingOverrides, epochs: (hydrated.job.trainingOverrides.epochs ?? 0) + 1 } } })).not.toBe(session.initialSnapshot)
+  })
+
+  it('tracks modes and custom paths, and becomes clean when an edit is reverted', () => {
+    stubLocalStorage()
+    const session = buildJobEditorSession('New Job', createNewJobDraft({ settings: null, presets: [] }), null)
+    const changed = { ...session, job: { ...session.job, name: 'Changed' } }
+    expect(serializeJobEditorSession(changed)).not.toBe(session.initialSnapshot)
+    changed.job.name = session.job.name
+    expect(serializeJobEditorSession(changed)).toBe(session.initialSnapshot)
+    expect(serializeJobEditorSession({ ...session, inputMode: 'custom' })).not.toBe(session.initialSnapshot)
+    expect(serializeJobEditorSession({ ...session, outputRootMode: 'custom' })).not.toBe(session.initialSnapshot)
+    const custom = { ...session, inputMode: 'custom' as const, outputRootMode: 'custom' as const }
+    expect(serializeJobEditorSession({ ...custom, job: { ...custom.job, inputAudioPath: 'C:/custom.wav' } })).not.toBe(serializeJobEditorSession(custom))
+    expect(serializeJobEditorSession({ ...custom, job: { ...custom.job, outputRootDir: 'C:/models' } })).not.toBe(serializeJobEditorSession(custom))
   })
 })

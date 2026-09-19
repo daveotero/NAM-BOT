@@ -1,11 +1,14 @@
 import { type JSX, useState } from 'react'
+import PropertySheet, { PropertySection } from '../../components/PropertySheet'
+import CopyableCodeBlock from '../../components/CopyableCodeBlock'
+
+const GUIDE_SECTIONS = [
+  { id: 'guide-existing', label: 'Existing setup' },
+  { id: 'guide-new', label: 'New environment' },
+  { id: 'guide-links', label: 'Links' }
+]
 
 type GuideMode = 'standard' | 'nvidia' | 'apple' | 'amd'
-
-interface CodeBlockProps {
-  label: string
-  command: string
-}
 
 interface GuideOption {
   id: GuideMode
@@ -36,52 +39,6 @@ const guideOptions: GuideOption[] = [
   }
 ]
 
-function CopyableCodeBlock({ label, command }: CodeBlockProps) {
-  const handleCopy = () => {
-    navigator.clipboard.writeText(command)
-  }
-
-  return (
-    <div style={{ marginBottom: '16px' }}>
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: '4px 8px',
-        backgroundColor: 'rgba(0, 255, 65, 0.05)',
-        border: '1px solid var(--border-dim)',
-        borderBottom: 'none',
-        color: 'var(--text-steel)',
-        fontSize: '11px',
-        textTransform: 'uppercase',
-        letterSpacing: '1px'
-      }}>
-        <span>{label}</span>
-        <button
-          className="btn btn-sm btn-secondary"
-          onClick={handleCopy}
-          style={{ padding: '2px 8px', fontSize: '10px' }}
-        >
-          Copy
-        </button>
-      </div>
-      <pre style={{
-        backgroundColor: 'var(--bg-void)',
-        padding: '12px',
-        border: '2px solid var(--border-dim)',
-        color: 'var(--neon-green)',
-        fontFamily: 'var(--font-arcade)',
-        fontSize: '14px',
-        overflowX: 'auto',
-        margin: 0,
-        whiteSpace: 'pre-wrap'
-      }}>
-        {command}
-      </pre>
-    </div>
-  )
-}
-
 function GuideToggle({
   option,
   isActive,
@@ -93,7 +50,9 @@ function GuideToggle({
 }) {
   return (
     <button
-      className={`btn guide-toggle-btn ${isActive ? 'btn-blue is-toggled' : 'btn-secondary'}`}
+      type="button"
+      className="btn btn-secondary guide-toggle-btn"
+      aria-pressed={isActive}
       onClick={() => onSelect(option.id)}
     >
       <span className="guide-toggle-label">{option.label}</span>
@@ -237,214 +196,207 @@ export default function Help() {
   const [guideMode, setGuideMode] = useState<GuideMode>('standard')
 
   return (
-    <div className="layout-main">
-      <div className="panel" style={{ marginBottom: '16px' }}>
-        <div className="panel-header">
-          <h3>NAM-BOT Setup</h3>
-        </div>
+    <PropertySheet sections={GUIDE_SECTIONS} navigationLabel="Setup guide sections" className="reference-workspace setup-guide-workspace">
+      <div className="panel editor-sheet">
+        <PropertySection id="guide-existing" title="Existing setup">
 
-        <div style={{ color: 'var(--text-ash)', lineHeight: '1.8' }}>
-          <p style={{ color: 'var(--text-steel)', marginBottom: '16px' }}>
-            If you already have Neural Amp Modeler working on this machine, you probably do not need to rebuild your environment.
-            In that case, NAM-BOT mainly needs the correct backend settings so it can point at the same Conda environment you already use for NAM training.
-          </p>
-          <p style={{ color: 'var(--text-steel)', marginBottom: '16px' }}>
-            Security note: NAM-BOT checks package metadata before importing NAM or Lightning and blocks Lightning <strong>2.6.2</strong> and <strong>2.6.3</strong>, which were compromised PyPI releases. Use <strong>neural-amp-modeler 0.13.0 or newer</strong> for fresh installs and A2 local training.
-          </p>
-
-          <div style={{
-            backgroundColor: 'rgba(0, 243, 255, 0.05)',
-            padding: '12px',
-            borderLeft: '4px solid var(--neon-cyan)',
-            marginBottom: '16px'
-          }}>
-            <p style={{ color: 'var(--text-steel)', margin: 0, fontSize: '14px' }}>
-              <strong>Use this path if:</strong> you can already run NAM training from its built-in GUI or from your existing terminal workflow and just want NAM-BOT to use that same environment.
+          <div className="guide-content">
+            <p style={{ color: 'var(--text-steel)', marginBottom: '16px' }}>
+              If you already have Neural Amp Modeler working on this machine, you probably do not need to rebuild your environment.
+              In that case, NAM-BOT mainly needs the correct backend settings so it can point at the same Conda environment you already use for NAM training.
             </p>
-          </div>
-
-          <div style={{
-            backgroundColor: 'rgba(0, 243, 255, 0.05)',
-            padding: '12px',
-            borderLeft: '4px solid var(--neon-cyan)',
-            marginBottom: '16px'
-          }}>
-            <p style={{ color: 'var(--text-steel)', margin: 0, fontSize: '14px' }}>
-              <strong>macOS note:</strong> use <strong>Terminal</strong> instead of Command Prompt or PowerShell, expect the Conda command to be <code style={{ color: 'var(--neon-cyan)' }}>conda</code>, and on Apple Silicon the accelerator path is <strong>MPS</strong> rather than CUDA.
+            <p style={{ color: 'var(--text-steel)', marginBottom: '16px' }}>
+              Security note: NAM-BOT checks package metadata before importing NAM or Lightning and blocks Lightning <strong>2.6.2</strong> and <strong>2.6.3</strong>, which were compromised PyPI releases. Use <strong>neural-amp-modeler 0.13.0 or newer</strong> for fresh installs and A2 local training.
             </p>
-          </div>
 
-          <h4 style={{ fontFamily: 'var(--font-arcade)', color: 'var(--neon-cyan)', marginTop: '16px', marginBottom: '8px' }}>
-            1. Open Settings
-          </h4>
-          <ol style={{ color: 'var(--text-steel)', paddingLeft: '20px', marginBottom: '16px' }}>
-            <li>Go to <strong>Settings</strong> in the left menu</li>
-            <li>Set the Conda executable path if your setup does not use the default executable shown in Settings</li>
-            <li>Set the backend mode to match how you launch NAM today</li>
-            <li>Enter the Conda environment name or environment path that already contains your working NAM install</li>
-          </ol>
-
-          <h4 style={{ fontFamily: 'var(--font-arcade)', color: 'var(--neon-cyan)', marginTop: '24px', marginBottom: '8px' }}>
-            2. Save Settings
-          </h4>
-          <p style={{ color: 'var(--text-steel)', marginBottom: '16px' }}>
-            Settings save automatically after a short pause, or you can click <strong>Save Settings</strong>. Then open <strong>Diagnostics</strong> to check the environment you selected; use <strong>Re-check All</strong> to refresh existing results.
-          </p>
-
-          <h4 style={{ fontFamily: 'var(--font-arcade)', color: 'var(--neon-cyan)', marginTop: '24px', marginBottom: '8px' }}>
-            3. Check Diagnostics
-          </h4>
-          <p style={{ color: 'var(--text-steel)', marginBottom: '8px' }}>
-            Open <strong>Diagnostics</strong> and confirm the summary tiles and check matrix show:
-          </p>
-          <ol style={{ color: 'var(--text-steel)', paddingLeft: '20px', marginBottom: '16px' }}>
-            <li><strong>Backend</strong> is ready</li>
-            <li><strong>Training Launch</strong> is ready</li>
-            <li><strong>Accelerator</strong> shows the GPU you expect, if you plan to train with GPU acceleration</li>
-          </ol>
-
-          <h4 style={{ fontFamily: 'var(--font-arcade)', color: 'var(--neon-cyan)', marginTop: '24px', marginBottom: '8px' }}>
-            4. Start Using NAM-BOT
-          </h4>
-          <ol style={{ color: 'var(--text-steel)', paddingLeft: '20px' }}>
-            <li>Go to <strong>Jobs</strong></li>
-            <li>Click <strong>+ New Job</strong></li>
-            <li>Select your audio and output files</li>
-            <li>Save the job, then queue it</li>
-          </ol>
-        </div>
-      </div>
-
-      <div className="panel" style={{ marginBottom: '16px' }}>
-        <div className="panel-header">
-          <h3>Set Up NAM From Scratch</h3>
-        </div>
-
-        <div style={{ color: 'var(--text-ash)', lineHeight: '1.8' }}>
-          <p style={{ color: 'var(--text-steel)', marginBottom: '16px' }}>
-            Use this section if you do <strong>not</strong> already have a working NAM environment and need to build one from the beginning.
-            Pick the setup path that matches your machine so you only see the PyTorch instructions that apply to you.
-          </p>
-
-          <div className="guide-toggle-grid">
-            {guideOptions.map((option) => (
-              <GuideToggle
-                key={option.id}
-                option={option}
-                isActive={guideMode === option.id}
-                onSelect={setGuideMode}
-              />
-            ))}
-          </div>
-
-          {renderGuideIntro(guideMode)}
-
-          <h4 style={{ fontFamily: 'var(--font-arcade)', color: 'var(--neon-cyan)', marginTop: '16px', marginBottom: '8px' }}>
-            1. Install Miniconda
-          </h4>
-          <p style={{ color: 'var(--text-steel)', marginBottom: '8px' }}>
-            Navigate to: <a href="https://www.anaconda.com/download" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--neon-cyan)' }}>https://www.anaconda.com/download</a>
-          </p>
-          <p style={{ color: 'var(--text-steel)' }}>
-            Install Miniconda and make sure <code style={{ color: 'var(--neon-cyan)' }}>conda</code> is added to your PATH.
-          </p>
-          <div style={{
-            backgroundColor: 'rgba(0, 243, 255, 0.05)',
-            padding: '12px',
-            borderLeft: '4px solid var(--neon-cyan)',
-            marginBottom: '16px'
-          }}>
-            <p style={{ color: 'var(--text-steel)', margin: 0, fontSize: '14px' }}>
-              <strong>Important:</strong> Scroll to the bottom of the Anaconda download page to find the <strong>Miniconda</strong> installers.
-              If prompted, allow Miniconda to add itself to PATH.
-            </p>
-          </div>
-          <p style={{ color: 'var(--text-steel)', fontSize: '13px', marginTop: '-4px', marginBottom: '16px' }}>
-            On Apple Silicon, choose the Apple Silicon installer. On macOS builds, you may need to right-click the app and choose <strong>Open</strong> on first launch if Gatekeeper warns about an unsigned app.
-          </p>
-
-          {guideMode !== 'amd' && (
-            <>
-              <h4 style={{ fontFamily: 'var(--font-arcade)', color: 'var(--neon-cyan)', marginTop: '24px', marginBottom: '8px' }}>
-                2. Create NAM Environment
-              </h4>
-              <p style={{ color: 'var(--text-steel)', marginBottom: '16px' }}>
-                Open Terminal on macOS, or Command Prompt / PowerShell on Windows, and run these commands <strong>one at a time</strong>:
+            <div style={{
+              backgroundColor: 'rgba(0, 243, 255, 0.05)',
+              padding: '12px',
+              borderLeft: '4px solid var(--neon-cyan)',
+              marginBottom: '16px'
+            }}>
+              <p style={{ color: 'var(--text-steel)', margin: 0, fontSize: '14px' }}>
+                <strong>Use this path if:</strong> you can already run NAM training from its built-in GUI or from your existing terminal workflow and just want NAM-BOT to use that same environment.
               </p>
+            </div>
 
+            <div style={{
+              backgroundColor: 'rgba(0, 243, 255, 0.05)',
+              padding: '12px',
+              borderLeft: '4px solid var(--neon-cyan)',
+              marginBottom: '16px'
+            }}>
+              <p style={{ color: 'var(--text-steel)', margin: 0, fontSize: '14px' }}>
+                <strong>macOS note:</strong> use <strong>Terminal</strong> instead of Command Prompt or PowerShell, expect the Conda command to be <code style={{ color: 'var(--neon-cyan)' }}>conda</code>, and on Apple Silicon the accelerator path is <strong>MPS</strong> rather than CUDA.
+              </p>
+            </div>
+
+            <h3 className="guide-step-title">
+              1. Open Settings
+            </h3>
+            <ol style={{ color: 'var(--text-steel)', paddingLeft: '20px', marginBottom: '16px' }}>
+              <li>Go to <strong>Settings</strong> in the left menu</li>
+              <li>Set the Conda executable path if your setup does not use the default executable shown in Settings</li>
+              <li>Set the backend mode to match how you launch NAM today</li>
+              <li>Enter the Conda environment name or environment path that already contains your working NAM install</li>
+            </ol>
+
+            <h3 className="guide-step-title">
+              2. Save Settings
+            </h3>
+            <p style={{ color: 'var(--text-steel)', marginBottom: '16px' }}>
+              Settings save automatically after a short pause, or you can click <strong>Save Settings</strong>. Then open <strong>Diagnostics</strong> to check the environment you selected; use <strong>Re-check All</strong> to refresh existing results.
+            </p>
+
+            <h3 className="guide-step-title">
+              3. Check Diagnostics
+            </h3>
+            <p style={{ color: 'var(--text-steel)', marginBottom: '8px' }}>
+              Open <strong>Diagnostics</strong> and confirm the summary tiles and check matrix show:
+            </p>
+            <ol style={{ color: 'var(--text-steel)', paddingLeft: '20px', marginBottom: '16px' }}>
+              <li><strong>Backend</strong> is ready</li>
+              <li><strong>Training Launch</strong> is ready</li>
+              <li><strong>Accelerator</strong> shows the GPU you expect, if you plan to train with GPU acceleration</li>
+            </ol>
+
+            <h3 className="guide-step-title">
+              4. Start Using NAM-BOT
+            </h3>
+            <ol style={{ color: 'var(--text-steel)', paddingLeft: '20px' }}>
+              <li>Go to <strong>Jobs</strong></li>
+              <li>Click <strong>+ New Job</strong></li>
+              <li>Select your audio and output files</li>
+              <li>Save the job, then queue it</li>
+            </ol>
+          </div>
+        </PropertySection>
+
+        <PropertySection id="guide-new" title="Set up NAM from scratch">
+
+          <div className="guide-content">
+            <p style={{ color: 'var(--text-steel)', marginBottom: '16px' }}>
+              Use this section if you do <strong>not</strong> already have a working NAM environment and need to build one from the beginning.
+              Pick the setup path that matches your machine so you only see the PyTorch instructions that apply to you.
+            </p>
+
+            <div className="guide-toggle-grid">
+              {guideOptions.map((option) => (
+                <GuideToggle
+                  key={option.id}
+                  option={option}
+                  isActive={guideMode === option.id}
+                  onSelect={setGuideMode}
+                />
+              ))}
+            </div>
+
+            {renderGuideIntro(guideMode)}
+
+            <h3 className="guide-step-title">
+              1. Install Miniconda
+            </h3>
+            <p style={{ color: 'var(--text-steel)', marginBottom: '8px' }}>
+              Navigate to: <a href="https://www.anaconda.com/download" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--neon-cyan)' }}>https://www.anaconda.com/download</a>
+            </p>
+            <p style={{ color: 'var(--text-steel)' }}>
+              Install Miniconda and make sure <code style={{ color: 'var(--neon-cyan)' }}>conda</code> is added to your PATH.
+            </p>
+            <div style={{
+              backgroundColor: 'rgba(0, 243, 255, 0.05)',
+              padding: '12px',
+              borderLeft: '4px solid var(--neon-cyan)',
+              marginBottom: '16px'
+            }}>
+              <p style={{ color: 'var(--text-steel)', margin: 0, fontSize: '14px' }}>
+                <strong>Important:</strong> Scroll to the bottom of the Anaconda download page to find the <strong>Miniconda</strong> installers.
+                If prompted, allow Miniconda to add itself to PATH.
+              </p>
+            </div>
+            <p style={{ color: 'var(--text-steel)', fontSize: '13px', marginTop: '-4px', marginBottom: '16px' }}>
+              On Apple Silicon, choose the Apple Silicon installer. On macOS builds, you may need to right-click the app and choose <strong>Open</strong> on first launch if Gatekeeper warns about an unsigned app.
+            </p>
+
+            {guideMode !== 'amd' && (
+              <>
+                <h3 className="guide-step-title">
+                  2. Create NAM Environment
+                </h3>
+                <p style={{ color: 'var(--text-steel)', marginBottom: '16px' }}>
+                  Open Terminal on macOS, or Command Prompt / PowerShell on Windows, and run these commands <strong>one at a time</strong>:
+                </p>
+
+                <CopyableCodeBlock
+                  label="Step A: Create Environment"
+                  command="conda create -n nam python=3.11 -y"
+                />
+                <CopyableCodeBlock
+                  label="Step B: Activate"
+                  command="conda activate nam"
+                />
+              </>
+            )}
+
+            <h3 className="guide-step-title">
+              3. Install PyTorch for This Machine
+            </h3>
+            {renderTorchInstall(guideMode)}
+
+            {guideMode !== 'amd' && (
               <CopyableCodeBlock
-                label="Step A: Create Environment"
-                command="conda create -n nam python=3.11 -y"
+                label={guideMode === 'nvidia' ? 'Step F: Install Neural Amp Modeler' : 'Step D: Install Neural Amp Modeler'}
+                command={'pip install --upgrade "neural-amp-modeler>=0.13.0"'}
               />
-              <CopyableCodeBlock
-                label="Step B: Activate"
-                command="conda activate nam"
-              />
-            </>
-          )}
+            )}
 
-          <h4 style={{ fontFamily: 'var(--font-arcade)', color: 'var(--neon-cyan)', marginTop: '24px', marginBottom: '8px' }}>
-            3. Install PyTorch for This Machine
-          </h4>
-          {renderTorchInstall(guideMode)}
+            <h3 className="guide-step-title">
+              4. Configure NAM-BOT
+            </h3>
+            <ol style={{ color: 'var(--text-steel)', paddingLeft: '20px' }}>
+              <li>Go to <strong>Settings</strong></li>
+              <li>Leave the default Conda executable unchanged unless your install needs a custom path</li>
+              <li>Leave the default environment name as <code style={{ color: 'var(--neon-cyan)' }}>nam</code> unless you intentionally created a different environment</li>
+              <li>Choose an output directory</li>
+              <li>Click <strong>Save Settings</strong></li>
+            </ol>
 
-          {guideMode !== 'amd' && (
-            <CopyableCodeBlock
-              label={guideMode === 'nvidia' ? 'Step F: Install Neural Amp Modeler' : 'Step D: Install Neural Amp Modeler'}
-              command={'pip install --upgrade "neural-amp-modeler>=0.13.0"'}
-            />
-          )}
+            <h3 className="guide-step-title">
+              5. Validate
+            </h3>
+            <p style={{ color: 'var(--text-steel)' }}>
+              NAM-BOT validates the selected setup automatically on startup. You can always go to <strong>Diagnostics</strong> and click <strong>Re-check All</strong> to inspect backend readiness, Training Launch readiness, GPU visibility, and NAM version detection together.
+            </p>
+            <p style={{ color: 'var(--text-steel)', fontSize: '13px', marginTop: '8px' }}>
+              On Windows, GPU diagnostics check for both NVIDIA CUDA and AMD ROCm GPUs. On Apple Silicon, the same screen also reports whether PyTorch can see <strong>MPS</strong>.
+            </p>
 
-          <h4 style={{ fontFamily: 'var(--font-arcade)', color: 'var(--neon-cyan)', marginTop: '24px', marginBottom: '8px' }}>
-            4. Configure NAM-BOT
-          </h4>
-          <ol style={{ color: 'var(--text-steel)', paddingLeft: '20px' }}>
-            <li>Go to <strong>Settings</strong></li>
-            <li>Leave the default Conda executable unchanged unless your install needs a custom path</li>
-            <li>Leave the default environment name as <code style={{ color: 'var(--neon-cyan)' }}>nam</code> unless you intentionally created a different environment</li>
-            <li>Choose an output directory</li>
-            <li>Click <strong>Save Settings</strong></li>
-          </ol>
+            <h3 className="guide-step-title">
+              6. Create a Job
+            </h3>
+            <ol style={{ color: 'var(--text-steel)', paddingLeft: '20px' }}>
+              <li>Go to <strong>Jobs</strong></li>
+              <li>Click <strong>+ New Job</strong></li>
+              <li>Select input and output audio files</li>
+              <li>Adjust training settings</li>
+              <li>Click <strong>Save Job</strong>, then <strong>Queue</strong></li>
+            </ol>
+          </div>
+        </PropertySection>
 
-          <h4 style={{ fontFamily: 'var(--font-arcade)', color: 'var(--neon-cyan)', marginTop: '24px', marginBottom: '8px' }}>
-            5. Validate
-          </h4>
-          <p style={{ color: 'var(--text-steel)' }}>
-            NAM-BOT validates the selected setup automatically on startup. You can always go to <strong>Diagnostics</strong> and click <strong>Re-check All</strong> to inspect backend readiness, Training Launch readiness, GPU visibility, and NAM version detection together.
-          </p>
-          <p style={{ color: 'var(--text-steel)', fontSize: '13px', marginTop: '8px' }}>
-            On Windows, GPU diagnostics check for both NVIDIA CUDA and AMD ROCm GPUs. On Apple Silicon, the same screen also reports whether PyTorch can see <strong>MPS</strong>.
-          </p>
-
-          <h4 style={{ fontFamily: 'var(--font-arcade)', color: 'var(--neon-cyan)', marginTop: '24px', marginBottom: '8px' }}>
-            6. Create a Job
-          </h4>
-          <ol style={{ color: 'var(--text-steel)', paddingLeft: '20px' }}>
-            <li>Go to <strong>Jobs</strong></li>
-            <li>Click <strong>+ New Job</strong></li>
-            <li>Select input and output audio files</li>
-            <li>Adjust training settings</li>
-            <li>Click <strong>Save Job</strong>, then <strong>Queue</strong></li>
-          </ol>
-        </div>
+        <PropertySection id="guide-links" title="Links">
+          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+            <a href="https://github.com/sdatkinson/neural-amp-modeler" target="_blank" rel="noopener noreferrer" className="btn btn-primary">
+              NAM GitHub
+            </a>
+            <a href="https://www.anaconda.com/download" target="_blank" rel="noopener noreferrer" className="btn btn-secondary">
+              Anaconda / Miniconda
+            </a>
+            <a href="https://pytorch.org/get-started/locally/" target="_blank" rel="noopener noreferrer" className="btn btn-green">
+              PyTorch Install Guide
+            </a>
+          </div>
+        </PropertySection>
       </div>
-
-      <div className="panel">
-        <div className="panel-header">
-          <h3>Links</h3>
-        </div>
-        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-          <a href="https://github.com/sdatkinson/neural-amp-modeler" target="_blank" rel="noopener noreferrer" className="btn btn-primary">
-            NAM GitHub
-          </a>
-          <a href="https://www.anaconda.com/download" target="_blank" rel="noopener noreferrer" className="btn btn-secondary">
-            Anaconda / Miniconda
-          </a>
-          <a href="https://pytorch.org/get-started/locally/" target="_blank" rel="noopener noreferrer" className="btn btn-green">
-            PyTorch Install Guide
-          </a>
-        </div>
-      </div>
-    </div>
+    </PropertySheet>
   )
 }

@@ -37,9 +37,12 @@ describe('shared native menu definition', () => {
     expect(actions.sendAppCommand).toHaveBeenNthCalledWith(2, { type: 'new-preset' })
     expect(actions.sendAppCommand).toHaveBeenNthCalledWith(3, { type: 'navigate', path: '/jobs' })
     const serialized = JSON.stringify(template)
-    for (const role of ['quit', 'close', 'minimize', 'zoom', 'togglefullscreen', 'resetZoom', 'zoomIn', 'zoomOut']) {
+    for (const role of ['quit', 'close', 'minimize', 'togglefullscreen', 'resetZoom', 'zoomIn', 'zoomOut']) {
       expect(serialized).toContain(`"role":"${role}"`)
     }
+    expect(serialized.includes('"role":"zoom"')).toBe(platform === 'darwin')
+    Reflect.apply(findItem(template, 'About NAM-BOT').click!, undefined, [])
+    expect(actions.showAboutDialog).toHaveBeenCalledOnce()
     expect(template[0].label).toBe(platform === 'darwin' ? 'NAM-BOT' : 'File')
   })
 })

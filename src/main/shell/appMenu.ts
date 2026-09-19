@@ -29,7 +29,7 @@ export function buildApplicationMenuTemplate(options: AppMenuOptions, platform: 
     template.push({
       label: app.name,
       submenu: [
-        { role: 'about' },
+        { label: 'About NAM-BOT', click: () => options.showAboutDialog() },
         { type: 'separator' },
         { role: 'services' },
         { type: 'separator' },
@@ -149,9 +149,8 @@ export function buildApplicationMenuTemplate(options: AppMenuOptions, platform: 
       label: 'Window',
       submenu: [
         { role: 'minimize' },
-        { role: 'zoom' },
         ...(platform === 'darwin'
-          ? [{ type: 'separator' as const }, { role: 'front' as const }]
+          ? [{ role: 'zoom' as const }, { type: 'separator' as const }, { role: 'front' as const }]
           : [{ role: 'close' as const }])
       ]
     },

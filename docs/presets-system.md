@@ -28,7 +28,7 @@ The presets page defaults to a library view rather than showing the editor at al
 
 - User presets appear before built-in presets.
 - Some special user-owned presets may be surfaced a little differently from normal library entries.
-- Each preset is shown as a card with summary information.
+- Each preset is shown as a compact library row with summary information and the same inline expanded details.
 - Each preset card shows an architecture tag: `A2`, `A1`, or `CUSTOM`.
 - Preset lists and job dropdowns sort A2 presets before A1 presets, with custom architecture recipes after those groups.
 - Clicking the card background toggles the same `Show More` / `Show Less` state as the explicit button.
@@ -38,7 +38,11 @@ The presets page defaults to a library view rather than showing the editor at al
 - User presets can be edited, duplicated, exported, and deleted.
 - Any preset can be exported.
 
+`Import Preset` and `New Preset` sit in the fixed workspace command bar. The filter strip offers All, A2, A1, and Custom architecture filters, plus case-insensitive search over name, description, model family, and architecture tag. The count shows matching presets out of all visible presets. Filters preserve the existing library order and do not alter or delete presets. Saving or importing a preset clears filters so the saved entry is visible.
+
 ### Manual Editor
+
+`Manual Editor` and `Import JSON` sit beside the editor heading on the left. The primary action on the right stays in a fixed-width slot: `Save Preset` in manual mode, `Apply JSON` in import mode. Applying JSON requires a valid import and returns to the manual editor for review before saving. Switching modes does not briefly remove or move the primary action, and the existing import-discard guard still protects entered JSON.
 
 The manual editor is used when:
 
@@ -55,6 +59,8 @@ The manual editor exposes friendly fields for the most common NAM training choic
 - training defaults such as epochs, batch size, learning rate, learning-rate decay, `ny`, MRSTFT loss, weight decay, and A2 output normalization
 
 The editor shows a `Save Preset` button at both the top and bottom of the form.
+
+The top Save and Cancel actions, plus Manual Editor / Import JSON mode controls, remain in the fixed workspace command bar while the editor scrolls. The manual editor shares the Jobs/Settings property-sheet layout: **Preset**, **Architecture**, **Training**, and **Overrides** section buttons smoothly scroll to focused headings, with a muted gray active state. Reduced-motion preferences use immediate scrolling. Labels and controls align in consistent rows; training values use paired rows on wide windows and one column in narrow workspaces. All existing fields, override hints, JSON formatting, copy actions, and validation behavior remain available. Import JSON keeps its separate mode and discard guard, and applying an import still preserves the preset's name, category, description, and author.
 
 - Save buttons stay neutral when the editor is clean.
 - Save buttons turn green only when the preset has unsaved changes and the current editor state is valid to save.

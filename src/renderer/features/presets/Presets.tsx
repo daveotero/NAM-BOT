@@ -1,5 +1,7 @@
 import { type ClipboardEvent, type FormEvent, type JSX, useEffect, useMemo, useState } from 'react'
 import ConfirmDialog from '../../components/ConfirmDialog'
+import WorkspaceToolbar from '../../components/WorkspaceToolbar'
+import PropertySheet, { PropertySection } from '../../components/PropertySheet'
 import JsonCodeEditor, { type JsonEditorError } from '../../components/JsonCodeEditor'
 import { type AppSettings, type PresetEditorSession, useAppStore } from '../../state/store'
 import {
@@ -119,6 +121,13 @@ interface PresetEditorProps {
 }
 
 const PRESET_EDITOR_FORM_ID = 'preset-editor-form'
+const PRESET_EDITOR_SECTIONS = [
+  { id: 'preset-information', label: 'Preset' },
+  { id: 'preset-architecture-section', label: 'Architecture' },
+  { id: 'preset-training', label: 'Training' },
+  { id: 'preset-overrides', label: 'Overrides' }
+]
+const PRESET_IMPORT_SECTIONS = [{ id: 'preset-import', label: 'Import JSON' }]
 
 function parseOptionalJsonBlock(label: string, value: string): Record<string, unknown> | undefined {
   const trimmed = value.trim()
@@ -695,7 +704,8 @@ function PresetCard({
 
   return (
     <div
-      className="job-card queue-card"
+      className="job-card queue-card preset-library-row"
+      aria-expanded={isExpanded}
       role="button"
       tabIndex={0}
       onClick={(event) => {
@@ -720,7 +730,7 @@ function PresetCard({
             <p className="queue-card-headline">{summary}</p>
           </div>
           <p className="preset-card-description">
-            {preset.description.trim() || 'No description yet.'}
+            {preset.description.trim() || 'No description.'}
           </p>
         </div>
 
@@ -1047,6 +1057,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
   }
 
   const handleEditorModeChange = (nextMode: PresetEditorSession['editorMode']): void => {
+    if (nextMode === session.editorMode) return
     if (
       session.editorMode === 'import'
       && nextMode === 'manual'
@@ -1151,388 +1162,422 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
   }
 
   return (
-    <div className="layout-main">
-      <div className="panel">
-        <div className="panel-header">
-          <h3>{session.title}</h3>
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-            {session.editorMode === 'manual' && (
-              <button
-                type="submit"
-                form={PRESET_EDITOR_FORM_ID}
-                className={`btn btn-sm ${canSave ? 'btn-green' : 'btn-secondary'}`}
-                disabled={!canSave}
-              >
-                Save Preset
-              </button>
-            )}
-            <button type="button" className="btn btn-sm btn-secondary" onClick={handleAttemptExit}>
-              Cancel
+    <PropertySheet sections={session.editorMode === 'manual' ? PRESET_EDITOR_SECTIONS : PRESET_IMPORT_SECTIONS} navigationLabel="Preset editor sections" className="preset-editor-workspace">
+      <div className="panel editor-sheet">
+        <WorkspaceToolbar title={session.title} titleControls={
+          <div className="property-mode-controls" role="group" aria-label="Preset editor mode">
+            <button
+              type="button"
+              className="btn btn-sm btn-secondary"
+              aria-pressed={session.editorMode === 'manual'}
+              onClick={() => handleEditorModeChange('manual')}
+            >
+              Manual Editor
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm btn-secondary"
+              aria-pressed={session.editorMode === 'import'}
+              onClick={() => handleEditorModeChange('import')}
+            >
+              Import JSON
             </button>
           </div>
-        </div>
-
-        <p style={{ color: 'var(--text-steel)', marginBottom: '16px' }}>
-          Presets own the full training configuration. Jobs only override epochs and latency.
-        </p>
+        }>
+          <button
+            type={session.editorMode === 'manual' ? 'submit' : 'button'}
+            form={session.editorMode === 'manual' ? PRESET_EDITOR_FORM_ID : undefined}
+            className={`btn btn-sm preset-primary-action ${(session.editorMode === 'manual' ? canSave : importReady) ? 'btn-green' : 'btn-secondary'}`}
+            disabled={session.editorMode === 'manual' ? !canSave : !importReady}
+            onClick={session.editorMode === 'import' ? (event) => {
+              // Applying JSON changes this same button into a form submitter.
+              // Cancel the click's default action so it cannot also save.
+              event.preventDefault()
+              handleImportIntoEditor()
+            } : undefined}
+          >
+            {session.editorMode === 'manual' ? 'Save Preset' : 'Apply JSON'}
+          </button>
+          <button type="button" className="btn btn-sm btn-secondary" onClick={handleAttemptExit}>
+            Cancel
+          </button>
+        </WorkspaceToolbar>
 
         {message && <p style={{ color: 'var(--neon-green)', marginBottom: '12px' }}>{message}</p>}
         {error && <p style={{ color: 'var(--neon-magenta)', marginBottom: '12px' }}>{error}</p>}
 
-        <div className="toggle-group" style={{ marginBottom: '16px' }}>
-          <button
-            type="button"
-            className={`btn btn-sm ${session.editorMode === 'manual' ? 'btn-blue is-toggled' : 'btn-secondary'}`}
-            onClick={() => handleEditorModeChange('manual')}
-          >
-            Manual Editor
-          </button>
-          <button
-            type="button"
-            className={`btn btn-sm ${session.editorMode === 'import' ? 'btn-gold is-toggled' : 'btn-secondary'}`}
-            onClick={() => handleEditorModeChange('import')}
-          >
-            Import JSON
-          </button>
-        </div>
+
 
         {session.editorMode === 'manual' ? (
-          <form id={PRESET_EDITOR_FORM_ID} onSubmit={(event) => void handleSubmit(event)}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
-              <div className="form-group">
-                <div className="form-label-row">
-                  <label className="form-label" htmlFor="preset-name">
-                    Name {showValidationErrors && !isNameValid && <span style={{ color: 'var(--neon-magenta)', fontSize: '12px' }}>(Required)</span>}
-                  </label>
+          <form className="workspace-editor-form" id={PRESET_EDITOR_FORM_ID} onSubmit={(event) => void handleSubmit(event)}>
+            <PropertySection id="preset-information" title="Preset information">
+              <div>
+                <div className="property-row">
+                  <div className="form-label-row">
+                    <label className="form-label" htmlFor="preset-name">
+                      Name {showValidationErrors && !isNameValid && <span style={{ color: 'var(--neon-magenta)', fontSize: '12px' }}>(Required)</span>}
+                    </label>
+                  </div>
+                  <div className="property-control">
+                    <input
+                      id="preset-name"
+                      className="form-input"
+                      value={session.preset.name}
+                      style={showValidationErrors && !isNameValid ? { borderColor: 'var(--neon-magenta)' } : undefined}
+                      onChange={(event) => updatePreset({ name: event.target.value })}
+                    />
+                  </div>
                 </div>
-                <input
-                  id="preset-name"
-                  className="form-input"
-                  value={session.preset.name}
-                  style={showValidationErrors && !isNameValid ? { borderColor: 'var(--neon-magenta)' } : undefined}
-                  onChange={(event) => updatePreset({ name: event.target.value })}
-                />
+
+                <div className="property-row">
+                  <div className="form-label-row">
+                    <label className="form-label" htmlFor="preset-category">Category</label>
+                    {renderInfoButton(BASIC_FIELD_HELP_TEXT.category)}
+                  </div>
+                  <div className="property-control">
+                    <select
+                      id="preset-category"
+                      className="form-select"
+                      value={session.preset.category}
+                      onChange={(event) => updatePreset({
+                        category: parsePresetCategory(event.target.value, session.preset.category)
+                      })}
+                    >
+                      {PRESET_CATEGORY_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
               </div>
 
-              <div className="form-group">
+              <div className="property-row">
                 <div className="form-label-row">
-                  <label className="form-label" htmlFor="preset-category">Category</label>
-                  {renderInfoButton(BASIC_FIELD_HELP_TEXT.category)}
+                  <label className="form-label" htmlFor="preset-description">Description</label>
                 </div>
-                <select
-                  id="preset-category"
-                  className="form-select"
-                  value={session.preset.category}
-                  onChange={(event) => updatePreset({
-                    category: parsePresetCategory(event.target.value, session.preset.category)
-                  })}
-                >
-                  {PRESET_CATEGORY_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="form-group">
-              <div className="form-label-row">
-                <label className="form-label" htmlFor="preset-description">Description</label>
-              </div>
-              <textarea
-                id="preset-description"
-                className="form-input"
-                rows={3}
-                value={session.preset.description}
-                onChange={(event) => updatePreset({ description: event.target.value })}
-              />
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
-              <div className="form-group">
-                <div className="form-label-row">
-                  <label className="form-label" htmlFor="preset-author-name">Created By</label>
-                </div>
-                <input
-                  id="preset-author-name"
-                  className="form-input"
-                  value={session.preset.author?.name ?? ''}
-                  onChange={(event) => updatePresetAuthor({ name: event.target.value })}
-                />
-              </div>
-
-              <div className="form-group">
-                <div className="form-label-row">
-                  <label className="form-label" htmlFor="preset-author-url">Website / Profile</label>
-                </div>
-                <input
-                  id="preset-author-url"
-                  className="form-input"
-                  value={session.preset.author?.url ?? ''}
-                  onChange={(event) => updatePresetAuthor({ url: event.target.value })}
-                />
-              </div>
-            </div>
-
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                gap: '16px'
-              }}
-            >
-              <div className="form-group">
-                <div className="form-label-row">
-                  <label className="form-label" htmlFor="preset-architecture-version">NAM Architecture</label>
-                  {renderInfoButton(BASIC_FIELD_HELP_TEXT.architectureVersion)}
-                </div>
-                <select
-                  id="preset-architecture-version"
-                  className="form-select"
-                  value={getStringControlValue(fieldOverrides.architectureVersion, session.preset.values.architectureVersion)}
-                  disabled={fieldOverrides.architectureVersion !== null}
-                  onChange={(event) => updateArchitectureVersion(
-                    parseArchitectureVersion(event.target.value, session.preset.values.architectureVersion)
-                  )}
-                >
-                  {ARCHITECTURE_VERSION_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-                {renderOverrideBadge(fieldOverrides.architectureVersion)}
-              </div>
-
-              <div className="form-group">
-                <div className="form-label-row">
-                  <label className="form-label" htmlFor="preset-model-family">Model Family</label>
-                  {renderInfoButton(BASIC_FIELD_HELP_TEXT.modelFamily)}
-                </div>
-                <select
-                  id="preset-model-family"
-                  className="form-select"
-                  value={getStringControlValue(fieldOverrides.modelFamily, session.preset.values.modelFamily)}
-                  disabled={fieldOverrides.modelFamily !== null}
-                  onChange={(event) => updateModelFamily(
-                    parseModelFamily(event.target.value, session.preset.values.modelFamily)
-                  )}
-                >
-                  {MODEL_FAMILY_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-                {renderOverrideBadge(fieldOverrides.modelFamily)}
-              </div>
-
-              <div className="form-group">
-                <div className="form-label-row">
-                  <label className="form-label" htmlFor="preset-architecture">Architecture</label>
-                  {renderInfoButton(BASIC_FIELD_HELP_TEXT.architectureSize)}
-                </div>
-                <select
-                  id="preset-architecture"
-                  className="form-select"
-                  value={getStringControlValue(fieldOverrides.architectureSize, session.preset.values.architectureSize)}
-                  disabled={fieldOverrides.architectureSize !== null}
-                  onChange={(event) => updateArchitectureSize(
-                    parseArchitectureSize(event.target.value, session.preset.values.architectureSize)
-                  )}
-                >
-                  {ARCHITECTURE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-                {renderOverrideBadge(fieldOverrides.architectureSize)}
-              </div>
-
-              <div className="form-group">
-                <div className="form-label-row">
-                  <label className="form-label" htmlFor="preset-epochs">Default Epochs</label>
-                  {renderInfoButton(BASIC_FIELD_HELP_TEXT.epochs)}
-                </div>
-                <input
-                  id="preset-epochs"
-                  type="number"
-                  className="form-input"
-                  value={getNumberControlValue(fieldOverrides.epochs, session.preset.values.epochs)}
-                  disabled={fieldOverrides.epochs !== null}
-                  onChange={(event) => updatePresetValues({
-                    epochs: Math.max(1, parseInt(event.target.value, 10) || session.preset.values.epochs)
-                  })}
-                />
-                {renderOverrideBadge(fieldOverrides.epochs)}
-              </div>
-
-              <div className="form-group">
-                <div className="form-label-row">
-                  <label className="form-label" htmlFor="preset-batch-size">Batch Size</label>
-                  {renderInfoButton(BASIC_FIELD_HELP_TEXT.batchSize)}
-                </div>
-                <input
-                  id="preset-batch-size"
-                  type="number"
-                  className="form-input"
-                  value={getNumberControlValue(fieldOverrides.batchSize, session.preset.values.batchSize)}
-                  disabled={fieldOverrides.batchSize !== null}
-                  onChange={(event) => updatePresetValues({
-                    batchSize: Math.max(1, parseInt(event.target.value, 10) || session.preset.values.batchSize)
-                  })}
-                />
-                {renderOverrideBadge(fieldOverrides.batchSize)}
-              </div>
-
-              <div className="form-group">
-                <div className="form-label-row">
-                  <label className="form-label" htmlFor="preset-learning-rate">Learning Rate</label>
-                  {renderInfoButton(BASIC_FIELD_HELP_TEXT.learningRate)}
-                </div>
-                <input
-                  id="preset-learning-rate"
-                  type="number"
-                  step="0.0001"
-                  className="form-input"
-                  value={getNumberControlValue(fieldOverrides.learningRate, session.preset.values.learningRate)}
-                  disabled={fieldOverrides.learningRate !== null}
-                  onChange={(event) => updatePresetValues({
-                    learningRate: parseFloat(event.target.value) || session.preset.values.learningRate
-                  })}
-                />
-                {renderOverrideBadge(fieldOverrides.learningRate)}
-              </div>
-
-              <div className="form-group">
-                <div className="form-label-row">
-                  <label className="form-label" htmlFor="preset-learning-rate-decay">LR Decay</label>
-                  {renderInfoButton(BASIC_FIELD_HELP_TEXT.learningRateDecay)}
-                </div>
-                <input
-                  id="preset-learning-rate-decay"
-                  type="number"
-                  step="0.0001"
-                  className="form-input"
-                  value={getNumberControlValue(fieldOverrides.learningRateDecay, session.preset.values.learningRateDecay)}
-                  disabled={fieldOverrides.learningRateDecay !== null}
-                  onChange={(event) => updatePresetValues({
-                    learningRateDecay: parseFloat(event.target.value) || session.preset.values.learningRateDecay
-                  })}
-                />
-                {renderOverrideBadge(fieldOverrides.learningRateDecay)}
-              </div>
-
-              <div className="form-group">
-                <div className="form-label-row">
-                  <label className="form-label" htmlFor="preset-ny">NY</label>
-                  {renderInfoButton(BASIC_FIELD_HELP_TEXT.ny)}
-                </div>
-                <input
-                  id="preset-ny"
-                  type="number"
-                  className="form-input"
-                  value={getNumberControlValue(fieldOverrides.ny, session.preset.values.ny)}
-                  disabled={fieldOverrides.ny !== null}
-                  onChange={(event) => updatePresetValues({
-                    ny: Math.max(1, parseInt(event.target.value, 10) || session.preset.values.ny)
-                  })}
-                />
-                {renderOverrideBadge(fieldOverrides.ny)}
-              </div>
-
-              <div className="form-group">
-                <div className="form-label-row">
-                  <label className="form-label" htmlFor="preset-fit-mrstft">Fit MRSTFT</label>
-                  {renderInfoButton(BASIC_FIELD_HELP_TEXT.fitMrstft)}
-                </div>
-                <label className="form-label" style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: 0 }}>
-                  <input
-                    id="preset-fit-mrstft"
-                    type="checkbox"
-                    checked={getBooleanControlValue(fieldOverrides.fitMrstft, session.preset.values.fitMrstft)}
-                    disabled={fieldOverrides.fitMrstft !== null}
-                    onChange={(event) => updatePresetValues({
-                      fitMrstft: event.target.checked
-                    })}
+                <div className="property-control">
+                  <textarea
+                    id="preset-description"
+                    className="form-input"
+                    rows={3}
+                    value={session.preset.description}
+                    onChange={(event) => updatePreset({ description: event.target.value })}
                   />
-                  Include MRSTFT loss
-                </label>
-                {renderOverrideBadge(fieldOverrides.fitMrstft)}
-              </div>
-
-              <div className="form-group">
-                <div className="form-label-row">
-                  <label className="form-label" htmlFor="preset-mrstft-weight">MRSTFT Weight</label>
-                  {renderInfoButton(BASIC_FIELD_HELP_TEXT.mrstftWeight)}
                 </div>
-                <input
-                  id="preset-mrstft-weight"
-                  type="number"
-                  step="0.0001"
-                  className="form-input"
-                  value={getNumberControlValue(fieldOverrides.mrstftWeight, session.preset.values.mrstftWeight)}
-                  disabled={fieldOverrides.mrstftWeight !== null}
-                  onChange={(event) => updatePresetValues({
-                    mrstftWeight: Math.max(0, parseFloat(event.target.value) || 0),
-                    fitMrstft: (parseFloat(event.target.value) || 0) > 0
-                  })}
-                />
-                {renderOverrideBadge(fieldOverrides.mrstftWeight)}
               </div>
 
-              <div className="form-group">
-                <div className="form-label-row">
-                  <label className="form-label" htmlFor="preset-weight-decay">Weight Decay</label>
-                  {renderInfoButton(BASIC_FIELD_HELP_TEXT.weightDecay)}
+              <div>
+                <div className="property-row">
+                  <div className="form-label-row">
+                    <label className="form-label" htmlFor="preset-author-name">Created By</label>
+                  </div>
+                  <div className="property-control">
+                    <input
+                      id="preset-author-name"
+                      className="form-input"
+                      value={session.preset.author?.name ?? ''}
+                      onChange={(event) => updatePresetAuthor({ name: event.target.value })}
+                    />
+                  </div>
                 </div>
-                <input
-                  id="preset-weight-decay"
-                  type="number"
-                  step="0.0000001"
-                  className="form-input"
-                  value={getNumberControlValue(fieldOverrides.weightDecay, session.preset.values.weightDecay)}
-                  disabled={fieldOverrides.weightDecay !== null}
-                  onChange={(event) => updatePresetValues({
-                    weightDecay: Math.max(0, parseFloat(event.target.value) || 0)
-                  })}
-                />
-                {renderOverrideBadge(fieldOverrides.weightDecay)}
-              </div>
 
-              <div className="form-group">
-                <div className="form-label-row">
-                  <label className="form-label" htmlFor="preset-output-normalize">Output Normalize RMS dB</label>
-                  {renderInfoButton(BASIC_FIELD_HELP_TEXT.outputNormalizeRmsDb)}
+                <div className="property-row">
+                  <div className="form-label-row">
+                    <label className="form-label" htmlFor="preset-author-url">Website / Profile</label>
+                  </div>
+                  <div className="property-control">
+                    <input
+                      id="preset-author-url"
+                      className="form-input"
+                      value={session.preset.author?.url ?? ''}
+                      onChange={(event) => updatePresetAuthor({ url: event.target.value })}
+                    />
+                  </div>
                 </div>
-                <input
-                  id="preset-output-normalize"
-                  type="number"
-                  step="0.1"
-                  className="form-input"
-                  value={getOptionalNumberControlValue(fieldOverrides.outputNormalizeRmsDb, session.preset.values.outputNormalizeRmsDb)}
-                  disabled={fieldOverrides.outputNormalizeRmsDb !== null}
-                  placeholder="Disabled"
-                  onChange={(event) => {
-                    const parsed = parseFloat(event.target.value)
-                    updatePresetValues({
-                      outputNormalizeRmsDb: event.target.value.trim() === '' || !Number.isFinite(parsed)
-                        ? null
-                        : parsed
-                    })
-                  }}
-                />
-                {renderOverrideBadge(fieldOverrides.outputNormalizeRmsDb)}
               </div>
-            </div>
 
-            <div style={{ borderTop: '2px solid var(--border-dim)', marginTop: '16px', paddingTop: '16px' }}>
-              <h4 style={{ color: 'var(--neon-cyan)', marginBottom: '8px' }}>Expert Overrides</h4>
-              <p style={{ color: 'var(--text-steel)', fontSize: '12px', marginBottom: '12px' }}>
-                These JSON blocks merge on top of the generated `data.json`, `model.json`, and `learning.json`. Hover the `JSON Override` badge on any locked field to see exactly what is controlling it.
-              </p>
+            </PropertySection>
+            <PropertySection id="preset-architecture-section" title="Architecture">
+              <div>
+                <div className="property-row">
+                  <div className="form-label-row">
+                    <label className="form-label" htmlFor="preset-architecture-version">NAM Architecture</label>
+                    {renderInfoButton(BASIC_FIELD_HELP_TEXT.architectureVersion)}
+                  </div>
+                  <div className="property-control">
+                    <select
+                      id="preset-architecture-version"
+                      className="form-select"
+                      value={getStringControlValue(fieldOverrides.architectureVersion, session.preset.values.architectureVersion)}
+                      disabled={fieldOverrides.architectureVersion !== null}
+                      onChange={(event) => updateArchitectureVersion(
+                        parseArchitectureVersion(event.target.value, session.preset.values.architectureVersion)
+                      )}
+                    >
+                      {ARCHITECTURE_VERSION_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    {renderOverrideBadge(fieldOverrides.architectureVersion)}
+                  </div>
+                </div>
+
+                <div className="property-row">
+                  <div className="form-label-row">
+                    <label className="form-label" htmlFor="preset-model-family">Model Family</label>
+                    {renderInfoButton(BASIC_FIELD_HELP_TEXT.modelFamily)}
+                  </div>
+                  <div className="property-control">
+                    <select
+                      id="preset-model-family"
+                      className="form-select"
+                      value={getStringControlValue(fieldOverrides.modelFamily, session.preset.values.modelFamily)}
+                      disabled={fieldOverrides.modelFamily !== null}
+                      onChange={(event) => updateModelFamily(
+                        parseModelFamily(event.target.value, session.preset.values.modelFamily)
+                      )}
+                    >
+                      {MODEL_FAMILY_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    {renderOverrideBadge(fieldOverrides.modelFamily)}
+                  </div>
+                </div>
+
+                <div className="property-row">
+                  <div className="form-label-row">
+                    <label className="form-label" htmlFor="preset-architecture">Architecture</label>
+                    {renderInfoButton(BASIC_FIELD_HELP_TEXT.architectureSize)}
+                  </div>
+                  <div className="property-control">
+                    <select
+                      id="preset-architecture"
+                      className="form-select"
+                      value={getStringControlValue(fieldOverrides.architectureSize, session.preset.values.architectureSize)}
+                      disabled={fieldOverrides.architectureSize !== null}
+                      onChange={(event) => updateArchitectureSize(
+                        parseArchitectureSize(event.target.value, session.preset.values.architectureSize)
+                      )}
+                    >
+                      {ARCHITECTURE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    {renderOverrideBadge(fieldOverrides.architectureSize)}
+                  </div>
+                </div>
+
+              </div>
+            </PropertySection>
+            <PropertySection id="preset-training" title="Training">
+              <div className="property-grid">
+                <div className="property-row">
+                  <div className="form-label-row">
+                    <label className="form-label" htmlFor="preset-epochs">Default Epochs</label>
+                    {renderInfoButton(BASIC_FIELD_HELP_TEXT.epochs)}
+                  </div>
+                  <div className="property-control">
+                    <input
+                      id="preset-epochs"
+                      type="number"
+                      className="form-input"
+                      value={getNumberControlValue(fieldOverrides.epochs, session.preset.values.epochs)}
+                      disabled={fieldOverrides.epochs !== null}
+                      onChange={(event) => updatePresetValues({
+                        epochs: Math.max(1, parseInt(event.target.value, 10) || session.preset.values.epochs)
+                      })}
+                    />
+                    {renderOverrideBadge(fieldOverrides.epochs)}
+                  </div>
+                </div>
+
+                <div className="property-row">
+                  <div className="form-label-row">
+                    <label className="form-label" htmlFor="preset-batch-size">Batch Size</label>
+                    {renderInfoButton(BASIC_FIELD_HELP_TEXT.batchSize)}
+                  </div>
+                  <div className="property-control">
+                    <input
+                      id="preset-batch-size"
+                      type="number"
+                      className="form-input"
+                      value={getNumberControlValue(fieldOverrides.batchSize, session.preset.values.batchSize)}
+                      disabled={fieldOverrides.batchSize !== null}
+                      onChange={(event) => updatePresetValues({
+                        batchSize: Math.max(1, parseInt(event.target.value, 10) || session.preset.values.batchSize)
+                      })}
+                    />
+                    {renderOverrideBadge(fieldOverrides.batchSize)}
+                  </div>
+                </div>
+
+                <div className="property-row">
+                  <div className="form-label-row">
+                    <label className="form-label" htmlFor="preset-learning-rate">Learning Rate</label>
+                    {renderInfoButton(BASIC_FIELD_HELP_TEXT.learningRate)}
+                  </div>
+                  <div className="property-control">
+                    <input
+                      id="preset-learning-rate"
+                      type="number"
+                      step="0.0001"
+                      className="form-input"
+                      value={getNumberControlValue(fieldOverrides.learningRate, session.preset.values.learningRate)}
+                      disabled={fieldOverrides.learningRate !== null}
+                      onChange={(event) => updatePresetValues({
+                        learningRate: parseFloat(event.target.value) || session.preset.values.learningRate
+                      })}
+                    />
+                    {renderOverrideBadge(fieldOverrides.learningRate)}
+                  </div>
+                </div>
+
+                <div className="property-row">
+                  <div className="form-label-row">
+                    <label className="form-label" htmlFor="preset-learning-rate-decay">LR Decay</label>
+                    {renderInfoButton(BASIC_FIELD_HELP_TEXT.learningRateDecay)}
+                  </div>
+                  <div className="property-control">
+                    <input
+                      id="preset-learning-rate-decay"
+                      type="number"
+                      step="0.0001"
+                      className="form-input"
+                      value={getNumberControlValue(fieldOverrides.learningRateDecay, session.preset.values.learningRateDecay)}
+                      disabled={fieldOverrides.learningRateDecay !== null}
+                      onChange={(event) => updatePresetValues({
+                        learningRateDecay: parseFloat(event.target.value) || session.preset.values.learningRateDecay
+                      })}
+                    />
+                    {renderOverrideBadge(fieldOverrides.learningRateDecay)}
+                  </div>
+                </div>
+
+                <div className="property-row">
+                  <div className="form-label-row">
+                    <label className="form-label" htmlFor="preset-ny">NY</label>
+                    {renderInfoButton(BASIC_FIELD_HELP_TEXT.ny)}
+                  </div>
+                  <div className="property-control">
+                    <input
+                      id="preset-ny"
+                      type="number"
+                      className="form-input"
+                      value={getNumberControlValue(fieldOverrides.ny, session.preset.values.ny)}
+                      disabled={fieldOverrides.ny !== null}
+                      onChange={(event) => updatePresetValues({
+                        ny: Math.max(1, parseInt(event.target.value, 10) || session.preset.values.ny)
+                      })}
+                    />
+                    {renderOverrideBadge(fieldOverrides.ny)}
+                  </div>
+                </div>
+
+                <div className="property-row">
+                  <div className="form-label-row">
+                    <label className="form-label" htmlFor="preset-fit-mrstft">Fit MRSTFT</label>
+                    {renderInfoButton(BASIC_FIELD_HELP_TEXT.fitMrstft)}
+                  </div>
+                  <div className="property-control">
+                    <label className="property-check-option">
+                      <input
+                        id="preset-fit-mrstft"
+                        type="checkbox"
+                        checked={getBooleanControlValue(fieldOverrides.fitMrstft, session.preset.values.fitMrstft)}
+                        disabled={fieldOverrides.fitMrstft !== null}
+                        onChange={(event) => updatePresetValues({
+                          fitMrstft: event.target.checked
+                        })}
+                      />
+                      Include MRSTFT loss
+                    </label>
+                    {renderOverrideBadge(fieldOverrides.fitMrstft)}
+                  </div>
+                </div>
+
+                <div className="property-row">
+                  <div className="form-label-row">
+                    <label className="form-label" htmlFor="preset-mrstft-weight">MRSTFT Weight</label>
+                    {renderInfoButton(BASIC_FIELD_HELP_TEXT.mrstftWeight)}
+                  </div>
+                  <div className="property-control">
+                    <input
+                      id="preset-mrstft-weight"
+                      type="number"
+                      step="0.0001"
+                      className="form-input"
+                      value={getNumberControlValue(fieldOverrides.mrstftWeight, session.preset.values.mrstftWeight)}
+                      disabled={fieldOverrides.mrstftWeight !== null}
+                      onChange={(event) => updatePresetValues({
+                        mrstftWeight: Math.max(0, parseFloat(event.target.value) || 0),
+                        fitMrstft: (parseFloat(event.target.value) || 0) > 0
+                      })}
+                    />
+                    {renderOverrideBadge(fieldOverrides.mrstftWeight)}
+                  </div>
+                </div>
+
+                <div className="property-row">
+                  <div className="form-label-row">
+                    <label className="form-label" htmlFor="preset-weight-decay">Weight Decay</label>
+                    {renderInfoButton(BASIC_FIELD_HELP_TEXT.weightDecay)}
+                  </div>
+                  <div className="property-control">
+                    <input
+                      id="preset-weight-decay"
+                      type="number"
+                      step="0.0000001"
+                      className="form-input"
+                      value={getNumberControlValue(fieldOverrides.weightDecay, session.preset.values.weightDecay)}
+                      disabled={fieldOverrides.weightDecay !== null}
+                      onChange={(event) => updatePresetValues({
+                        weightDecay: Math.max(0, parseFloat(event.target.value) || 0)
+                      })}
+                    />
+                    {renderOverrideBadge(fieldOverrides.weightDecay)}
+                  </div>
+                </div>
+
+                <div className="property-row">
+                  <div className="form-label-row">
+                    <label className="form-label" htmlFor="preset-output-normalize">Output Normalize RMS dB</label>
+                    {renderInfoButton(BASIC_FIELD_HELP_TEXT.outputNormalizeRmsDb)}
+                  </div>
+                  <div className="property-control">
+                    <input
+                      id="preset-output-normalize"
+                      type="number"
+                      step="0.1"
+                      className="form-input"
+                      value={getOptionalNumberControlValue(fieldOverrides.outputNormalizeRmsDb, session.preset.values.outputNormalizeRmsDb)}
+                      disabled={fieldOverrides.outputNormalizeRmsDb !== null}
+                      placeholder="Disabled"
+                      onChange={(event) => {
+                        const parsed = parseFloat(event.target.value)
+                        updatePresetValues({
+                          outputNormalizeRmsDb: event.target.value.trim() === '' || !Number.isFinite(parsed)
+                            ? null
+                            : parsed
+                        })
+                      }}
+                    />
+                    {renderOverrideBadge(fieldOverrides.outputNormalizeRmsDb)}
+                  </div>
+                </div>
+              </div>
+
+            </PropertySection>
+            <PropertySection id="preset-overrides" title="Expert overrides">
+              <p className="property-note">JSON overrides take precedence over the fields above. Hover a JSON Override badge to see its source.</p>
 
               <div style={{ display: 'grid', gap: '12px' }}>
                 <JsonCodeEditor
@@ -1571,9 +1616,9 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                   onPaste={buildAutoFormatPasteHandler(session.learningJson, (value) => updateSession({ learningJson: value }))}
                 />
               </div>
-            </div>
+            </PropertySection>
 
-            <div style={{ marginTop: '24px', display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <div className="property-actions">
               <button type="submit" className={`btn ${canSave ? 'btn-green' : 'btn-secondary'}`} disabled={!canSave}>
                 Save Preset
               </button>
@@ -1586,8 +1631,8 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
             </div>
           </form>
         ) : (
-          <div>
-            <p style={{ color: 'var(--text-steel)', marginBottom: '12px' }}>
+          <PropertySection id="preset-import" title="Import JSON">
+            <p className="property-note">
               Paste a full preset, raw `data` / `model` / `learning` config object, or a WaveNet/LSTM model snippet. Imported JSON only updates the technical training settings. Name, category, and description stay in the manual editor.
             </p>
 
@@ -1630,7 +1675,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                 Back to Manual
               </button>
             </div>
-          </div>
+          </PropertySection>
         )}
       </div>
 
@@ -1666,7 +1711,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
         onAlternate={() => void handleSaveAndExit()}
         onCancel={() => setIsUnsavedConfirmOpen(false)}
       />
-    </div>
+    </PropertySheet>
   )
 }
 
@@ -1679,6 +1724,8 @@ export default function Presets() {
   const clearPresetEditorSession = useAppStore((state) => state.clearPresetEditorSession)
   const presetWarnings = useAppStore((state) => state.presetWarnings)
   const presetsLoadError = useAppStore((state) => state.presetsLoadError)
+  const [search, setSearch] = useState('')
+  const [architectureFilter, setArchitectureFilter] = useState('All')
   const [expandedPresets, setExpandedPresets] = useState<Record<string, boolean>>({})
   const [pendingDeletePreset, setPendingDeletePreset] = useState<TrainingPresetFile | null>(null)
   const [message, setMessage] = useState<string | null>(null)
@@ -1692,6 +1739,13 @@ export default function Presets() {
     () => presets.filter((preset) => preset.visible),
     [presets]
   )
+
+  const filteredPresets = visiblePresets.filter((preset) => {
+    const architecture = formatPresetArchitectureTag(preset)
+    const matchesArchitecture = architectureFilter === 'All' || architecture === architectureFilter
+    const text = `${preset.name} ${preset.description} ${preset.values.modelFamily} ${architecture}`.toLowerCase()
+    return matchesArchitecture && text.includes(search.trim().toLowerCase())
+  })
 
   const toggleExpanded = (presetId: string): void => {
     setExpandedPresets((current) => ({
@@ -1725,6 +1779,8 @@ export default function Presets() {
     const saved = normalizeTrainingPreset(await window.namBot.presets.save(preset))
     await loadPresets()
     clearPresetEditorSession()
+    setSearch('')
+    setArchitectureFilter('All')
     setMessage(`Saved preset "${saved.name}".`)
     setError(null)
   }
@@ -1780,6 +1836,8 @@ export default function Presets() {
         return
       }
 
+      setSearch('')
+      setArchitectureFilter('All')
       const importedPreset = normalizeTrainingPreset(imported)
       await loadPresets()
       setExpandedPresets((current) => ({
@@ -1806,42 +1864,40 @@ export default function Presets() {
   }
 
   return (
-    <div className="layout-main">
-      <div className="panel" style={{ marginBottom: '16px' }}>
-        <div className="panel-header">
-          <h3>Presets</h3>
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-            <button type="button" className="btn btn-secondary" onClick={() => void handleImportPreset()}>
-              Import Preset
-            </button>
-            <button type="button" className="btn btn-green" onClick={handleCreateNew}>
-              New Preset
-            </button>
-          </div>
+    <div className="layout-main feature-workspace presets-workspace">
+      <WorkspaceToolbar title="Presets">
+        <button type="button" className="btn btn-secondary" onClick={() => void handleImportPreset()}>Import Preset</button>
+        <button type="button" className="btn btn-green" onClick={handleCreateNew}>New Preset</button>
+      </WorkspaceToolbar>
+      <div className="library-filter-bar">
+        <div className="library-architecture-filter" role="group" aria-label="Preset architecture">
+          {['All', 'A2', 'A1', 'CUSTOM'].map(architecture => (
+            <button key={architecture} type="button" aria-pressed={architectureFilter === architecture}
+              onClick={() => setArchitectureFilter(architecture)}>{architecture === 'CUSTOM' ? 'Custom' : architecture}</button>
+          ))}
         </div>
-
-        <p style={{ color: 'var(--text-steel)' }}>
-          Browse your preset library here. Open a card for deeper technical details, or launch the editor only when you need to create or change a preset.
-        </p>
-
+        <label className="library-search">
+          <span className="sr-only">Search presets</span>
+          <input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search presets" />
+        </label>
+        <span className="library-count">{filteredPresets.length} / {visiblePresets.length}</span>
+      </div>
+      <div className="feature-notices">
         {presetWarnings.map((warning) => <p role="status" key={warning} style={{ color: 'var(--neon-gold)', marginTop: '10px' }}>{warning}</p>)}
         {presetsLoadError && <p role="alert" className="operation-error">Could not load presets: {presetsLoadError} <button className="btn btn-sm btn-secondary" onClick={() => void loadPresets()}>Retry</button></p>}
         {message && <p style={{ color: 'var(--neon-green)', marginTop: '10px' }}>{message}</p>}
         {error && <p style={{ color: 'var(--neon-magenta)', marginTop: '10px' }}>{error}</p>}
       </div>
 
-      <div className="panel">
-        <div className="panel-header">
-          <h3>Library ({visiblePresets.length})</h3>
-        </div>
-
-        {visiblePresets.length === 0 ? (
-          <p style={{ color: 'var(--text-steel)' }}>
-            No presets are available yet. Click `New Preset` to create one.
-          </p>
+      <section className="preset-library" aria-label="Preset library">
+        {filteredPresets.length === 0 ? (
+          <div className="library-empty">
+            <p>{visiblePresets.length === 0 ? 'No presets available.' : 'No matching presets.'}</p>
+            {(search || architectureFilter !== 'All') && <button className="btn btn-secondary" onClick={() => { setSearch(''); setArchitectureFilter('All') }}>Clear filters</button>}
+          </div>
         ) : (
-          <div style={{ display: 'grid', gap: '16px' }}>
-            {visiblePresets.map((preset) => (
+          <div className="preset-library-list">
+            {filteredPresets.map((preset) => (
               <PresetCard
                 key={preset.id}
                 preset={preset}
@@ -1858,7 +1914,7 @@ export default function Presets() {
             ))}
           </div>
         )}
-      </div>
+      </section>
 
       <ConfirmDialog
         isOpen={pendingDeletePreset !== null}

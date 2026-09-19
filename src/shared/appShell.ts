@@ -33,3 +33,14 @@ export interface AppMenuAnchor {
   x: number
   y: number
 }
+
+export interface AppDialogRequest {
+  id: string
+  title: string
+  message: string
+  detail: string
+  buttons: string[]
+  cancelId: number
+  defaultId: number
+  tone: 'info' | 'warning' | 'error'
+}

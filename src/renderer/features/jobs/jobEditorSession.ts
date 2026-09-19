@@ -218,6 +218,24 @@ export function persistReusableJobDefaults(job: JobSpec, inputMode: 'default' | 
   }
 }
 
+export function serializeJobEditorSession(
+  session: Pick<JobEditorSession, 'job' | 'inputMode' | 'outputRootMode'>
+): string {
+  // Resolved default paths are automatic values, not edits. Keep the selected
+  // modes and custom paths so changing either still protects unsaved work.
+  return JSON.stringify({
+    job: {
+      ...session.job,
+      inputAudioPath: session.inputMode === 'default' ? '' : session.job.inputAudioPath,
+      inputAudioIsDefault: session.inputMode === 'default',
+      outputRootDir: session.outputRootMode === 'custom' ? session.job.outputRootDir : '',
+      outputRootDirIsDefault: session.outputRootMode === 'output-audio'
+    },
+    inputMode: session.inputMode,
+    outputRootMode: session.outputRootMode
+  })
+}
+
 export function buildJobEditorSession(title: string, job: JobSpec, settings: AppSettings | null): JobEditorSession {
   const sessionContent = {
     job,
@@ -227,7 +245,7 @@ export function buildJobEditorSession(title: string, job: JobSpec, settings: App
 
   return {
     title,
-    initialSnapshot: JSON.stringify(sessionContent),
+    initialSnapshot: serializeJobEditorSession(sessionContent),
     ...sessionContent,
     showValidationErrors: false
   }

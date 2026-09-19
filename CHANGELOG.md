@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Lifetime training totals and recent completed runs on the dashboard, preserved when Jobs history is cleared.
+- Always-visible Jobs search across names, presets, and audio paths, plus a live model filename preview in the job editor.
+
+### Changed
+
+- Reorganized the app into compact desktop workspaces with fixed commands, grouped navigation, and a persistent status footer.
+- Unified Jobs, Presets, Settings, Diagnostics, and Setup Guide with shared section navigation, smooth scrolling, muted field borders, and responsive layouts.
+- Themed About, update, and exit dialogs to match the app; removed the duplicate title-bar status and the unused Windows Window > Zoom command.
+
+### Fixed
+
+- Canceling an untouched new job no longer asks to discard changes; reverting edits also restores the unchanged state.
+- Preset editor mode controls stay beside the heading, with stable Save Preset and Apply JSON actions when switching modes.
+
 ## [0.6.7] - 2026-09-18
 
 ### Changed

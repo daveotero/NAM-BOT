@@ -2,6 +2,8 @@
 
 The Settings page manages global configuration for NAM-BOT, including backend paths, default metadata, and general application behavior.
 
+Settings uses the same continuous property sheet as Jobs and the Preset editor, with aligned labels and controls under **Backend**, **Folders**, **Author**, and **Application**. A fixed section strip smoothly scrolls to headings and highlights the current section in gray. Reduced-motion preferences use immediate scrolling. Save Settings and save status stay in the workspace toolbar. Fields use muted borders, while section dividers retain stronger contrast; narrow windows stack labels above their controls.
+
 ## Auto-save Behavior
 
 Settings in NAM-BOT are automatically saved after a short pause, and the header also provides an explicit **Save Settings** button.

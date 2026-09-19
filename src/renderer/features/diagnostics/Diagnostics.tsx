@@ -12,6 +12,16 @@ import {
   useAppStore
 } from '../../state/store'
 import { MIN_A2_NAM_VERSION } from '../../state/types'
+import PropertySheet, { PropertySection } from '../../components/PropertySheet'
+import WorkspaceToolbar from '../../components/WorkspaceToolbar'
+import CopyableCodeBlock from '../../components/CopyableCodeBlock'
+
+const DIAGNOSTICS_SECTIONS = [
+  { id: 'diagnostics-overview', label: 'Overview' },
+  { id: 'diagnostics-actions', label: 'Actions' },
+  { id: 'diagnostics-checks', label: 'Checks' },
+  { id: 'diagnostics-details', label: 'Details' }
+]
 
 interface CopyableCodeBlockProps {
   label: string
@@ -104,48 +114,6 @@ function CheckResult({ result }: { result: BackendCheckResult }) {
         {result.message}
       </p>
       {result.suggestion && <p style={{ color: 'var(--neon-cyan)', fontSize: '13px' }}>→ {result.suggestion}</p>}
-    </div>
-  )
-}
-
-function CopyableCodeBlock({ label, command }: CopyableCodeBlockProps) {
-  return (
-    <div style={{ marginBottom: '12px' }}>
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          padding: '4px 8px',
-          backgroundColor: 'rgba(0, 255, 65, 0.05)',
-          border: '1px solid var(--border-dim)',
-          borderBottom: 'none',
-          color: 'var(--text-steel)',
-          fontSize: '11px',
-          textTransform: 'uppercase',
-          letterSpacing: '1px'
-        }}
-      >
-        <span>{label}</span>
-        <button className="btn btn-sm btn-secondary" onClick={() => copyText(command)} style={{ padding: '2px 8px', fontSize: '10px' }}>
-          Copy
-        </button>
-      </div>
-      <pre
-        style={{
-          backgroundColor: 'var(--bg-void)',
-          padding: '12px',
-          border: '2px solid var(--border-dim)',
-          color: 'var(--neon-green)',
-          fontFamily: 'var(--font-arcade)',
-          fontSize: '14px',
-          overflowX: 'auto',
-          margin: 0,
-          whiteSpace: 'pre-wrap'
-        }}
-      >
-        {command}
-      </pre>
     </div>
   )
 }
@@ -928,12 +896,8 @@ function DiagnosticMatrixRow({ row }: { row: MatrixRow }) {
   const color = getStatusColor(row.status)
   return (
     <div
+      className="diagnostic-matrix-row"
       style={{
-        display: 'grid',
-        gridTemplateColumns: '70px minmax(150px, 220px) minmax(0, 1fr)',
-        gap: '12px',
-        padding: '9px 10px',
-        borderBottom: '1px solid rgba(255,255,255,0.08)',
         backgroundColor: row.status === 'fail' ? 'rgba(255, 0, 60, 0.06)' : 'rgba(9, 9, 11, 0.25)'
       }}
     >
@@ -951,10 +915,7 @@ function DiagnosticMatrixRow({ row }: { row: MatrixRow }) {
 
 function DiagnosticMatrix({ groups }: { groups: MatrixGroup[] }) {
   return (
-    <div className="panel" style={{ marginBottom: '16px' }}>
-      <div className="panel-header" style={{ marginBottom: '10px' }}>
-        <h3>Check Matrix</h3>
-      </div>
+    <PropertySection id="diagnostics-checks" title="Check matrix">
       <div style={{ display: 'grid', gap: '12px' }}>
         {groups.map((group) => (
           <div key={group.title} style={{ border: '1px solid var(--border-dim)' }}>
@@ -965,7 +926,7 @@ function DiagnosticMatrix({ groups }: { groups: MatrixGroup[] }) {
           </div>
         ))}
       </div>
-    </div>
+    </PropertySection>
   )
 }
 
@@ -1549,6 +1510,7 @@ export default function Diagnostics() {
   if (isChecking && !validation && !acceleratorDiagnostics && !trainingLaunchDiagnostics) {
     return (
       <div className="layout-main">
+        <WorkspaceToolbar title="Diagnostics">{null}</WorkspaceToolbar>
         <div className="panel">
           <p className="processing-text" style={{ color: 'var(--text-steel)', textAlign: 'center', padding: '32px' }}>
             Running setup, accelerator, and launch diagnostics
@@ -1559,93 +1521,95 @@ export default function Diagnostics() {
   }
 
   return (
-    <div className="layout-main">
-      <div className="panel" style={{ marginBottom: '16px' }}>
-        <div className="panel-header" style={{ marginBottom: '12px' }}>
-          <h3>Diagnostics</h3>
-          <button className={`btn btn-sm btn-green ${isChecking ? 'processing-text' : ''}`} onClick={handleRecheck} disabled={isChecking}>
-            {isChecking ? 'Checking' : 'Re-check All'}
-          </button>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
-          {tiles.map((tile) => <SummaryTileCard key={tile.title} tile={tile} />)}
-        </div>
-        {diagnosticErrors.length > 0 && (
-          <div style={{ marginTop: '12px', color: 'var(--neon-magenta)', fontSize: '13px' }}>
-            Diagnostics could not complete: {diagnosticErrors.join(' ')} Use Re-check All to try again.
+    <PropertySheet sections={DIAGNOSTICS_SECTIONS} navigationLabel="Diagnostics sections" className="reference-workspace diagnostics-workspace">
+      <WorkspaceToolbar title="Diagnostics">
+        <button className={`btn btn-sm btn-green ${isChecking ? 'processing-text' : ''}`} onClick={handleRecheck} disabled={isChecking}>
+          {isChecking ? 'Checking' : 'Re-check All'}
+        </button>
+      </WorkspaceToolbar>
+      <div className="panel editor-sheet">
+        <PropertySection id="diagnostics-overview" title="Overview">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+            {tiles.map((tile) => <SummaryTileCard key={tile.title} tile={tile} />)}
           </div>
-        )}
-      </div>
-
-      <ActionCenter actions={actions} allReady={isSetupReady(validation, acceleratorDiagnostics, trainingLaunchDiagnostics)} onOpenSettings={() => navigate('/settings')} />
-      <DiagnosticMatrix groups={matrixGroups} />
-
-      <div className="panel" style={{ marginBottom: '16px' }}>
-        <div className="panel-header" style={{ marginBottom: showAdvancedDetails ? '12px' : 0 }}>
-          <h3>Advanced Details</h3>
-          <button className={`btn btn-sm ${showAdvancedDetails ? 'btn-blue is-toggled' : 'btn-secondary'}`} onClick={() => setShowAdvancedDetails((value) => !value)}>
-            {showAdvancedDetails ? 'Hide Details' : 'Show Details'}
-          </button>
-        </div>
-
-        {showAdvancedDetails && (
-          <div style={{ display: 'grid', gap: '16px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr', border: '1px solid var(--border-dim)' }}>
-              <DiagnosticFact label="Target environment" value={getEnvironmentReference(settings)} />
-              <DiagnosticFact label="Workspace root" value={formatMaybeText(trainingLaunchDiagnostics?.workspaceRoot, 'Not reported')} />
-              <DiagnosticFact label="App executable" value={formatMaybeText(trainingLaunchDiagnostics?.appExecutablePath, 'Not reported')} />
-              <DiagnosticFact label="Process arch" value={trainingLaunchDiagnostics?.processArch ?? 'Not reported'} />
-              <DiagnosticFact label="node-pty helper" value={formatMaybeText(trainingLaunchDiagnostics?.nodePtyHelperPath, 'Not reported')} />
-              <DiagnosticFact label="node-pty helper exists" value={formatMaybeBoolean(trainingLaunchDiagnostics?.nodePtyHelperExists)} />
-              <DiagnosticFact label="node-pty helper executable" value={formatMaybeBoolean(trainingLaunchDiagnostics?.nodePtyHelperExecutable)} />
-              <DiagnosticFact label="node-pty helper mode" value={formatMaybeText(trainingLaunchDiagnostics?.nodePtyHelperMode, 'Not reported')} />
-              <DiagnosticFact label="node-pty helper error" value={formatMaybeText(trainingLaunchDiagnostics?.nodePtyHelperError, 'None')} />
-              <DiagnosticFact label="Python version" value={formatMaybeText(acceleratorDiagnostics?.pythonVersion, 'Not reported')} />
-              <DiagnosticFact label="Python executable" value={formatMaybeText(acceleratorDiagnostics?.pythonExecutable, 'Not reported')} />
-              <DiagnosticFact label="Python platform" value={formatMaybeText(acceleratorDiagnostics?.pythonPlatform, 'Not reported')} />
-              <DiagnosticFact label="Host NVIDIA" value={formatMaybeBoolean(acceleratorDiagnostics?.hostNvidiaSmiAvailable)} />
-              <DiagnosticFact label="Host GPU" value={formatMaybeText(acceleratorDiagnostics?.hostNvidiaGpuName, 'Not detected')} />
-              <DiagnosticFact label="NVIDIA driver" value={formatMaybeText(acceleratorDiagnostics?.hostDriverVersion, 'Not reported')} />
-              <DiagnosticFact label="Torch version" value={formatMaybeText(acceleratorDiagnostics?.torchVersion, 'Not reported')} />
-              <DiagnosticFact label="Torch CUDA build" value={formatMaybeText(acceleratorDiagnostics?.torchCudaVersion, 'CPU-only or not reported')} />
-              <DiagnosticFact label="ROCm HIP version" value={formatMaybeText(acceleratorDiagnostics?.hipVersion, 'Not reported')} />
-              <DiagnosticFact label="CUDA available" value={formatMaybeBoolean(acceleratorDiagnostics?.cudaAvailable)} />
-              <DiagnosticFact label="MPS available" value={formatMaybeBoolean(acceleratorDiagnostics?.mpsAvailable)} />
-              <DiagnosticFact label="NAM version" value={formatMaybeText(acceleratorDiagnostics?.namVersion, 'Not reported')} />
-              <DiagnosticFact label="Lightning package" value={formatMaybeText(acceleratorDiagnostics?.lightningPackage, 'Not installed or not importable')} />
-              <DiagnosticFact label="Lightning version" value={formatMaybeText(acceleratorDiagnostics?.lightningVersion, 'Not reported')} />
+          {diagnosticErrors.length > 0 && (
+            <div style={{ marginTop: '12px', color: 'var(--neon-magenta)', fontSize: '13px' }}>
+              Diagnostics could not complete: {diagnosticErrors.join(' ')} Use Re-check All to try again.
             </div>
+          )}
+        </PropertySection>
 
-            <div style={{ border: '1px solid var(--border-dim)', backgroundColor: 'rgba(9, 9, 11, 0.45)', padding: '14px' }}>
-              <p style={{ color: 'var(--text-ash)', fontFamily: 'var(--font-arcade)', fontSize: '18px', marginBottom: '8px' }}>Troubleshooting Export</p>
-              <p style={{ color: 'var(--text-steel)', fontSize: '13px', lineHeight: 1.5, marginBottom: '12px' }}>
-                These exports include backend checks, accelerator state, training launch readiness, host context, and prepared repair commands.
-              </p>
-              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: showAiPrompt || showRawJson ? '12px' : 0 }}>
-                <button className="btn btn-primary" onClick={() => copyText(aiTroubleshootingPrompt)}>Copy AI Prompt</button>
-                <button className={`btn ${showAiPrompt ? 'btn-blue is-toggled' : 'btn-secondary'}`} onClick={() => setShowAiPrompt((value) => !value)}>
-                  {showAiPrompt ? 'Hide AI Prompt' : 'Show AI Prompt'}
-                </button>
-                <button className="btn btn-secondary" onClick={() => copyText(diagnosticsJson)}>Copy Raw JSON</button>
-                <button className={`btn ${showRawJson ? 'btn-blue is-toggled' : 'btn-secondary'}`} onClick={() => setShowRawJson((value) => !value)}>
-                  {showRawJson ? 'Hide Raw JSON' : 'Show Raw JSON'}
-                </button>
+        <PropertySection id="diagnostics-actions" title="Actions">
+          <ActionCenter actions={actions} allReady={isSetupReady(validation, acceleratorDiagnostics, trainingLaunchDiagnostics)} onOpenSettings={() => navigate('/settings')} />
+        </PropertySection>
+        <DiagnosticMatrix groups={matrixGroups} />
+
+        <PropertySection id="diagnostics-details" title="Advanced details">
+          <div className="reference-section-actions">
+            <button className={`btn btn-sm ${showAdvancedDetails ? 'btn-blue is-toggled' : 'btn-secondary'}`} onClick={() => setShowAdvancedDetails((value) => !value)}>
+              {showAdvancedDetails ? 'Hide Details' : 'Show Details'}
+            </button>
+          </div>
+
+          {showAdvancedDetails && (
+            <div style={{ display: 'grid', gap: '16px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr', border: '1px solid var(--border-dim)' }}>
+                <DiagnosticFact label="Target environment" value={getEnvironmentReference(settings)} />
+                <DiagnosticFact label="Workspace root" value={formatMaybeText(trainingLaunchDiagnostics?.workspaceRoot, 'Not reported')} />
+                <DiagnosticFact label="App executable" value={formatMaybeText(trainingLaunchDiagnostics?.appExecutablePath, 'Not reported')} />
+                <DiagnosticFact label="Process arch" value={trainingLaunchDiagnostics?.processArch ?? 'Not reported'} />
+                <DiagnosticFact label="node-pty helper" value={formatMaybeText(trainingLaunchDiagnostics?.nodePtyHelperPath, 'Not reported')} />
+                <DiagnosticFact label="node-pty helper exists" value={formatMaybeBoolean(trainingLaunchDiagnostics?.nodePtyHelperExists)} />
+                <DiagnosticFact label="node-pty helper executable" value={formatMaybeBoolean(trainingLaunchDiagnostics?.nodePtyHelperExecutable)} />
+                <DiagnosticFact label="node-pty helper mode" value={formatMaybeText(trainingLaunchDiagnostics?.nodePtyHelperMode, 'Not reported')} />
+                <DiagnosticFact label="node-pty helper error" value={formatMaybeText(trainingLaunchDiagnostics?.nodePtyHelperError, 'None')} />
+                <DiagnosticFact label="Python version" value={formatMaybeText(acceleratorDiagnostics?.pythonVersion, 'Not reported')} />
+                <DiagnosticFact label="Python executable" value={formatMaybeText(acceleratorDiagnostics?.pythonExecutable, 'Not reported')} />
+                <DiagnosticFact label="Python platform" value={formatMaybeText(acceleratorDiagnostics?.pythonPlatform, 'Not reported')} />
+                <DiagnosticFact label="Host NVIDIA" value={formatMaybeBoolean(acceleratorDiagnostics?.hostNvidiaSmiAvailable)} />
+                <DiagnosticFact label="Host GPU" value={formatMaybeText(acceleratorDiagnostics?.hostNvidiaGpuName, 'Not detected')} />
+                <DiagnosticFact label="NVIDIA driver" value={formatMaybeText(acceleratorDiagnostics?.hostDriverVersion, 'Not reported')} />
+                <DiagnosticFact label="Torch version" value={formatMaybeText(acceleratorDiagnostics?.torchVersion, 'Not reported')} />
+                <DiagnosticFact label="Torch CUDA build" value={formatMaybeText(acceleratorDiagnostics?.torchCudaVersion, 'CPU-only or not reported')} />
+                <DiagnosticFact label="ROCm HIP version" value={formatMaybeText(acceleratorDiagnostics?.hipVersion, 'Not reported')} />
+                <DiagnosticFact label="CUDA available" value={formatMaybeBoolean(acceleratorDiagnostics?.cudaAvailable)} />
+                <DiagnosticFact label="MPS available" value={formatMaybeBoolean(acceleratorDiagnostics?.mpsAvailable)} />
+                <DiagnosticFact label="NAM version" value={formatMaybeText(acceleratorDiagnostics?.namVersion, 'Not reported')} />
+                <DiagnosticFact label="Lightning package" value={formatMaybeText(acceleratorDiagnostics?.lightningPackage, 'Not installed or not importable')} />
+                <DiagnosticFact label="Lightning version" value={formatMaybeText(acceleratorDiagnostics?.lightningVersion, 'Not reported')} />
               </div>
-              {showAiPrompt && <CopyableCodeBlock label="AI Troubleshooting Prompt" command={aiTroubleshootingPrompt} />}
-              {showRawJson && <CopyableCodeBlock label="Raw Diagnostics JSON" command={diagnosticsJson} />}
-            </div>
 
-            {(acceleratorDiagnostics?.errors.length ?? 0) > 0 && (
               <div style={{ border: '1px solid var(--border-dim)', backgroundColor: 'rgba(9, 9, 11, 0.45)', padding: '14px' }}>
-                <p style={{ color: 'var(--text-ash)', fontFamily: 'var(--font-arcade)', fontSize: '18px', marginBottom: '8px' }}>Probe Notes</p>
-                {acceleratorDiagnostics?.errors.map((entry) => (
-                  <p key={entry} style={{ color: 'var(--text-steel)', fontSize: '13px', lineHeight: 1.45, marginBottom: '8px' }}>{entry}</p>
-                ))}
+                <p style={{ color: 'var(--text-ash)', fontFamily: 'var(--font-arcade)', fontSize: '18px', marginBottom: '8px' }}>Troubleshooting Export</p>
+                <p style={{ color: 'var(--text-steel)', fontSize: '13px', lineHeight: 1.5, marginBottom: '12px' }}>
+                  These exports include backend checks, accelerator state, training launch readiness, host context, and prepared repair commands.
+                </p>
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: showAiPrompt || showRawJson ? '12px' : 0 }}>
+                  <button className="btn btn-primary" onClick={() => copyText(aiTroubleshootingPrompt)}>Copy AI Prompt</button>
+                  <button className={`btn ${showAiPrompt ? 'btn-blue is-toggled' : 'btn-secondary'}`} onClick={() => setShowAiPrompt((value) => !value)}>
+                    {showAiPrompt ? 'Hide AI Prompt' : 'Show AI Prompt'}
+                  </button>
+                  <button className="btn btn-secondary" onClick={() => copyText(diagnosticsJson)}>Copy Raw JSON</button>
+                  <button className={`btn ${showRawJson ? 'btn-blue is-toggled' : 'btn-secondary'}`} onClick={() => setShowRawJson((value) => !value)}>
+                    {showRawJson ? 'Hide Raw JSON' : 'Show Raw JSON'}
+                  </button>
+                </div>
+                {showAiPrompt && <CopyableCodeBlock label="AI Troubleshooting Prompt" command={aiTroubleshootingPrompt} />}
+                {showRawJson && <CopyableCodeBlock label="Raw Diagnostics JSON" command={diagnosticsJson} />}
               </div>
-            )}
-          </div>
-        )}
+
+              {(acceleratorDiagnostics?.errors.length ?? 0) > 0 && (
+                <div style={{ border: '1px solid var(--border-dim)', backgroundColor: 'rgba(9, 9, 11, 0.45)', padding: '14px' }}>
+                  <p style={{ color: 'var(--text-ash)', fontFamily: 'var(--font-arcade)', fontSize: '18px', marginBottom: '8px' }}>Probe Notes</p>
+                  {acceleratorDiagnostics?.errors.map((entry) => (
+                    <p key={entry} style={{ color: 'var(--text-steel)', fontSize: '13px', lineHeight: 1.45, marginBottom: '8px' }}>{entry}</p>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </PropertySection>
       </div>
-    </div>
+    </PropertySheet>
   )
 }

@@ -59,6 +59,9 @@ import { EsrHistoryReader, normalizeEsrHistory } from './esr-history'
 import { buildBackendSettingsKey } from '../../shared/backend-settings'
 import { getEffectiveJobEpochs, getEffectiveJobLatency, normalizeTrainingPreset, type QueueControlState } from '../../shared/training'
 import { requestTrainingControl } from './training-control'
+import { TrainingStatisticsStore } from '../persistence/trainingStatisticsStore'
+import type { TrainingStatistics } from '../../shared/training-statistics'
+import { buildModelFilename, sanitizeFilenameStem } from '../../shared/model-filename'
 
 const userDataPath = app.getPath('userData')
 const queuePath = join(userDataPath, 'queue.json')
@@ -215,38 +218,8 @@ function normalizePersistedJobSpec(value: unknown, fallbackId: string, fallbackN
   }
 }
 
-function sanitizeFilenameStem(jobName: string, jobId: string): string {
-  const fallback = `job-${jobId.slice(0, 8)}`
-  const sanitized = jobName
-    .replace(/[<>:"/\\|?*]+/g, '-')
-    .replace(/[. ]+$/g, '')
-    .trim()
-  return sanitized || fallback
-}
-
-function buildPublishedModelStem(runtime: JobRuntimeState): string {
-  const jobSpec = runtime.frozenJob
-  const segments = [jobSpec.name.trim()]
-
-  if (jobSpec.appendPresetToModelFileName && jobSpec.presetId) {
-    const presetName = runtime.frozenPreset?.name.trim()
-    if (presetName) {
-      segments.push(presetName)
-    }
-  }
-
-  return sanitizeFilenameStem(segments.join(' - '), jobSpec.id)
-}
-
 function buildPublishedModelPath(runtime: JobRuntimeState, modelPath: string): string {
-  const segments = [buildPublishedModelStem(runtime)]
-  const bestValidationEsr = runtime.checkpointSummary?.bestValidationEsr
-
-  if (runtime.frozenJob.appendEsrToModelFileName && bestValidationEsr != null) {
-    segments.push(`ESR ${bestValidationEsr.toFixed(4)}`)
-  }
-
-  return join(dirname(modelPath), `${sanitizeFilenameStem(segments.join(' - '), runtime.frozenJob.id)}.nam`)
+  return join(dirname(modelPath), buildModelFilename(runtime.frozenJob, runtime.frozenPreset?.name, runtime.checkpointSummary?.bestValidationEsr))
 }
 
 function buildUniqueSiblingPath(targetPath: string): string {
@@ -980,6 +953,7 @@ function normalizeRuntimeState(value: unknown): JobRuntimeState | null {
 }
 
 export class QueueManager extends EventEmitter {
+  private readonly statistics = new TrainingStatisticsStore(join(userDataPath, 'training-statistics.json'))
   private queue: JobRuntimeState[] = []
   private currentJob: JobRuntimeState | null = null
   private settings: AppSettings | null = null
@@ -1206,6 +1180,7 @@ export class QueueManager extends EventEmitter {
     this.ensureDirectories()
     this.loadQueue()
     this.recoverInterruptedQueue()
+    this.recordTrainingStatistics()
     try {
       if (existsSync(queueControlPath) || existsSync(`${queueControlPath}.bak`)) {
         const stored = readJsonWithBackupSync(queueControlPath)
@@ -1287,6 +1262,21 @@ export class QueueManager extends EventEmitter {
 
   private saveQueue(): void {
     atomicWriteJsonSync(queuePath, this.queue)
+    this.recordTrainingStatistics()
+  }
+
+  private recordTrainingStatistics(): void {
+    try {
+      this.statistics.record(this.queue)
+    } catch (error) {
+      // Keep training and its durable queue working if the statistics file is unavailable.
+      log.error('Could not save training statistics:', error)
+    }
+  }
+
+  getTrainingStatistics(): TrainingStatistics {
+    this.statistics.record(this.queue)
+    return this.statistics.get()
   }
 
   private stopOutputPolling(): void {
@@ -1836,6 +1826,7 @@ export class QueueManager extends EventEmitter {
       return
     }
 
+    this.statistics.record([this.queue[index]])
     this.queue.splice(index, 1)
     this.emitQueueUpdate()
   }
@@ -2487,6 +2478,7 @@ export class QueueManager extends EventEmitter {
   }
 
   clearFinished(): void {
+    this.statistics.record(this.queue)
     this.queue = this.queue.filter((runtime) => !FINISHED_JOB_STATUSES.includes(runtime.status))
     this.emitQueueUpdate()
     log.info('Cleared finished jobs.')
