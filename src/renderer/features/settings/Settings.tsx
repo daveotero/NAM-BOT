@@ -257,7 +257,7 @@ export default function Settings() {
                   onChange={(e) => {
                     setLocalSettings({ ...localSettings, environmentPrefixPath: e.target.value || null })
                   }}
-                  placeholder="C:\Users\...\miniconda3\envs\nam"
+                  placeholder={window.namBot.platform === 'win32' ? 'C:\\Users\\...\\miniconda3\\envs\\nam' : '/path/to/miniconda3/envs/nam'}
                 />
               </div>
             </div>
@@ -292,7 +292,7 @@ export default function Settings() {
                   onChange={(e) => {
                     setLocalSettings({ ...localSettings, defaultOutputRoot: e.target.value || null })
                   }}
-                  placeholder="C:\Users\...\NAM\outputs"
+                  placeholder={window.namBot.platform === 'win32' ? 'C:\\Users\\...\\NAM\\outputs' : '/path/to/NAM/outputs'}
                 />
                 <button className="btn btn-secondary" onClick={() => chooseDirectory('defaultOutputRoot')}>
                   Browse
@@ -314,7 +314,7 @@ export default function Settings() {
                   onChange={(e) => {
                     setLocalSettings({ ...localSettings, defaultWorkspaceRoot: e.target.value || null })
                   }}
-                  placeholder="C:\Users\...\nam-bot\workspaces"
+                  placeholder={window.namBot.platform === 'win32' ? 'C:\\Users\\...\\nam-bot\\workspaces' : '/path/to/nam-bot/workspaces'}
                 />
                 <button className="btn btn-secondary" onClick={() => chooseDirectory('defaultWorkspaceRoot')}>
                   Browse

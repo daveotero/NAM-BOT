@@ -202,7 +202,11 @@ const api: NamBotApi = {
     onAppCommand: (callback) => {
       const handler = (_event: Electron.IpcRendererEvent, command: AppCommand) => callback(command)
       ipcRenderer.on('app:command', handler)
-      return () => ipcRenderer.removeListener('app:command', handler)
+      void ipcRenderer.invoke('app:commandsReady', true).catch((error: unknown) => console.error('Could not initialize application commands:', error))
+      return () => {
+        ipcRenderer.removeListener('app:command', handler)
+        void ipcRenderer.invoke('app:commandsReady', false).catch((error: unknown) => console.error('Could not detach application commands:', error))
+      }
     }
   }
 }

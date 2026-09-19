@@ -46,7 +46,9 @@ test.beforeEach(async ({}, info) => {
   const scale = process.env.NAM_BOT_TEST_SCALE
   app = await electron.launch({
     ...(process.env.NAM_BOT_TEST_EXECUTABLE ? { executablePath: resolve(process.env.NAM_BOT_TEST_EXECUTABLE) } : {}),
-    args: [...(process.env.NAM_BOT_TEST_EXECUTABLE ? [] : ['.']), ...(scale ? [`--force-device-scale-factor=${scale}`] : [])],
+    // CI Windows hosts may disable OS animations. Test the explicit smooth path;
+    // reduced-motion coverage still exercises the application's instant path.
+    args: [...(process.env.NAM_BOT_TEST_EXECUTABLE ? [] : ['.']), '--enable-smooth-scrolling', ...(scale ? [`--force-device-scale-factor=${scale}`] : [])],
     env: environment
   })
   page = await app.firstWindow()
@@ -54,6 +56,7 @@ test.beforeEach(async ({}, info) => {
   page.on('pageerror', (error) => errors.push(error.message))
   await expect(page.locator('.app-title-bar')).toBeVisible()
   await expect(page.locator('.app-title-bar-section')).toHaveText('Dashboard')
+  await expect(page.locator('.app-title-bar-menu')).toHaveCount(process.platform === 'win32' ? 1 : 0)
 })
 
 async function captureNativeWindow(info: TestInfo): Promise<void> {
@@ -207,12 +210,18 @@ test('native window lifecycle and application menu commands', async () => {
   })
   await expect(page.locator('.app-title-bar-section')).toHaveText('Jobs')
   await expect(page).toHaveTitle('Jobs — NAM-BOT')
-  // Exercise the registered native accelerator, in addition to menu closures.
-  await window.evaluate((win) => {
-    const modifiers = [process.platform === 'darwin' ? 'meta' : 'control']
-    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: '1', modifiers })
-    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: '1', modifiers })
-  })
+  if (process.platform === 'darwin') {
+    // Chromium input injection does not dispatch AppKit menu key equivalents.
+    // Verify registration and the custom command separately on Mac.
+    expect(await app.evaluate(({ Menu }) => Menu.getApplicationMenu()!.items.find(item => item.label === 'Navigate')!
+      .submenu!.items.find(item => item.label === 'Dashboard')!.accelerator)).toBe('CmdOrCtrl+1')
+    await chooseMenu('Navigate', 'Dashboard')
+  } else {
+    await window.evaluate((win) => {
+      win.webContents.sendInputEvent({ type: 'keyDown', keyCode: '1', modifiers: ['control'] })
+      win.webContents.sendInputEvent({ type: 'keyUp', keyCode: '1', modifiers: ['control'] })
+    })
+  }
   await expect(page.locator('.app-title-bar-section')).toHaveText('Dashboard')
   if (process.platform === 'win32') {
     await window.evaluate((win) => win.webContents.setZoomFactor(1.5))
@@ -243,8 +252,21 @@ test('native window lifecycle and application menu commands', async () => {
 async function chooseMenu(top: string, label: string): Promise<void> {
   await app.evaluate(({ Menu, BrowserWindow }, selection) => {
     const item = Menu.getApplicationMenu()!.items.find((entry) => entry.label === selection.top)!.submenu!.items.find((entry) => entry.label === selection.label || entry.role === selection.label)!
-    item.click(undefined, BrowserWindow.getAllWindows()[0], undefined)
+    if (process.platform === 'darwin' && item.role === 'quit') {
+      // Mac native roles bypass MenuItem.click; use AppKit's real quit action.
+      Menu.sendActionToFirstResponder('terminate:')
+    } else {
+      item.click(undefined, BrowserWindow.getAllWindows()[0], undefined)
+    }
   }, { top, label })
+}
+
+async function settingsMenu(): Promise<string> {
+  return process.platform === 'darwin' ? app.evaluate(({ app }) => app.name) : 'Navigate'
+}
+
+async function aboutMenu(): Promise<string> {
+  return process.platform === 'darwin' ? app.evaluate(({ app }) => app.name) : 'Help'
 }
 
 test('dashboard command and status bar preserve unsaved editor navigation', async () => {
@@ -566,7 +588,7 @@ test('Diagnostics and Setup Guide share section navigation and command styling',
 })
 
 test('settings property sections retain auto-save, browsing, validation, and defaults', async ({}, info) => {
-  await chooseMenu('Navigate', 'Settings')
+  await chooseMenu(await settingsMenu(), 'Settings')
   const toolbar = page.locator('.workspace-toolbar')
   const sections = page.getByRole('navigation', { name: 'Settings sections' })
   await expect(toolbar.getByRole('heading', { name: 'Settings', exact: true })).toHaveCount(1)
@@ -593,7 +615,7 @@ test('settings property sections retain auto-save, browsing, validation, and def
   await captureRenderer(info, 'settings-defaults.png')
   await chooseMenu('Navigate', 'Jobs')
   await expect(page.locator('.app-title-bar-section')).toHaveText('Jobs')
-  await chooseMenu('Navigate', 'Settings')
+  await chooseMenu(await settingsMenu(), 'Settings')
   await expect(page.locator('#settings-environment-name')).toHaveValue('property-smoke')
   await expect(page.locator('#settings-output-root')).toHaveValue(dataPath)
   await expect(page.locator('#settings-author-name')).toHaveValue('Property sheet author')
@@ -675,7 +697,7 @@ test('Presets filters, fixed editor actions and file round-trip remain functiona
 test('menu navigation protects unsaved job, batch and preset editors', async () => {
   await chooseMenu('File', 'New Job')
   await page.locator('#job-name').fill('Uncommitted shell test')
-  await chooseMenu('Navigate', 'Settings')
+  await chooseMenu(await settingsMenu(), 'Settings')
   await expect(page.getByRole('alertdialog')).toBeVisible()
   await page.getByRole('button', { name: 'Keep Editing', exact: true }).click()
   await expect(page.locator('#job-name')).toHaveValue('Uncommitted shell test')
@@ -747,7 +769,7 @@ test('blank new jobs cancel quietly after default audio loads; actual and revert
   await expect(page.locator('#job-name')).toHaveCount(0)
   await toolbar.getByRole('button', { name: 'New Job', exact: true }).click()
   await expect(page.locator('#input-audio-path')).not.toHaveValue('')
-  await chooseMenu('Navigate', 'Settings')
+  await chooseMenu(await settingsMenu(), 'Settings')
   await expect(page.locator('.app-title-bar-section')).toHaveText('Settings')
   await expect(page.getByRole('alertdialog')).toHaveCount(0)
   await expect(toolbar.getByRole('button', { name: 'Save Settings', exact: true })).toBeDisabled()
@@ -787,12 +809,13 @@ test('lifetime dashboard retains statistics after clearing job history', async (
 })
 
 test('About uses a themed modal with keyboard focus, dismissal, and guarded credits navigation', async ({}, info) => {
-  const trigger = page.locator('.app-title-bar-menu')
+  const trigger = process.platform === 'win32' ? page.locator('.app-title-bar-menu') : page.locator('.workspace-toolbar').getByRole('button', { name: 'New job', exact: true })
   await trigger.focus()
-  await chooseMenu('Help', 'About NAM-BOT')
+  await chooseMenu(await aboutMenu(), 'About NAM-BOT')
   const modal = page.getByRole('dialog', { name: 'About NAM-BOT' })
   await expect(modal).toBeVisible()
   await expect(modal.getByRole('button', { name: 'Close', exact: true })).toBeFocused()
+  await expect(modal.locator('button').nth(process.platform === 'darwin' ? 2 : 0)).toHaveText('Close')
   await page.keyboard.press('Shift+Tab')
   await expect(modal.getByRole('button', { name: 'Project Website', exact: true })).toBeFocused()
   await page.keyboard.press('Tab')
@@ -803,7 +826,7 @@ test('About uses a themed modal with keyboard focus, dismissal, and guarded cred
   await expect(trigger).toBeFocused()
   await chooseMenu('File', 'New Job')
   await page.locator('#job-name').fill('Protected entry')
-  await chooseMenu('Help', 'About NAM-BOT')
+  await chooseMenu(await aboutMenu(), 'About NAM-BOT')
   await modal.getByRole('button', { name: 'Credits Screen', exact: true }).click()
   await expect(modal).toHaveCount(0)
   await expect(page.getByRole('alertdialog')).toBeVisible()
@@ -837,8 +860,45 @@ test('macOS recreates the window with functioning shell subscriptions', async ()
   const newWindow = app.waitForEvent('window')
   await app.evaluate(({ app }) => app.emit('activate'))
   page = await newWindow
+  page.on('pageerror', (error) => errors.push(error.message))
   await expect(page.locator('.app-title-bar')).toBeVisible()
   await assertSafeArea()
+  expect(errors).toEqual([])
+})
+
+test('application menu commands reopen a closed window and retain saved editor defaults', async () => {
+  if (process.platform !== 'darwin') {
+    // Exercise the Mac lifetime locally too, without spoofing platform APIs.
+    // This changes only this isolated test process, not production behavior.
+    await app.evaluate(({ app }) => { app.removeAllListeners('window-all-closed') })
+  }
+  await chooseMenu(await settingsMenu(), 'Settings')
+  await page.locator('#settings-author-name').fill('Mac author')
+  await expect(page.locator('.workspace-toolbar').getByRole('status')).toHaveText('Saved')
+  const cases = [
+    { menu: 'File', item: 'New Job', section: 'Jobs' },
+    { menu: 'File', item: 'New Preset', section: 'Presets' },
+    { menu: await settingsMenu(), item: 'Settings', section: 'Settings' }
+  ]
+  for (const selection of cases) {
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close())
+    await expect.poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(0)
+    const opened = app.waitForEvent('window')
+    await chooseMenu(selection.menu, selection.item)
+    page = await opened
+    page.on('pageerror', (error) => errors.push(error.message))
+    await expect(page.locator('.app-title-bar-section')).toHaveText(selection.section)
+    await assertSafeArea()
+    if (selection.item === 'New Job') {
+      await expect(page.getByLabel('Modeled By', { exact: true })).toHaveValue('Mac author')
+    } else if (selection.item === 'New Preset') {
+      await expect(page.locator('.workspace-toolbar').getByRole('button', { name: 'Save Preset', exact: true })).toBeVisible()
+    } else {
+      await expect(page.locator('#settings-author-name')).toHaveValue('Mac author')
+      await expect(page.locator('#settings-output-root')).toHaveAttribute('placeholder', process.platform === 'win32' ? 'C:\\Users\\...\\NAM\\outputs' : '/path/to/NAM/outputs')
+    }
+  }
+  expect(errors).toEqual([])
 })
 
 test('shell requests reject foreign windows and report native focus changes', async () => {

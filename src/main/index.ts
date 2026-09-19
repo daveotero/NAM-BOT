@@ -32,6 +32,7 @@ import { getWindowChromeOptions } from './shell/windowChrome'
 import { observeShellWindow, setupWindowShellIpc } from './shell/windowState'
 import { installDesktopSmokeIpc } from './shell/smokeIpc'
 import { createAppDialogs } from './shell/appDialogs'
+import { createAppCommands } from './shell/appCommands'
 
 const ownsInstance = app.requestSingleInstanceLock()
 if (!ownsInstance) app.exit(0)
@@ -89,6 +90,7 @@ interface RendererErrorPayload {
 
 let mainWindow: BrowserWindow | null = null
 const appDialogs = createAppDialogs(() => mainWindow)
+const appCommands = createAppCommands({ getWindow: () => mainWindow, focusWindow: focusMainWindow, hasModal: appDialogs.hasPending })
 let trainingPowerSaveBlockerId: number | null = null
 const reportedFinishedStatuses: Map<string, JobStatus> = new Map()
 const reportedDiagnosticBlocks: Set<string> = new Set()
@@ -112,6 +114,7 @@ const guardQuit = createQuitGuard({
 })
 
 function showMainMessageBox(options: MessageBoxOptions): Promise<MessageBoxReturnValue> {
+  if (mainWindow && !mainWindow.isDestroyed()) focusMainWindow()
   return appDialogs.show(options)
 }
 
@@ -126,8 +129,7 @@ app.setAboutPanelOptions({
 })
 
 function sendAppCommand(command: AppCommand): void {
-  if (appDialogs.hasPending()) return
-  mainWindow?.webContents.send('app:command', command)
+  appCommands.send(command)
 }
 
 async function openPathInShell(targetPath: string): Promise<void> {
@@ -535,6 +537,7 @@ app.whenReady().then(() => {
   setupRendererErrorLogging()
   setupWindowShellIpc(() => mainWindow)
   appDialogs.install()
+  appCommands.install()
   setupShellIntegrations()
   installApplicationMenu({
     isDev,

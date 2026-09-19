@@ -42,6 +42,7 @@ function serializePresetEditorSession(session: PresetEditorSession): string {
 
 function AppShell() {
   const [toolbarHost, setToolbarHost] = useState<HTMLDivElement | null>(null)
+  const [commandsReady, setCommandsReady] = useState(false)
   const navigate = useNavigate()
   const location = useLocation()
   const [pendingAction, setPendingAction] = useState<PendingAppAction | null>(null)
@@ -56,6 +57,7 @@ function AppShell() {
   const queue = useAppStore((state) => state.queue)
   const updateStatus = useAppStore((state) => state.updateStatus)
   const loadSettings = useAppStore((state) => state.loadSettings)
+  const loadPresets = useAppStore((state) => state.loadPresets)
   const detectConda = useAppStore((state) => state.detectConda)
   const loadUpdateStatus = useAppStore((state) => state.loadUpdateStatus)
   const setValidation = useAppStore((state) => state.setValidation)
@@ -141,14 +143,17 @@ function AppShell() {
   }
 
   useEffect(() => {
-    void loadSettings()
+    let mounted = true
+    void Promise.all([loadSettings(), loadPresets()]).then(() => {
+      if (mounted) setCommandsReady(true)
+    })
     void detectConda()
     void loadJobs()
     void loadUpdateStatus()
     
     const unsub = subscribeToJobEvents()
-    return unsub
-  }, [detectConda, loadSettings, loadJobs, loadUpdateStatus, subscribeToJobEvents])
+    return () => { mounted = false; unsub() }
+  }, [detectConda, loadSettings, loadPresets, loadJobs, loadUpdateStatus, subscribeToJobEvents])
 
   useEffect(() => {
     return window.namBot.events.onBackendValidationUpdated((summary: unknown) => {
@@ -170,6 +175,7 @@ function AppShell() {
   }, [queue, setIsTraining])
 
   useEffect(() => {
+    if (!commandsReady) return
     return window.namBot.events.onAppCommand((command: AppCommand) => {
       switch (command.type) {
         case 'navigate':
@@ -185,7 +191,7 @@ function AppShell() {
           return
       }
     })
-  }, [requestAction])
+  }, [commandsReady, requestAction])
 
   return (
     <>

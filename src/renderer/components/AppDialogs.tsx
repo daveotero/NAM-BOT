@@ -7,6 +7,11 @@ function AppDialog({ request, onClose }: { request: AppDialogRequest; onClose: (
   const dialog = useRef<HTMLDialogElement>(null)
   const [error, setError] = useState(false)
   const [responding, setResponding] = useState(false)
+  const buttons = request.buttons.map((label, response) => ({ label, response }))
+  // Keep response IDs stable while following the Mac default-action placement.
+  if (window.namBot.platform === 'darwin') {
+    buttons.sort((left, right) => Number(left.response === request.defaultId) - Number(right.response === request.defaultId))
+  }
 
   useEffect(() => {
     const previousFocus = document.activeElement
@@ -44,8 +49,8 @@ function AppDialog({ request, onClose }: { request: AppDialogRequest; onClose: (
         {error && <p role="alert">Could not close this dialog. Please try again.</p>}
       </div>
       <div className="app-dialog-actions">
-        {request.buttons.map((label, index) => <button key={index} data-response={index} type="button" disabled={responding}
-          className={`btn ${index === request.defaultId ? 'btn-primary' : 'btn-secondary'}`} onClick={() => { void respond(index) }}>{label}</button>)}
+        {buttons.map(({ label, response }) => <button key={response} data-response={response} type="button" disabled={responding}
+          className={`btn ${response === request.defaultId ? 'btn-primary' : 'btn-secondary'}`} onClick={() => { void respond(response) }}>{label}</button>)}
       </div>
     </dialog>
   )

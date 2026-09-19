@@ -1670,7 +1670,7 @@ function JobEditor({
                     ...session,
                     job: { ...editedJob, inputAudioPath: val }
                   })}
-                  placeholder="C:\path\to\v3_0_0.wav"
+                  placeholder={window.namBot.platform === 'win32' ? 'C:\\path\\to\\v3_0_0.wav' : '/path/to/v3_0_0.wav'}
                   disabled={inputMode === 'default'}
                   onBrowse={() => window.namBot.jobs.chooseAudioFile() as Promise<string | null>}
                   error={showValidationErrors && !isInputValid}
@@ -1702,7 +1702,7 @@ function JobEditor({
                       ...session,
                       job: { ...editedJob, outputAudioPath: val }
                     })}
-                    placeholder="C:\path\to\reamped.wav"
+                    placeholder={window.namBot.platform === 'win32' ? 'C:\\path\\to\\reamped.wav' : '/path/to/reamped.wav'}
                     onBrowse={() => window.namBot.jobs.chooseAudioFile() as Promise<string | null>}
                     error={showValidationErrors && !isOutputValid}
                   />
@@ -1948,7 +1948,7 @@ function JobEditor({
                     ...session,
                     job: { ...editedJob, outputRootDir: val }
                   })}
-                  placeholder="C:\Users\...\NAM\outputs"
+                  placeholder={window.namBot.platform === 'win32' ? 'C:\\Users\\...\\NAM\\outputs' : '/path/to/NAM/outputs'}
                   disabled={outputRootMode !== 'custom'}
                   onBrowse={() => window.namBot.settings.chooseDirectory() as Promise<string | null>}
                   error={showValidationErrors && !isRootDirValid}

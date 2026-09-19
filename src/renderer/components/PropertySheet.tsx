@@ -18,17 +18,23 @@ export default function PropertySheet({ sections, navigationLabel, className = '
   const editorRef = useRef<HTMLDivElement>(null)
   const navigationRef = useRef<HTMLElement>(null)
   const scrollTargetRef = useRef<string | null>(null)
+  const selectedScrollTopRef = useRef<number | null>(null)
 
   useEffect(() => {
     const editor = editorRef.current
     const navigation = navigationRef.current
     if (!editor || !navigation) return
     scrollTargetRef.current = null
+    selectedScrollTopRef.current = null
     editor.scrollTo({ top: 0, behavior: 'instant' })
     let frame: number | null = null
     const updateActiveSection = (): void => {
       frame = null
       if (scrollTargetRef.current) return
+      // A short section near the bottom cannot align with the top. Preserve
+      // that explicit selection through trailing scroll/resize notifications.
+      if (selectedScrollTopRef.current !== null && Math.abs(editor.scrollTop - selectedScrollTopRef.current) < 1) return
+      selectedScrollTopRef.current = null
       const headingEdge = navigation.getBoundingClientRect().bottom + 16
       let currentSection = sections[0]?.id
       for (const section of sections) {
@@ -48,11 +54,13 @@ export default function PropertySheet({ sections, navigationLabel, className = '
       // Keep the chosen section selected when a short final section cannot
       // reach the top. The next ordinary scroll resumes position tracking.
       scrollTargetRef.current = null
+      selectedScrollTopRef.current = editor.scrollTop
       if (frame !== null) cancelAnimationFrame(frame)
       frame = null
     }
     const interruptJump = (): void => {
       scrollTargetRef.current = null
+      selectedScrollTopRef.current = null
       scheduleUpdate()
     }
     const handleKeyDown = (event: KeyboardEvent): void => {
@@ -88,6 +96,7 @@ export default function PropertySheet({ sections, navigationLabel, className = '
     const desiredTop = editor.scrollTop + heading.getBoundingClientRect().top - navigation.getBoundingClientRect().bottom - 12
     const top = Math.max(0, Math.min(desiredTop, editor.scrollHeight - editor.clientHeight))
     scrollTargetRef.current = Math.abs(top - editor.scrollTop) > 1 ? sectionId : null
+    selectedScrollTopRef.current = scrollTargetRef.current ? null : editor.scrollTop
     setActiveSection(sectionId)
     editor.scrollTo({ top, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' })
     heading.focus({ preventScroll: true })

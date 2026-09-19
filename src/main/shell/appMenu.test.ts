@@ -22,6 +22,12 @@ function options(): Parameters<typeof buildApplicationMenuTemplate>[0] {
   }
 }
 
+function submenu(template: MenuItemConstructorOptions[], label: string): MenuItemConstructorOptions[] {
+  const items = findItem(template, label).submenu
+  if (!Array.isArray(items)) throw new Error(`Missing submenu: ${label}`)
+  return items
+}
+
 describe('shared native menu definition', () => {
   it.each(['win32', 'darwin'] as const)('preserves shortcuts and guarded commands on %s', (platform) => {
     const actions = options()
@@ -44,5 +50,33 @@ describe('shared native menu definition', () => {
     Reflect.apply(findItem(template, 'About NAM-BOT').click!, undefined, [])
     expect(actions.showAboutDialog).toHaveBeenCalledOnce()
     expect(template[0].label).toBe(platform === 'darwin' ? 'NAM-BOT' : 'File')
+  })
+
+  it('keeps Mac application commands in the app menu and registers native Help and Window menus', () => {
+    const template = buildApplicationMenuTemplate(options(), 'darwin')
+    const application = submenu(template, 'NAM-BOT')
+    for (const label of ['About NAM-BOT', 'Check for Updates', 'Settings']) {
+      expect(application.some(item => item.label === label)).toBe(true)
+      expect(submenu(template, 'Help').some(item => item.label === label)).toBe(false)
+    }
+    expect(submenu(template, 'Navigate').some(item => item.label === 'Settings')).toBe(false)
+    expect(findItem(template, 'Window').role).toBe('windowMenu')
+    expect(findItem(template, 'Help').role).toBe('help')
+    expect(submenu(template, 'File').some(item => item.role === 'close')).toBe(true)
+    expect(submenu(template, 'File').some(item => item.role === 'quit')).toBe(false)
+    expect(findItem(template, 'Open Workspace Folder').accelerator).toBe('Command+Shift+O')
+    expect(submenu(template, 'Edit').some(item => item.role === 'pasteAndMatchStyle')).toBe(true)
+  })
+
+  it('never exposes Mac-only roles in Windows menus', () => {
+    const template = buildApplicationMenuTemplate(options(), 'win32')
+    const serialized = JSON.stringify(template)
+    for (const role of ['appMenu', 'windowMenu', 'zoom', 'front', 'services', 'hide', 'hideOthers', 'unhide', 'pasteAndMatchStyle']) {
+      expect(serialized).not.toContain(`"role":"${role}"`)
+    }
+    expect(findItem(template, 'Help').role).toBe('help')
+    expect(submenu(template, 'Help').some(item => item.label === 'About NAM-BOT')).toBe(true)
+    expect(submenu(template, 'Navigate').some(item => item.label === 'Settings')).toBe(true)
+    expect(findItem(template, 'Open Workspace Folder').accelerator).toBe('Ctrl+Shift+W')
   })
 })

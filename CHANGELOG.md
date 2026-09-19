@@ -17,11 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reorganized the app into compact desktop workspaces with fixed commands, grouped navigation, and a persistent status footer.
 - Unified Jobs, Presets, Settings, Diagnostics, and Setup Guide with shared section navigation, smooth scrolling, muted field borders, and responsive layouts.
 - Themed About, update, and exit dialogs to match the app; removed the duplicate title-bar status and the unused Windows Window > Zoom command.
+- macOS uses standard application-menu placement for Settings, About, and updates, native Help and Window menus, and platform-appropriate dialog buttons and path examples.
 
 ### Fixed
 
 - Canceling an untouched new job no longer asks to discard changes; reverting edits also restores the unchanged state.
 - Preset editor mode controls stay beside the heading, with stable Save Preset and Apply JSON actions when switching modes.
+- macOS menu commands reopen a closed window and wait for saved settings and presets before opening an editor.
+- Selected property sections retain their highlight when scrolling reaches the bottom of a page.
 
 ## [0.6.7] - 2026-09-18
 
