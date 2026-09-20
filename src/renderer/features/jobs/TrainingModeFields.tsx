@@ -1,49 +1,88 @@
-import { CONVERGENCE_LABELS, CONVERGENCE_LEVELS, isConvergenceLevel, type TrainingStoppingPolicy } from '../../../shared/convergence'
+import { useEffect, useState } from 'react'
+import { CONVERGENCE_DESCRIPTIONS, CONVERGENCE_LABELS, CONVERGENCE_LEVELS, type TrainingStoppingPolicy } from '../../../shared/convergence'
+import { getStoredConvergenceMaxEpochs } from './training-mode-preferences'
+
+const EPOCHS_HELP = 'Number of epochs to train before saving the model. Reaching a convergence threshold will not stop a fixed-epoch run.'
+const MAXIMUM_EPOCHS_HELP = 'Stops and saves the model at this epoch if convergence has not stopped the run sooner. This required limit is remembered for future jobs.'
 
 interface TrainingModeFieldsProps {
   id: string
   policy: TrainingStoppingPolicy
   onChange: (policy: TrainingStoppingPolicy) => void
-  fixedAllowed?: boolean
+  fixedEpochs: number | null
+  onFixedEpochsChange?: (epochs: number) => void
+  epochInputId?: string
+  epochsLocked?: boolean
   disabled?: boolean
-  live?: boolean
 }
 
-export default function TrainingModeFields({ id, policy, onChange, fixedAllowed = true, disabled = false, live = false }: TrainingModeFieldsProps): React.JSX.Element {
-  return <>
-    <div className="property-row">
-      <label className="form-label" htmlFor={`${id}-mode`}>Training mode</label>
-      <div className="property-control">
-        <select id={`${id}-mode`} className="form-select" value={policy.mode} disabled={disabled}
-          onChange={event => onChange({ ...policy, mode: event.target.value === 'convergence' ? 'convergence' : 'fixed', maxEpochs: null })}>
-          <option value="fixed" disabled={!fixedAllowed}>Fixed epochs</option>
-          <option value="convergence">Until convergence</option>
-        </select>
-        {!fixedAllowed && <p className="property-hint">This run started without a fixed epoch target. You can change the level or safety cap.</p>}
-        {live && fixedAllowed && policy.mode === 'convergence' && <p className="property-hint">Replaces the original epoch limit. You can switch back while training is still running.</p>}
+export default function TrainingModeFields({ id, policy, onChange, fixedEpochs, onFixedEpochsChange,
+  epochInputId = `${id}-epochs`, epochsLocked = false, disabled = false }: TrainingModeFieldsProps): React.JSX.Element {
+  const automatic = policy.mode === 'convergence'
+  const [capInput, setCapInput] = useState(String(policy.maxEpochs ?? getStoredConvergenceMaxEpochs()))
+  useEffect(() => {
+    setCapInput(String(policy.maxEpochs ?? getStoredConvergenceMaxEpochs()))
+  }, [policy.maxEpochs, policy.mode])
+  return <section className="property-row" aria-label="Training mode settings">
+    <span className="form-label" id={`${id}-mode-label`} title="Choose whether training stops at a fixed epoch count or automatically when ESR improvements settle.">Training mode</span>
+    <div className="property-control property-option-panel training-mode-settings">
+      <div className="training-mode-body">
+          <div className="toggle-group job-mode-controls" role="group" aria-labelledby={`${id}-mode-label`}>
+            <button type="button" className={`btn btn-sm ${!automatic ? 'btn-blue' : 'btn-secondary'}`}
+              disabled={disabled} aria-pressed={!automatic} aria-label="Fixed epochs"
+              title="Train to the chosen epoch count. Convergence is monitored for information only."
+              onClick={() => { if (automatic) onChange({ ...policy, mode: 'fixed', maxEpochs: null }) }}>
+              Fixed epochs
+            </button>
+            <button type="button" className={`btn btn-sm ${automatic ? 'btn-green' : 'btn-secondary'}`}
+              disabled={disabled} aria-pressed={automatic}
+              title="Automatically stop and save when every exported model meets the selected convergence threshold, or when the maximum epoch limit is reached."
+              onClick={() => { if (!automatic) onChange({ ...policy, mode: 'convergence', maxEpochs: getStoredConvergenceMaxEpochs() }) }}>Auto convergence</button>
+          </div>
+      {!automatic ? <div className="property-row">
+          <label className="form-label" htmlFor={epochInputId} title={EPOCHS_HELP}>Epochs</label>
+          <div className="property-control">
+            <div className="job-mode-options">
+              <div className="property-input-unit">
+                <input id={epochInputId} type="number" min="1" step="1" className="form-input" aria-label="Fixed epoch count"
+                  title={EPOCHS_HELP}
+                  value={fixedEpochs ?? ''} placeholder="Not set"
+                  disabled={disabled || epochsLocked || !onFixedEpochsChange}
+                  onChange={event => onFixedEpochsChange?.(Math.max(1, Math.floor(Number(event.target.value) || 1)))} />
+                <span className="ui-text-secondary">epochs</span>
+              </div>
+            </div>
+            {epochsLocked && <p className="property-hint">This preset locks epoch count through its expert learning config.</p>}
+          </div>
+        </div> : <><div className="property-row">
+            <span className="form-label" id={`${id}-level-label`} title="Controls how small ESR improvements must become, and how long they are observed, before training stops.">Threshold</span>
+            <div className="property-control">
+              <div className="toggle-group job-mode-controls" role="group" aria-labelledby={`${id}-level-label`}>
+                {CONVERGENCE_LEVELS.map(level => <button key={level} type="button"
+                  className={`btn btn-sm ${policy.level === level ? 'btn-blue' : 'btn-secondary'}`}
+                  aria-pressed={policy.level === level} disabled={disabled} title={CONVERGENCE_DESCRIPTIONS[level]}
+                  onClick={() => onChange({ ...policy, level })}>{CONVERGENCE_LABELS[level]}</button>)}
+              </div>
+            </div>
+          </div>
+          <div className="property-row">
+            <label className="form-label" htmlFor={`${id}-cap`} title={MAXIMUM_EPOCHS_HELP}>Maximum epochs</label>
+            <div className="property-control">
+              <div className="job-mode-options">
+                <div className="property-input-unit">
+                  <input id={`${id}-cap`} type="number" min="1" step="1" required className="form-input" disabled={disabled}
+                    title={MAXIMUM_EPOCHS_HELP}
+                    value={capInput} onChange={event => {
+                      setCapInput(event.target.value)
+                      const value = Number(event.target.value)
+                      if (Number.isSafeInteger(value) && value > 0) onChange({ ...policy, maxEpochs: value })
+                    }} onBlur={() => setCapInput(String(policy.maxEpochs ?? getStoredConvergenceMaxEpochs()))} />
+                  <span className="ui-text-secondary">epochs</span>
+                </div>
+              </div>
+            </div>
+          </div></>}
       </div>
     </div>
-    {policy.mode === 'convergence' && <>
-      <div className="property-row">
-        <label className="form-label" htmlFor={`${id}-level`}>Convergence level</label>
-        <div className="property-control">
-          <select id={`${id}-level`} className="form-select" value={policy.level} disabled={disabled}
-            onChange={event => { if (isConvergenceLevel(event.target.value)) onChange({ ...policy, level: event.target.value }) }}>
-            {CONVERGENCE_LEVELS.map(level => <option key={level} value={level}>{CONVERGENCE_LABELS[level]}</option>)}
-          </select>
-          <p className="property-hint">{policy.level === 'fast' ? 'Stops earlier, accepting more potential improvement.'
-            : policy.level === 'balanced' ? 'Balances training time with smaller remaining gains.' : 'Waits longer for smaller improvements to settle.'}</p>
-        </div>
-      </div>
-      <div className="property-row">
-        <label className="form-label" htmlFor={`${id}-cap`}>Safety cap</label>
-        <div className="property-control">
-          <input id={`${id}-cap`} type="number" min="1" step="1" className="form-input" placeholder="No cap" disabled={disabled}
-            value={policy.maxEpochs ?? ''} onChange={event => onChange({ ...policy,
-              maxEpochs: event.target.value === '' ? null : Math.max(1, Math.floor(Number(event.target.value) || 1)) })} />
-          <p className="property-hint">Optional maximum total epochs. Leave empty to train until convergence.</p>
-        </div>
-      </div>
-    </>}
-  </>
+  </section>
 }

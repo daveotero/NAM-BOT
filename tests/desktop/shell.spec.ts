@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path'
 import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
 import { A1_STANDARD_PRESET_ID, A2_HEAVY_12_PRESET_ID, DEFAULT_PRESET_ID, createTrainingPreset, defaultJobSpec, getBuiltInPreset, type JobRuntimeState } from '../../src/shared/training'
-import { CONVERGENCE_LEVELS, type TrainingStoppingPolicy } from '../../src/shared/convergence'
+import { CONVERGENCE_LEVELS } from '../../src/shared/convergence'
 
 let app: ElectronApplication
 let page: Page
@@ -579,7 +579,7 @@ test('shared typography and card styling stay consistent across workspaces', asy
   expect(errors).toEqual([])
 })
 
-test('convergence feedback and live controls work on Jobs and Dashboard at normal and narrow widths', async ({}, info) => {
+test('convergence feedback stays read-only on Jobs and Dashboard at normal and narrow widths', async ({}, info) => {
   const now = new Date().toISOString()
   const runtime: JobRuntimeState = {
     jobId: 'convergence-display', jobName: 'Packed model convergence', status: 'running', pid: 1234,
@@ -591,65 +591,69 @@ test('convergence feedback and live controls work on Jobs and Dashboard at norma
       levels: CONVERGENCE_LEVELS.map(level => ({ level, confirmations: level === 'thorough' ? 0 : 5,
         qualified: level !== 'thorough', firstReachedEpoch: level === 'fast' ? 417 : level === 'balanced' ? 645 : null, waitingModels: [] })) }
   }
+  const auto: JobRuntimeState = structuredClone(runtime)
+  auto.jobId = 'convergence-auto'
+  auto.jobName = 'Auto convergence run'
+  auto.frozenJob.id = auto.jobId
+  auto.frozenJob.stopping = { mode: 'convergence', level: 'thorough', maxEpochs: 2000 }
+  auto.plannedEpochs = 2000
+  auto.terminalProgress = { currentEpoch: 645, totalEpochs: 2000, percent: 32.25 }
+  if (!auto.convergence) throw new Error('Missing convergence fixture')
+  auto.convergence.policy = auto.frozenJob.stopping
+  auto.convergence.originalEpochLimit = null
   await app.evaluate(({ BrowserWindow, ipcMain }, current) => {
-    const publish = (): void => { BrowserWindow.getAllWindows()[0].webContents.send('queue:updated', [current]) }
     ipcMain.removeHandler('jobs:listQueue')
-    ipcMain.handle('jobs:listQueue', () => [current])
-    ipcMain.removeHandler('jobs:updateStoppingPolicy')
-    ipcMain.handle('jobs:updateStoppingPolicy', (_event, _id: string, policy: TrainingStoppingPolicy) => {
-      if (!current.convergence) throw new Error('No monitor')
-      current.convergence.policy = policy
-      current.plannedEpochs = policy.mode === 'fixed' ? current.convergence.originalEpochLimit : policy.maxEpochs
-      publish()
-      return current.convergence
-    })
-    ipcMain.on('smoke:convergence-start', () => {
-      if (current.convergence) current.convergence.originalEpochLimit = null
-      publish()
-    })
-    publish()
-  }, runtime)
+    ipcMain.handle('jobs:listQueue', () => current)
+    BrowserWindow.getAllWindows()[0].webContents.send('queue:updated', current)
+  }, [runtime, auto])
+  expect(await page.evaluate(() => 'updateStoppingPolicy' in window.namBot.jobs)).toBe(false)
   for (const view of ['Jobs', 'Dashboard']) {
     await chooseMenu('Navigate', view)
-    const card = page.locator('.queue-card').filter({ has: page.getByRole('heading', { name: runtime.jobName, exact: true }) })
-    const panel = card.getByRole('region', { name: 'Convergence status', exact: true })
-    await expect(panel).toContainText('Balanced reached at epoch 645')
-    await expect(panel).toContainText('Observe only')
-    await panel.getByRole('button', { name: 'Training mode', exact: true }).click()
-    await panel.getByLabel('Training mode', { exact: true }).selectOption('convergence')
-    await panel.getByLabel('Convergence level', { exact: true }).selectOption('thorough')
-    await panel.getByRole('button', { name: 'Apply mode', exact: true }).click()
-    await expect(panel).toContainText('Auto-stop · Thorough · no cap')
-    await expect(card.locator('.training-progress-group')).toHaveCount(0)
-    await panel.getByRole('button', { name: 'Training mode', exact: true }).click()
+    for (const run of [runtime, auto]) {
+      const card = page.locator('.queue-card').filter({ has: page.getByRole('heading', { name: run.jobName, exact: true }) })
+      const panel = card.getByRole('region', { name: 'Convergence status', exact: true })
+      await expect(panel).toHaveCount(0)
+      await card.getByRole('button', { name: 'Show Details', exact: true }).click()
+      await expect(panel).toContainText('Balanced · epoch 645')
+      await expect(panel.getByRole('button')).toHaveCount(0)
+      await expect(panel.getByRole('spinbutton')).toHaveCount(0)
+      await expect(card.getByRole('button', { name: 'Stop', exact: true })).toBeVisible()
+      if (run === runtime) {
+        await expect(panel).toContainText('Fixed epochs')
+        await expect(panel).toContainText('Monitoring only')
+      } else {
+        await expect(panel).toContainText('Auto convergence · Obsessive')
+        await expect(card.locator('.training-progress-group')).toBeVisible()
+        await expect(card.locator('.training-progress-meta')).toHaveText('32% of safety limit')
+      }
+    }
+    const panels = page.getByRole('region', { name: 'Convergence status', exact: true })
     for (const [width, height, zoom] of [[1400, 950, 1], [1000, 700, 1], [1000, 700, 1.5]]) {
       await app.evaluate(({ BrowserWindow }, size) => {
         const window = BrowserWindow.getAllWindows()[0]
         window.setSize(size.width, size.height)
         window.webContents.setZoomFactor(size.zoom)
       }, { width, height, zoom })
-      await panel.scrollIntoViewIfNeeded()
+      await page.locator('.runtime-overview-column').first().scrollIntoViewIfNeeded()
       await assertSafeArea()
-      await expect.poll(() => panel.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
+      for (const panel of await panels.all()) {
+        await expect.poll(() => panel.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
+      }
       await expect.poll(() => page.locator('.workspace-content > .layout-main').evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
       await captureRenderer(info, `convergence-${view.toLowerCase()}-${width}-${zoom}.png`)
+      await page.locator('.queue-card').filter({ has: page.getByRole('heading', { name: auto.jobName, exact: true }) })
+        .locator('.queue-card-status-row').scrollIntoViewIfNeeded()
+      await captureRenderer(info, `convergence-${view.toLowerCase()}-headline-${width}-${zoom}.png`)
     }
-    // Playwright's Electron mouse coordinates do not follow application zoom.
-    // Inspect the zoomed layout above, then restore it for pointer interactions.
+    // Restore zoom for Electron pointer coordinates.
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1))
-    await panel.getByLabel('Training mode', { exact: true }).selectOption('fixed')
-    await expect(panel).toContainText('Original target: 666 epochs')
-    await panel.getByRole('button', { name: 'Apply mode', exact: true }).click()
-    await expect(panel).toContainText('Observe only')
+    for (const run of [runtime, auto]) {
+      const card = page.locator('.queue-card').filter({ has: page.getByRole('heading', { name: run.jobName, exact: true }) })
+      await card.getByRole('button', { name: 'Hide Details', exact: true }).click()
+    }
+    await expect(panels).toHaveCount(0)
+    await captureRenderer(info, `convergence-${view.toLowerCase()}-collapsed.png`)
   }
-  const panel = page.getByRole('region', { name: 'Convergence status', exact: true })
-  await panel.getByRole('button', { name: 'Training mode', exact: true }).click()
-  await panel.getByLabel('Training mode', { exact: true }).selectOption('convergence')
-  await panel.getByRole('button', { name: 'Apply mode', exact: true }).click()
-  await app.evaluate(({ ipcMain }) => { ipcMain.emit('smoke:convergence-start') })
-  await panel.getByRole('button', { name: 'Training mode', exact: true }).click()
-  await expect(panel.getByRole('option', { name: 'Fixed epochs', exact: true })).toHaveJSProperty('disabled', true)
-  await expect(panel).toContainText('This run started without a fixed epoch target')
   expect(errors).toEqual([])
 })
 
@@ -660,21 +664,46 @@ test('convergence job mode is remembered and survives draft saving', async ({}, 
   await page.locator('#output-audio-path').fill(output)
   await page.getByRole('region', { name: 'Name & audio', exact: true }).getByRole('button', { name: 'Use Output Filename' }).click()
   await page.getByRole('navigation', { name: 'Job editor sections' }).getByRole('button', { name: 'Training', exact: true }).click()
-  await page.locator('#job-training-mode').selectOption('convergence')
+  await page.locator('#epochs').fill('777')
+  await page.getByRole('button', { name: 'Auto convergence', exact: true }).click()
   await expect(page.locator('#epochs')).toHaveCount(0)
-  await page.locator('#job-training-level').selectOption('fast')
-  await page.locator('#job-training-cap').fill('2000')
+  await expect(page.getByRole('button', { name: 'Fixed epochs', exact: true })).toHaveText('Fixed epochs')
+  await page.getByRole('button', { name: 'Obsessive', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Obsessive', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await page.getByRole('button', { name: 'Fast', exact: true }).focus()
+  await page.keyboard.press('Space')
+  await expect(page.getByRole('button', { name: 'Fast', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await page.getByRole('button', { name: 'Fixed epochs', exact: true }).click()
+  await expect(page.locator('#epochs')).toBeEnabled()
+  await expect(page.locator('#epochs')).toHaveValue('777')
+  await page.getByRole('button', { name: 'Auto convergence', exact: true }).click()
+  const settings = page.getByRole('region', { name: 'Training mode settings', exact: true })
+  await expect(settings.getByRole('checkbox')).toHaveCount(0)
+  await expect(settings.getByRole('group', { name: 'Training mode', exact: true })).toBeVisible()
+  await expect(page.locator('#job-training-cap')).toBeVisible()
+  await expect(page.locator('#job-training-cap')).toHaveValue('2000')
+  await expect(page.locator('#job-training-cap')).toHaveAttribute('required', '')
+  await page.locator('#job-training-cap').fill('3000')
+  await page.locator('#job-training-cap').fill('')
+  await page.locator('#job-training-cap').blur()
+  await expect(page.locator('#job-training-cap')).toHaveValue('3000')
+  await page.getByRole('button', { name: 'Fixed epochs', exact: true }).click()
+  await page.getByRole('button', { name: 'Auto convergence', exact: true }).click()
+  await expect(page.locator('#job-training-cap')).toHaveValue('3000')
+  await settings.scrollIntoViewIfNeeded()
   await captureRenderer(info, 'convergence-job-editor.png')
   await page.locator('.workspace-toolbar').getByRole('button', { name: 'Save Job', exact: true }).click()
   await page.locator('.draft-card').getByRole('button', { name: 'Edit', exact: true }).click()
-  await expect(page.locator('#job-training-mode')).toHaveValue('convergence')
-  await expect(page.locator('#job-training-cap')).toHaveValue('2000')
+  await expect(page.getByRole('button', { name: 'Auto convergence', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('button', { name: 'Fixed epochs', exact: true })).toHaveText('Fixed epochs')
+  await expect(page.locator('#job-training-cap')).toHaveValue('3000')
   await chooseMenu('File', 'New Job')
-  await expect(page.locator('#job-training-mode')).toHaveValue('convergence')
-  await expect(page.locator('#job-training-level')).toHaveValue('fast')
-  await expect(page.locator('#job-training-cap')).toHaveValue('2000')
+  await expect(page.getByRole('button', { name: 'Auto convergence', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('button', { name: 'Fast', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator('#job-training-cap')).toHaveValue('3000')
   await app.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows()[0]; window.setSize(1000, 700); window.webContents.setZoomFactor(1.5) })
   await page.getByRole('navigation', { name: 'Job editor sections' }).getByRole('button', { name: 'Training', exact: true }).click()
+  await settings.scrollIntoViewIfNeeded()
   await captureRenderer(info, 'convergence-job-editor-zoom.png')
   await expect.poll(() => page.locator('.job-editor-workspace').evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
   expect(errors).toEqual([])

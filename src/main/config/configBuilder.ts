@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import log from 'electron-log/main'
-import { normalizeStoppingPolicy } from '../../shared/convergence'
+import { normalizeStoppingPolicyForTraining } from '../../shared/convergence'
 import {
   JobSpec,
   JobPackedSubmodelSelection,
@@ -256,7 +256,7 @@ export function resolveJobConfigs(
     : buildBaseLearningConfig(job, preset)
 
   if (job.stopping?.mode === 'convergence' && isRecord(learningConfig.trainer)) {
-    learningConfig.trainer.max_epochs = job.stopping.maxEpochs ?? -1
+    learningConfig.trainer.max_epochs = normalizeStoppingPolicyForTraining(job.stopping).maxEpochs
   }
 
   return { dataConfig, modelConfig, learningConfig }
@@ -278,7 +278,7 @@ export function buildJobConfigs(
   writeFileSync(dataConfigPath, JSON.stringify(dataConfig, null, 2), 'utf-8')
   writeFileSync(modelConfigPath, JSON.stringify(modelConfig, null, 2), 'utf-8')
   writeFileSync(learningConfigPath, JSON.stringify(learningConfig, null, 2), 'utf-8')
-  writeFileSync(join(workspaceDir, 'stopping-policy.json'), JSON.stringify(normalizeStoppingPolicy(job.stopping)), 'utf-8')
+  writeFileSync(join(workspaceDir, 'stopping-policy.json'), JSON.stringify(normalizeStoppingPolicyForTraining(job.stopping)), 'utf-8')
 
   log.info('Configs written:', { dataConfigPath, modelConfigPath, learningConfigPath })
 

@@ -5,7 +5,7 @@ import {
   JobStopMode
 } from '../../state/types'
 
-import { convergenceCompletionLabel } from '../../../shared/convergence'
+import { CONVERGENCE_LABELS, convergenceCompletionLabel } from '../../../shared/convergence'
 
 export function isUncappedConvergence(runtime: JobRuntimeState): boolean {
   const policy = runtime.convergence?.policy ?? runtime.frozenJob.stopping
@@ -219,6 +219,16 @@ export function getDetailedDeviceLabel(runtime: JobRuntimeState): string {
 
 export function getProgressPercent(runtime: JobRuntimeState): number | null {
   if (isUncappedConvergence(runtime)) return runtime.status === 'succeeded' ? 100 : null
+  const policy = runtime.convergence?.policy ?? runtime.frozenJob.stopping
+  if (policy?.mode === 'convergence' && policy.maxEpochs != null) {
+    if (runtime.status === 'succeeded') return 100
+    const progress = runtime.terminalProgress
+    const epoch = progress?.currentEpoch ?? runtime.currentEpoch ?? 0
+    const batchFraction = progress?.currentBatch && progress.totalBatches
+      ? Math.min(1, Math.max(0, progress.currentBatch / progress.totalBatches)) : 0
+    const completedEpochs = Math.max(runtime.convergence?.epoch ?? 0, Math.max(0, epoch - 1) + batchFraction)
+    return Math.min(100, Math.max(0, completedEpochs / policy.maxEpochs * 100))
+  }
   const batchPercent = runtime.terminalProgress?.percent
   if (typeof batchPercent === 'number' && Number.isFinite(batchPercent)) {
     return Math.min(100, Math.max(0, batchPercent))
@@ -240,9 +250,13 @@ export function getProgressHeadline(runtime: JobRuntimeState): string {
   }
 
   const progress = runtime.terminalProgress
-  if (isUncappedConvergence(runtime)) {
+  const policy = runtime.convergence?.policy ?? runtime.frozenJob.stopping
+  if (policy?.mode === 'convergence') {
     const epoch = progress?.currentEpoch ?? runtime.currentEpoch
-    return epoch ? `Epoch ${epoch} · until convergence${progress?.currentBatch && progress.totalBatches ? ` · batch ${progress.currentBatch}/${progress.totalBatches}` : ''}` : 'Preparing convergence training'
+    const epochLabel = epoch ? `Epoch ${epoch}${policy.maxEpochs != null ? ` of ${policy.maxEpochs}` : ''}` : 'Preparing training'
+    const modeLabel = `Auto convergence · ${CONVERGENCE_LABELS[policy.level]}`
+    const batchLabel = progress?.currentBatch && progress.totalBatches ? ` · batch ${progress.currentBatch}/${progress.totalBatches}` : ''
+    return `${epochLabel} (${modeLabel})${batchLabel}`
   }
   if (progress?.currentEpoch && progress?.totalEpochs && progress.currentBatch && progress.totalBatches) {
     return `Epoch ${progress.currentEpoch} of ${progress.totalEpochs} - batch ${progress.currentBatch}/${progress.totalBatches}`

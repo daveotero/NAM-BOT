@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { defaultSettings } from '../../../main/types'
-import { getStoredStoppingPreference, persistStoppingPreference, LAST_TRAINING_MODE_KEY } from './training-mode-preferences'
+import { getStoredStoppingPreference, getStoredConvergenceMaxEpochs, persistStoppingPreference, LAST_TRAINING_MODE_KEY, LAST_CONVERGENCE_MAX_EPOCHS_KEY } from './training-mode-preferences'
 
 import {
   A1_STANDARD_PRESET_ID,
@@ -40,6 +40,20 @@ afterEach(() => {
 })
 
 describe('createNewJobDraft', () => {
+  it('defaults the safety limit to 2000 and remembers a custom value through fixed mode and reloads', () => {
+    const storage = stubLocalStorage()
+    expect(getStoredConvergenceMaxEpochs()).toBe(2000)
+    persistStoppingPreference({ mode: 'convergence', level: 'fast', maxEpochs: 3500 })
+    persistStoppingPreference({ mode: 'fixed', level: 'fast', maxEpochs: null })
+    stubLocalStorage(Object.fromEntries(storage))
+    expect(getStoredStoppingPreference().mode).toBe('fixed')
+    expect(getStoredConvergenceMaxEpochs()).toBe(3500)
+    stubLocalStorage({ [LAST_TRAINING_MODE_KEY]: JSON.stringify({ mode: 'convergence', level: 'balanced', maxEpochs: 2800 }) })
+    expect(getStoredConvergenceMaxEpochs()).toBe(2800)
+    stubLocalStorage({ [LAST_TRAINING_MODE_KEY]: JSON.stringify({ mode: 'convergence', level: 'balanced', maxEpochs: null }),
+      [LAST_CONVERGENCE_MAX_EPOCHS_KEY]: '-1' })
+    expect(getStoredStoppingPreference().maxEpochs).toBe(2000)
+  })
   it('remembers the last selected training mode and level for the next new job', () => {
     stubLocalStorage()
     const preset = createTrainingPreset({ values: { epochs: 37 } })

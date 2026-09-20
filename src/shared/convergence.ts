@@ -2,8 +2,14 @@
 export const CONVERGENCE_VERSION = 1
 export type ConvergenceLevel = 'fast' | 'balanced' | 'thorough'
 export const CONVERGENCE_LEVELS: readonly ConvergenceLevel[] = ['fast', 'balanced', 'thorough']
+// Preserve the stored highest-level key for existing jobs and reports.
 export const CONVERGENCE_LABELS: Record<ConvergenceLevel, string> = {
-  fast: 'Fast', balanced: 'Balanced', thorough: 'Thorough'
+  fast: 'Fast', balanced: 'Balanced', thorough: 'Obsessive'
+}
+export const CONVERGENCE_DESCRIPTIONS: Record<ConvergenceLevel, string> = {
+  fast: 'Stops sooner, using a shorter observation window and allowing more potential ESR improvement.',
+  balanced: 'Balances training time and remaining ESR improvement, with a longer observation window and tighter tolerance than Fast.',
+  thorough: 'Uses the longest observation window and strictest tolerance for ESR improvement. Waits for very small gains to settle; further gains may still be possible.'
 }
 export interface ConvergenceRule {
   minimum: number
@@ -16,11 +22,12 @@ export const CONVERGENCE_RULES: Readonly<Record<ConvergenceLevel, ConvergenceRul
   thorough: { minimum: 300, window: 150, tolerance: 0.0025 }
 }
 export const CONVERGENCE_CONFIRMATIONS = 5
+export const DEFAULT_CONVERGENCE_MAX_EPOCHS = 2000
 
 export interface TrainingStoppingPolicy {
   mode: 'fixed' | 'convergence'
   level: ConvergenceLevel
-  /** Optional safety cap; fixed mode uses the original epoch target. */
+  /** Required for new convergence runs. Null is retained for fixed mode and legacy run records. */
   maxEpochs: number | null
 }
 export interface ConvergenceLevelStatus {
@@ -63,6 +70,14 @@ export function isTrainingStoppingPolicy(value: unknown): value is TrainingStopp
 export function normalizeStoppingPolicy(value: unknown): TrainingStoppingPolicy {
   if (isTrainingStoppingPolicy(value)) return { mode: value.mode, level: value.level, maxEpochs: value.maxEpochs }
   return { mode: 'fixed', level: 'balanced', maxEpochs: null }
+}
+
+/** Apply current launch requirements without rewriting historical run status. */
+export function normalizeStoppingPolicyForTraining(value: unknown): TrainingStoppingPolicy {
+  const policy = normalizeStoppingPolicy(value)
+  return policy.mode === 'convergence'
+    ? { ...policy, maxEpochs: policy.maxEpochs ?? DEFAULT_CONVERGENCE_MAX_EPOCHS }
+    : policy
 }
 export function normalizeConvergenceStatus(value: unknown): ConvergenceStatus | undefined {
   if (!isRecord(value) || !isCount(value.version) || !isTrainingStoppingPolicy(value.policy)

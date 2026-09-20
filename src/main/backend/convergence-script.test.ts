@@ -51,38 +51,6 @@ result = [any(stops), m.levels["fast"]["waitingModels"]]
 `)).toEqual([false, ['Slow model']])
   })
 
-  it('uses previous history but requires five fresh confirmations after a live change', () => {
-    expect(run(String.raw`
-m = ConvergenceMonitor({None: "Model"}, {"mode": "fixed", "level": "balanced", "maxEpochs": None}, 666)
-for e in range(1, 501): m.observe(e, [{"submodelIndex": None, "esr": .01}])
-m.set_policy({"mode": "convergence", "level": "thorough", "maxEpochs": None}, 501)
-result = [m.observe(e, [{"submodelIndex": None, "esr": .01}]) for e in range(501, 507)]
-`)).toEqual([false, false, false, false, false, true])
-  })
-
-  it('retains the original fixed target and rejects returning to fixed for convergence-start runs', () => {
-    expect(run(String.raw`
-fixed = {"mode": "fixed", "level": "balanced", "maxEpochs": None}
-auto = {"mode": "convergence", "level": "balanced", "maxEpochs": None}
-m = ConvergenceMonitor({None: "Model"}, fixed, 666)
-m.set_policy(auto, 20)
-assert m.limit() is None
-m.set_policy(fixed, 700)
-assert m.limit() == 666
-a = ConvergenceMonitor({None: "Model"}, auto, 666)
-try:
-    a.set_policy(fixed, 10)
-    raise AssertionError("Must reject switching back")
-except ValueError: pass
-m.finish("convergence")
-try:
-    m.set_policy(fixed, 700)
-    raise AssertionError("Must reject changes once finishing")
-except ValueError: pass
-result = [m.original_epoch_limit, a.original_epoch_limit]
-`)).toEqual([666, null])
-  })
-
   it('does not count duplicate epochs and clears observation windows on invalid or incomplete values', () => {
     expect(run(String.raw`
 result = []

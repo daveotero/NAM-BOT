@@ -62,7 +62,7 @@ import { EsrHistoryReader, normalizeEsrHistory } from './esr-history'
 import { buildBackendSettingsKey } from '../../shared/backend-settings'
 import { getPlannedJobEpochLimit, getEffectiveJobLatency, normalizeTrainingPreset, type QueueControlState } from '../../shared/training'
 import { requestTrainingControl } from './training-control'
-import { convergenceCompletionLabel, isTrainingStoppingPolicy, normalizeConvergenceStatus, type TrainingStoppingPolicy, type ConvergenceStatus } from '../../shared/convergence'
+import { convergenceCompletionLabel, normalizeConvergenceStatus, normalizeStoppingPolicyForTraining } from '../../shared/convergence'
 import { TrainingStatisticsStore } from '../persistence/trainingStatisticsStore'
 import type { TrainingStatistics } from '../../shared/training-statistics'
 import { buildModelFilename, sanitizeFilenameStem } from '../../shared/model-filename'
@@ -905,7 +905,6 @@ function normalizeRuntimeState(value: unknown): JobRuntimeState | null {
     latencyAlignment: normalizeLatencyAlignment(candidate.latencyAlignment),
     esrHistory: normalizeEsrHistory(candidate.esrHistory),
     convergence: normalizeConvergenceStatus(candidate.convergence),
-    stoppingPolicyPending: false,
     trainingControlReady: false,
     modelExportPending: false,
     finishedEarly: candidate.finishedEarly === true,
@@ -1844,7 +1843,7 @@ export class QueueManager extends EventEmitter {
       jobName: jobSpec.name,
       status: 'queued',
       pid: null,
-      frozenJob: cloneJobSpec(jobSpec),
+      frozenJob: { ...cloneJobSpec(jobSpec), stopping: normalizeStoppingPolicyForTraining(jobSpec.stopping) },
       frozenPreset,
       completionWarnings: [],
       queuedAt: new Date().toISOString(),
@@ -2021,6 +2020,8 @@ export class QueueManager extends EventEmitter {
         }
 
         const jobSpec = cloneJobSpec(runtime.frozenJob)
+        jobSpec.stopping = normalizeStoppingPolicyForTraining(jobSpec.stopping)
+        runtime.frozenJob.stopping = { ...jobSpec.stopping }
         runtime.jobName = jobSpec.name
         runtime.plannedEpochs = runtime.frozenPreset ? getPlannedJobEpochLimit(jobSpec, runtime.frozenPreset) : null
         runtime.outputRootDir = jobSpec.outputRootDir
@@ -2094,7 +2095,6 @@ export class QueueManager extends EventEmitter {
     runtime.checkpointSummary = undefined
     runtime.esrHistory = []
     runtime.convergence = undefined
-    runtime.stoppingPolicyPending = false
     runtime.trainingControlReady = false
     runtime.modelExportPending = false
     runtime.modelExports = []
@@ -2485,38 +2485,6 @@ export class QueueManager extends EventEmitter {
     this.stopOutputPolling()
     this.refreshEsrHistory(this.currentJob)
     this.emitJobUpdate(this.currentJob)
-  }
-
-  async updateStoppingPolicy(jobId: string, policy: TrainingStoppingPolicy): Promise<ConvergenceStatus> {
-    if (!isTrainingStoppingPolicy(policy)) throw new Error('Invalid training stopping policy.')
-    const runtime = this.currentJob
-    if (!runtime || runtime.jobId !== jobId || runtime.status !== 'running' || !runtime.workspaceDirectory) {
-      throw new Error('This job is no longer training.')
-    }
-    if (!runtime.convergence || runtime.convergence.completionReason) throw new Error('Live mode changes are unavailable for this run.')
-    if (runtime.modelExportPending) throw new Error('Wait for the current model export before changing training mode.')
-    if (policy.mode === 'fixed' && runtime.convergence.originalEpochLimit == null) {
-      throw new Error('This run started in convergence mode and has no fixed epoch target.')
-    }
-    if (runtime.stoppingPolicyPending) throw new Error('A training mode change is already in progress.')
-    runtime.stoppingPolicyPending = true
-    this.emitJobUpdate(runtime)
-    try {
-      const result = await requestTrainingControl(runtime.workspaceDirectory, 'set_stopping_policy',
-        () => this.currentJob === runtime && runtime.status === 'running' && runtime.pid != null, 180_000, policy)
-      if (!result.convergence) throw new Error('Missing training mode acknowledgment.')
-      // Re-read authoritative status: training may have advanced beyond the acknowledgment.
-      runtime.convergence = result.convergence
-      runtime.plannedEpochs = policy.mode === 'fixed' ? result.convergence.originalEpochLimit : policy.maxEpochs
-      this.refreshTrainingArtifacts(runtime)
-      this.appendUserMessage(runtime, policy.mode === 'convergence'
-        ? `Auto-stop enabled: ${policy.level}${policy.maxEpochs == null ? ', no epoch limit' : `, safety cap ${policy.maxEpochs}`}.`
-        : `Fixed epoch target restored: ${result.convergence.originalEpochLimit}.`)
-      return runtime.convergence
-    } finally {
-      runtime.stoppingPolicyPending = false
-      this.emitJobUpdate(runtime)
-    }
   }
 
   async exportTrainingModel(jobId: string, destination: string, finishAfterExport = false): Promise<string> {

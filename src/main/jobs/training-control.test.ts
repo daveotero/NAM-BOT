@@ -37,10 +37,6 @@ describe('training controls', () => {
     await expect(second).resolves.toMatchObject({ epoch: 11 })
   })
 
-  it('does not send new mode commands to a trainer without the capability', async () => {
-    await expect(requestTrainingControl(workspace(), 'set_stopping_policy', () => true, 100,
-      { mode: 'convergence', level: 'fast', maxEpochs: null })).rejects.toThrow('require a run started')
-  })
   it('waits for a matching response and uses only its own workspace model path', async () => {
     const path = workspace()
     const pending = requestTrainingControl(path, 'export', () => true)

@@ -6,7 +6,6 @@ import type { LogChunk } from '../shared/logs'
 import type { UpdateStatus } from '../shared/update'
 import type { QueueControlState } from '../shared/training'
 import type { TrainingStatistics } from '../shared/training-statistics'
-import type { TrainingStoppingPolicy, ConvergenceStatus } from '../shared/convergence'
 import type { AppSettings } from '../main/types'
 
 export interface NamBotApi {
@@ -32,7 +31,6 @@ export interface NamBotApi {
     chooseDirectory: () => Promise<string | null>
   }
   jobs: {
-    updateStoppingPolicy: (jobId: string, policy: TrainingStoppingPolicy) => Promise<ConvergenceStatus>
     getTrainingStatistics: () => Promise<TrainingStatistics>
     dismissRecentRun: (jobId: string) => Promise<TrainingStatistics>
     dismissAllRecentRuns: () => Promise<TrainingStatistics>
@@ -130,7 +128,6 @@ const api: NamBotApi = {
     chooseDirectory: () => ipcRenderer.invoke('settings:chooseDirectory')
   },
   jobs: {
-    updateStoppingPolicy: (jobId, policy) => ipcRenderer.invoke('jobs:updateStoppingPolicy', jobId, policy),
     getTrainingStatistics: () => ipcRenderer.invoke('jobs:getTrainingStatistics'),
     dismissRecentRun: (jobId: string) => ipcRenderer.invoke('jobs:dismissRecentRun', jobId),
     dismissAllRecentRuns: () => ipcRenderer.invoke('jobs:dismissAllRecentRuns'),

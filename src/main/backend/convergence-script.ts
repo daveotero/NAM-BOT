@@ -28,8 +28,6 @@ class ConvergenceMonitor:
         self.validated_epochs = 0
         self.best = {}
         self.rows = []
-        self.fresh_confirmations = 0
-        self.confirm_after_epoch = 0
         self.phase = "warming"
         self.message = None
         self.reason = None
@@ -40,24 +38,8 @@ class ConvergenceMonitor:
     def limit(self):
         return self.original_epoch_limit if self.policy["mode"] == "fixed" else self.policy["maxEpochs"]
 
-    def set_policy(self, policy, current_epoch):
-        policy = validate_stopping_policy(policy)
-        if self.reason is not None:
-            raise ValueError("Training is already finishing")
-        if policy["mode"] == "fixed" and self.original_epoch_limit is None:
-            raise ValueError("This run started in convergence mode and has no fixed epoch target")
-        # Returning to an already-passed original target finishes at the next safe boundary.
-        if policy["mode"] == "convergence" and policy["maxEpochs"] is not None and policy["maxEpochs"] <= current_epoch:
-            raise ValueError("The safety cap must be ahead of the current epoch")
-        if policy != self.policy:
-            self.policy = policy
-            self.fresh_confirmations = 0
-            self.confirm_after_epoch = current_epoch
-            self.changes.append({"epoch": current_epoch, "policy": dict(policy)})
-
     def unavailable(self, message):
         self.rows = []
-        self.fresh_confirmations = 0
         for state in self.levels.values():
             state.update(confirmations=0, qualified=False, waitingModels=[])
         self.phase, self.message = "unavailable", message
@@ -107,8 +89,7 @@ class ConvergenceMonitor:
             if state["qualified"] and state["firstReachedEpoch"] is None:
                 state["firstReachedEpoch"] = epoch
         selected = self.levels[self.policy["level"]]
-        self.fresh_confirmations = self.fresh_confirmations + 1 if selected["confirmations"] > 0 and epoch > self.confirm_after_epoch else 0
-        return self.policy["mode"] == "convergence" and selected["qualified"] and self.fresh_confirmations >= CONVERGENCE_CONFIRMATIONS
+        return self.policy["mode"] == "convergence" and selected["qualified"]
 
     def finish(self, reason):
         self.reason = reason

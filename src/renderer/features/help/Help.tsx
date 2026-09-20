@@ -52,7 +52,7 @@ function GuideToggle({
     <button
       type="button"
       className="btn btn-secondary guide-toggle-btn"
-      aria-pressed={isActive}
+      title="Show setup instructions for this hardware choice. Selecting a guide does not install software or change the backend." aria-pressed={isActive}
       onClick={() => onSelect(option.id)}
     >
       <span className="guide-toggle-label">{option.label}</span>

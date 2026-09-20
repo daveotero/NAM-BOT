@@ -60,11 +60,11 @@ const BASIC_FIELD_HELP_TEXT = {
   description: 'Quick note for what this profile is aiming at, what source files it came from, or what sounded best.',
   architectureVersion: 'a2 is the current NAM architecture. a1 remains available for older workflows. custom marks experimental local recipes.',
   modelFamily: 'Packed WaveNet is the A2 path. WaveNet and LSTM are available for a1 and custom local experiments.',
-  architectureSize: 'A2 uses Packed, which trains Lite and Full together. a1 presets still use Standard, Lite, Feather, or Nano.',
+  architectureSize: 'A2 uses Packed to train the selected model tiers together. A1 presets use Standard, Lite, Feather, or Nano.',
   epochs: 'How many passes NAM makes over the training material. More can improve the fit, but too many can start chasing noise or mismatches.',
   batchSize: 'Mostly a speed and memory knob. Raise it if your GPU has room; lower it if training runs out of memory.',
   learningRate: 'How aggressively the model updates while learning. Too high can make training unstable; too low can make it crawl.',
-  learningRateDecay: 'How quickly the learning rate backs off as training goes on. Higher decay means a stronger early push and gentler late fine-tuning.',
+  learningRateDecay: 'How quickly the learning rate decreases after each epoch. Higher decay reduces it more quickly; zero keeps it constant.',
   ny: 'Training window length. Larger values give NAM a longer slice of the signal to learn from, but they cost more memory and time.',
   fitMrstft: 'Adds an extra frequency-aware loss term. It can help preserve texture and top-end detail on some rigs, but it changes how the fit behaves.',
   mrstftWeight: 'Numeric strength of the MRSTFT loss. Official A2 uses 0.0005.',
@@ -1163,6 +1163,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
             <button
               type="button"
               className="btn btn-sm btn-secondary"
+              title="Edit preset fields and optional expert JSON overrides."
               aria-pressed={session.editorMode === 'manual'}
               onClick={() => handleEditorModeChange('manual')}
             >
@@ -1171,6 +1172,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
             <button
               type="button"
               className="btn btn-sm btn-secondary"
+              title="Import technical training settings from JSON while keeping the preset name, category, and description."
               aria-pressed={session.editorMode === 'import'}
               onClick={() => handleEditorModeChange('import')}
             >
@@ -1214,6 +1216,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                   </div>
                   <div className="property-control">
                     <input
+                      title={BASIC_FIELD_HELP_TEXT.name}
                       id="preset-name"
                       className="form-input"
                       value={session.preset.name}
@@ -1230,6 +1233,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                   </div>
                   <div className="property-control">
                     <select
+                      title={BASIC_FIELD_HELP_TEXT.category}
                       id="preset-category"
                       className="form-select"
                       value={session.preset.category}
@@ -1253,6 +1257,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                 </div>
                 <div className="property-control">
                   <textarea
+                    title={BASIC_FIELD_HELP_TEXT.description}
                     id="preset-description"
                     className="form-input"
                     rows={3}
@@ -1269,6 +1274,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                   </div>
                   <div className="property-control">
                     <input
+                      title="Author credited in this preset file."
                       id="preset-author-name"
                       className="form-input"
                       value={session.preset.author?.name ?? ''}
@@ -1283,6 +1289,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                   </div>
                   <div className="property-control">
                     <input
+                      title="Website or profile link included with the preset author credit."
                       id="preset-author-url"
                       className="form-input"
                       value={session.preset.author?.url ?? ''}
@@ -1302,6 +1309,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                   </div>
                   <div className="property-control">
                     <select
+                      title={BASIC_FIELD_HELP_TEXT.architectureVersion}
                       id="preset-architecture-version"
                       className="form-select"
                       value={getStringControlValue(fieldOverrides.architectureVersion, session.preset.values.architectureVersion)}
@@ -1327,6 +1335,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                   </div>
                   <div className="property-control">
                     <select
+                      title={BASIC_FIELD_HELP_TEXT.modelFamily}
                       id="preset-model-family"
                       className="form-select"
                       value={getStringControlValue(fieldOverrides.modelFamily, session.preset.values.modelFamily)}
@@ -1352,6 +1361,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                   </div>
                   <div className="property-control">
                     <select
+                      title={BASIC_FIELD_HELP_TEXT.architectureSize}
                       id="preset-architecture"
                       className="form-select"
                       value={getStringControlValue(fieldOverrides.architectureSize, session.preset.values.architectureSize)}
@@ -1381,6 +1391,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                   </div>
                   <div className="property-control">
                     <input
+                      title={BASIC_FIELD_HELP_TEXT.epochs}
                       id="preset-epochs"
                       type="number"
                       className="form-input"
@@ -1401,6 +1412,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                   </div>
                   <div className="property-control">
                     <input
+                      title={BASIC_FIELD_HELP_TEXT.batchSize}
                       id="preset-batch-size"
                       type="number"
                       className="form-input"
@@ -1421,6 +1433,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                   </div>
                   <div className="property-control">
                     <input
+                      title={BASIC_FIELD_HELP_TEXT.learningRate}
                       id="preset-learning-rate"
                       type="number"
                       step="0.0001"
@@ -1442,6 +1455,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                   </div>
                   <div className="property-control">
                     <input
+                      title={BASIC_FIELD_HELP_TEXT.learningRateDecay}
                       id="preset-learning-rate-decay"
                       type="number"
                       step="0.0001"
@@ -1463,6 +1477,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                   </div>
                   <div className="property-control">
                     <input
+                      title={BASIC_FIELD_HELP_TEXT.ny}
                       id="preset-ny"
                       type="number"
                       className="form-input"
@@ -1482,8 +1497,9 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                     {renderInfoButton(BASIC_FIELD_HELP_TEXT.fitMrstft)}
                   </div>
                   <div className="property-control">
-                    <label className="property-check-option">
+                    <label className="property-check-option" title={BASIC_FIELD_HELP_TEXT.fitMrstft}>
                       <input
+                        title={BASIC_FIELD_HELP_TEXT.fitMrstft}
                         id="preset-fit-mrstft"
                         type="checkbox"
                         checked={getBooleanControlValue(fieldOverrides.fitMrstft, session.preset.values.fitMrstft)}
@@ -1505,6 +1521,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                   </div>
                   <div className="property-control">
                     <input
+                      title={BASIC_FIELD_HELP_TEXT.mrstftWeight}
                       id="preset-mrstft-weight"
                       type="number"
                       step="0.0001"
@@ -1527,6 +1544,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                   </div>
                   <div className="property-control">
                     <input
+                      title={BASIC_FIELD_HELP_TEXT.weightDecay}
                       id="preset-weight-decay"
                       type="number"
                       step="0.0000001"
@@ -1548,6 +1566,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                   </div>
                   <div className="property-control">
                     <input
+                      title={BASIC_FIELD_HELP_TEXT.outputNormalizeRmsDb}
                       id="preset-output-normalize"
                       type="number"
                       step="0.1"

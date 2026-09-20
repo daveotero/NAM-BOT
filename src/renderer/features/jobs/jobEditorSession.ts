@@ -1,6 +1,6 @@
 import type { AppSettings, JobEditorSession, JobOutputRootMode } from '../../state/store'
 import { getStoredStoppingPreference, persistStoppingPreference } from './training-mode-preferences'
-import { normalizeStoppingPolicy } from '../../../shared/convergence'
+import { normalizeStoppingPolicy, normalizeStoppingPolicyForTraining } from '../../../shared/convergence'
 import {
   DEFAULT_PRESET_ID,
   type JobLatencyMode,
@@ -256,7 +256,7 @@ export function serializeJobEditorSession(
 
 export function buildJobEditorSession(title: string, job: JobSpec, settings: AppSettings | null): JobEditorSession {
   const sessionContent = {
-    job,
+    job: { ...job, stopping: normalizeStoppingPolicyForTraining(job.stopping) },
     inputMode: job.inputAudioIsDefault ? 'default' as const : 'custom' as const,
     outputRootMode: getOutputRootModeForJob(job, settings)
   }

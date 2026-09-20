@@ -1,5 +1,5 @@
 import type { TrainingExportEvidence } from './training-report'
-import { normalizeStoppingPolicy, type TrainingStoppingPolicy, type ConvergenceStatus } from './convergence'
+import { DEFAULT_CONVERGENCE_MAX_EPOCHS, normalizeStoppingPolicy, normalizeStoppingPolicyForTraining, type TrainingStoppingPolicy, type ConvergenceStatus } from './convergence'
 
 export type JobStatus =
   | 'draft'
@@ -207,7 +207,6 @@ export interface TrainingPresetFile {
 
 export interface JobRuntimeState {
   convergence?: ConvergenceStatus
-  stoppingPolicyPending?: boolean
   jobId: string
   jobName: string
   status: JobStatus
@@ -256,7 +255,7 @@ export interface QueueControlState {
 }
 
 export function getEffectiveJobEpochs(job: JobSpec, preset: TrainingPresetFile): number {
-  if (job.stopping?.mode === 'convergence') return job.stopping.maxEpochs ?? -1
+  if (job.stopping?.mode === 'convergence') return normalizeStoppingPolicyForTraining(job.stopping).maxEpochs ?? DEFAULT_CONVERGENCE_MAX_EPOCHS
   const trainer = preset.expert.learning?.trainer
   const override = isRecord(trainer) ? trainer.max_epochs : undefined
   return typeof override === 'number' && Number.isFinite(override)

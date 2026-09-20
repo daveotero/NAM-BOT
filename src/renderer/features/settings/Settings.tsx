@@ -170,6 +170,7 @@ export default function Settings() {
                   <button
                     type="button"
                     className="btn btn-sm btn-secondary"
+                    title="Use the Conda executable discovered on the system PATH."
                     aria-pressed={!useCustomCondaPath}
                     onClick={() => {
                       setUseCustomCondaPath(false)
@@ -181,6 +182,7 @@ export default function Settings() {
                   <button
                     type="button"
                     className="btn btn-sm btn-secondary"
+                    title="Choose a specific Conda executable instead of the one on PATH."
                     aria-pressed={useCustomCondaPath}
                     onClick={() => {
                       setUseCustomCondaPath(true)
@@ -192,6 +194,7 @@ export default function Settings() {
               )}
               <div className="property-input-action">
                 <input
+                  title="Path to the Conda executable used to launch the training environment."
                   id="settings-conda"
                   type="text"
                   className="form-input"
@@ -218,6 +221,7 @@ export default function Settings() {
             <label className="form-label" htmlFor="settings-backend-mode">Backend Mode</label>
             <div className="property-control">
               <select
+                title="Select an existing Conda environment by its name or by the full path to its folder."
                 id="settings-backend-mode"
                 className="form-select"
                 value={localSettings.backendMode}
@@ -237,6 +241,7 @@ export default function Settings() {
               <label className="form-label" htmlFor="settings-environment-name">Environment Name</label>
               <div className="property-control">
                 <input
+                  title="Name of the Conda environment where Neural Amp Modeler and PyTorch are installed."
                   id="settings-environment-name"
                   type="text"
                   className="form-input"
@@ -255,6 +260,7 @@ export default function Settings() {
               <label className="form-label" htmlFor="settings-environment-prefix">Environment Prefix Path</label>
               <div className="property-control">
                 <input
+                  title="Full path to the Conda environment folder, not its Python executable."
                   id="settings-environment-prefix"
                   type="text"
                   className="form-input"
@@ -271,6 +277,7 @@ export default function Settings() {
           <div style={{ marginTop: '16px' }}>
             <button
               className="btn btn-green"
+              title="Save the current settings and check that the selected environment can run the training backend."
               onClick={handleValidate}
               disabled={isBackendBusy}
             >
@@ -291,6 +298,7 @@ export default function Settings() {
             <div className="property-control">
               <div className="property-input-action">
                 <input
+                  title="Default destination for exported models in new jobs. Each job can choose a different folder."
                   id="settings-output-root"
                   type="text"
                   className="form-input"
@@ -313,6 +321,7 @@ export default function Settings() {
             <div className="property-control">
               <div className="property-input-action">
                 <input
+                  title="Folder for per-run working files, including generated configs, logs, and checkpoints."
                   id="settings-workspace-root"
                   type="text"
                   className="form-input"
@@ -335,6 +344,7 @@ export default function Settings() {
             <label className="form-label" htmlFor="settings-author-name">Default Author Name</label>
             <div className="property-control">
               <input
+                title="Pre-fills author information for new jobs and presets."
                 id="settings-author-name"
                 type="text"
                 className="form-input"
@@ -351,6 +361,7 @@ export default function Settings() {
             <label className="form-label" htmlFor="settings-author-url">Default Author URL</label>
             <div className="property-control">
               <input
+                title="Pre-fills the author link for new presets."
                 id="settings-author-url"
                 type="text"
                 className="form-input"
@@ -368,6 +379,7 @@ export default function Settings() {
             <label className="form-label" htmlFor="settings-default-preset">Default preset</label>
             <div className="property-control">
               <select
+                title="Training preset selected for new jobs and dropped audio files."
                 id="settings-default-preset"
                 className="form-select"
                 value={localSettings.defaultPresetId}
@@ -391,9 +403,10 @@ export default function Settings() {
           <div className="property-row property-row-checkbox">
             <span className="form-label">Results folder</span>
             <div className="property-control">
-              <label className="property-check-option">
+              <label className="property-check-option" title="Open the run results folder when training completes successfully.">
                 <input
                   type="checkbox"
+                  title="Open the run results folder when training completes successfully."
                   checked={localSettings.autoOpenResultsFolder}
                   onChange={(e) => {
                     setLocalSettings({ ...localSettings, autoOpenResultsFolder: e.target.checked })
@@ -407,9 +420,10 @@ export default function Settings() {
           <div className="property-row property-row-checkbox">
             <span className="form-label">Notifications</span>
             <div className="property-control">
-              <label className="property-check-option">
+              <label className="property-check-option" title="Show desktop notifications for training results.">
                 <input
                   type="checkbox"
+                  title="Show desktop notifications for training results."
                   checked={localSettings.notificationsEnabled}
                   onChange={(event) => setLocalSettings({ ...localSettings, notificationsEnabled: event.target.checked })}
                 />

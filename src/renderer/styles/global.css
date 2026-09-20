@@ -1202,7 +1202,7 @@ input[type="number"] {
 .runtime-detail-fact {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(92px, auto) minmax(0, 1fr);
+  grid-template-columns: 108px minmax(0, 1fr);
   align-items: baseline;
   gap: 10px;
 }
@@ -1215,6 +1215,11 @@ input[type="number"] {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.runtime-detail-value-wrap {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .runtime-esr-row {
@@ -2018,24 +2023,6 @@ input[type="number"] {
 
 .job-info { min-width: 0; }
 
-.runtime-convergence {
-  border-top: 1px solid var(--border-panel);
-  margin-top: var(--space-3);
-  padding-top: var(--space-3);
-  min-width: 0;
-}
-
-.runtime-convergence-summary,
-.runtime-convergence-levels {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2) var(--space-3);
-  overflow-wrap: anywhere;
-}
-
-.runtime-convergence-levels { margin-top: var(--space-2); }
-.runtime-convergence-editor { margin-top: var(--space-3); }
 .training-mode-fields { min-width: 0; }
 
 .job-list > :last-child > .draft-card,

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useRef } from 'react'
-import { normalizeStoppingPolicy } from '../../../shared/convergence'
+import { normalizeStoppingPolicyForTraining } from '../../../shared/convergence'
 import TrainingModeFields from './TrainingModeFields'
 import { persistStoppingPreference } from './training-mode-preferences'
 import {
@@ -974,7 +974,7 @@ export default function Jobs() {
   return (
     <div className="layout-main feature-workspace jobs-workspace">
       <WorkspaceToolbar title="Jobs">
-        <button className="btn btn-secondary" onClick={() => fileInputRef.current?.click()}>Add audio files</button>
+        <button className="btn btn-secondary" title="Create draft jobs from captured output audio files using the default preset." onClick={() => fileInputRef.current?.click()}>Add audio files</button>
         <button className="btn btn-green" onClick={() => void handleCreateJob()}>New Job</button>
       </WorkspaceToolbar>
       <input
@@ -1052,7 +1052,7 @@ export default function Jobs() {
                 : queuedJobs.some((runtime) => runtime.errorCategory === 'a2_diagnostics_pending')
                   ? 'Training is waiting for Diagnostics to confirm this environment.'
                   : 'The queue is idle. Start the waiting jobs when you are ready.'}</p>
-            <button className="btn btn-sm btn-green" onClick={() => void handleResumeQueue()}>Resume Queue</button>
+            <button className="btn btn-sm btn-green" title="Allow waiting jobs to start in queue order." onClick={() => void handleResumeQueue()}>Resume Queue</button>
           </div>
         )}
 
@@ -1091,7 +1091,7 @@ export default function Jobs() {
               <div className="job-list jobs-section" id="jobs-drafts">
               <div className="panel-header" style={{ marginBottom: '0px' }}>
                 <h3>Drafts ({visualDrafts.length})</h3>
-                <button className="btn btn-sm btn-secondary" onClick={() => void handleQueueAll()} disabled={isFiltering || isAnyDraftQueueing} title={isFiltering ? 'Clear search to queue all drafts' : undefined}>
+                <button className="btn btn-sm btn-secondary" onClick={() => void handleQueueAll()} disabled={isFiltering || isAnyDraftQueueing} title={isFiltering ? 'Clear search to queue all drafts' : 'Queue every draft for training.'}>
                   {isAnyDraftQueueing ? 'Queueing...' : 'Queue All'}
                   <WorkingIndicator active={isAnyDraftQueueing} />
                 </button>
@@ -1129,7 +1129,7 @@ export default function Jobs() {
               <div className="jobs-section" id="jobs-queue">
               <div className="panel-header" style={{ marginBottom: '12px' }}>
                 <h3>Queue ({visualQueuedJobs.length})</h3>
-                <button className="btn btn-sm btn-secondary" onClick={() => void handleUnqueueAll()} disabled={isFiltering} title={isFiltering ? 'Clear search to unqueue all jobs' : undefined}>
+                <button className="btn btn-sm btn-secondary" onClick={() => void handleUnqueueAll()} disabled={isFiltering} title={isFiltering ? 'Clear search to unqueue all jobs' : 'Return all waiting jobs to drafts without stopping the active run.'}>
                   Unqueue All
                 </button>
               </div>
@@ -1200,7 +1200,7 @@ export default function Jobs() {
               <div className="jobs-section" id="jobs-finished">
               <div className="panel-header" style={{ marginBottom: '12px' }}>
                 <h3>Finished ({visibleFinishedJobs.length})</h3>
-                <button className="btn btn-sm btn-secondary" onClick={() => void handleClearFinished()} disabled={isFiltering} title={isFiltering ? 'Clear search to clear all finished jobs' : undefined}>
+                <button className="btn btn-sm btn-secondary" onClick={() => void handleClearFinished()} disabled={isFiltering} title={isFiltering ? 'Clear search to clear all finished jobs' : 'Remove all finished runs from the Jobs list. Saved files and lifetime training statistics are kept.'}>
                   Clear Finished
                 </button>
               </div>
@@ -1251,6 +1251,7 @@ export default function Jobs() {
           ? `Delete "${pendingDeleteJob.name}"? This removes the draft from NAM-BOT, but it does not delete any audio files on disk.`
           : ''}
         confirmLabel="Delete"
+        checkboxTitle="Skip this confirmation for future draft deletions on this device after you confirm this deletion."
         checkboxLabel="Don't show this again"
         checkboxChecked={skipDraftDeleteConfirm}
         onCheckboxChange={setSkipDraftDeleteConfirm}
@@ -1334,7 +1335,7 @@ function JobEditor({
     [editedJob.presetId, presets]
   )
   const selectedPreset = visiblePresets.find((preset) => preset.id === editedJob.presetId)
-  const displayedEpochs = selectedPreset ? getEffectiveJobEpochs(editedJob, selectedPreset) : editedJob.trainingOverrides.epochs ?? 100
+  const displayedEpochs = selectedPreset ? getEffectiveJobEpochs({ ...editedJob, stopping: undefined }, selectedPreset) : editedJob.trainingOverrides.epochs ?? 100
   const displayedLatency = selectedPreset ? getEffectiveJobLatency(editedJob, selectedPreset) : editedJob.trainingOverrides.latencySamples ?? 0
   const epochsLocked = selectedPreset?.lockedJobFields.includes('epochs') ?? false
   const latencyLocked = selectedPreset?.lockedJobFields.includes('latencySamples') ?? false
@@ -1644,6 +1645,7 @@ function JobEditor({
                   <button
                     type="button"
                     className={`btn btn-sm ${inputMode === 'default' ? 'btn-green' : 'btn-secondary'}`}
+                    title="Use the bundled v3_0_0.wav training signal."
                     aria-pressed={inputMode === 'default'}
                     onClick={() => handleInputModeChange('default')}
                   >
@@ -1652,6 +1654,7 @@ function JobEditor({
                   <button
                     type="button"
                     className={`btn btn-sm ${inputMode === 'custom' ? 'btn-blue' : 'btn-secondary'}`}
+                    title="Choose the original training signal that was played through the gear to make this capture."
                     aria-pressed={inputMode === 'custom'}
                     onClick={() => handleInputModeChange('custom')}
                   >
@@ -1727,6 +1730,7 @@ function JobEditor({
                 <select
                   id="preset-select"
                   className="form-select"
+                  title="Choose the model architecture and training recipe for this job."
                   value={selectedPreset?.id || ''}
                   onChange={(e) => {
                     const nextPreset = presets.find((preset) => preset.id === e.target.value)
@@ -1751,99 +1755,15 @@ function JobEditor({
                 >
                   {!selectedPreset && <option value="" disabled>Choose an available preset</option>}
                   {visiblePresets.map((preset) => (
-                    <option key={preset.id} value={preset.id}>
+                    <option key={preset.id} value={preset.id} title={preset.description}>
                       [{formatPresetArchitectureTag(preset)}] {formatPresetNameWithRewardTag(preset)}
                     </option>
                   ))}
                 </select>
                 {selectedPreset && (
-                  <details className="job-field-help"><summary>Preset details</summary><p className="property-hint">
+                  <details className="job-field-help"><summary title="Show the selected preset's model family, architecture, and description.">Preset details</summary><p className="property-hint">
                     <span className="queue-status-badge queued">{formatPresetArchitectureTag(selectedPreset)}</span> {selectedPreset.values.modelFamily} / {selectedPreset.values.architectureSize}. {selectedPreset.description}
                   </p></details>
-                )}
-              </div>
-            </div>
-            <div className="training-mode-fields">
-              <TrainingModeFields id="job-training" policy={normalizeStoppingPolicy(editedJob.stopping)} onChange={stopping => {
-                persistStoppingPreference(stopping)
-                onSessionChange({ ...session, job: { ...editedJob, stopping } })
-              }} />
-            </div>
-            {editedJob.stopping?.mode !== 'convergence' && <div className="property-row">
-              <label className="form-label" htmlFor="epochs">Epochs</label>
-              <div className="property-control">
-                <input
-                  id="epochs"
-                  type="number"
-                  className="form-input"
-                  value={displayedEpochs}
-                  disabled={epochsLocked}
-                  onChange={(e) => onSessionChange({
-                    ...session,
-                    job: {
-                      ...editedJob,
-                      trainingOverrides: {
-                        ...editedJob.trainingOverrides,
-                        epochs: Math.max(1, parseInt(e.target.value, 10) || selectedPreset?.values.epochs || 100)
-                      }
-                    }
-                  })}
-                />
-                {epochsLocked && (
-                  <p className="property-hint">
-                    This preset locks epoch count through its expert learning config.
-                  </p>
-                )}
-              </div>
-            </div>
-            }
-            <div className="property-row">
-              <label className="form-label" htmlFor="latency-samples">Latency (samples)</label>
-              <div className="property-control">
-                <div className="job-latency-controls"><div className="toggle-group job-mode-controls" role="group" aria-label="Latency mode">
-                  <button
-                    type="button"
-                    className={`btn btn-sm ${latencyMode === 'manual' ? 'btn-blue' : 'btn-secondary'}`}
-                    disabled={latencyLocked}
-                    aria-pressed={latencyMode === 'manual'}
-                    onClick={() => updateLatencyMode('manual')}
-                  >
-                    Manual
-                  </button>
-                  <button
-                    type="button"
-                    className={`btn btn-sm ${latencyMode === 'auto' ? 'btn-green' : 'btn-secondary'}`}
-                    disabled={latencyLocked}
-                    aria-pressed={latencyMode === 'auto'}
-                    onClick={() => updateLatencyMode('auto')}
-                  >
-                    Auto-align
-                  </button>
-                </div>
-                  <input
-                    id="latency-samples"
-                    type="number"
-                    className="form-input"
-                    value={displayedLatency}
-                    disabled={latencyInputDisabled}
-                    onChange={(e) => onSessionChange({
-                      ...session,
-                      job: {
-                        ...editedJob,
-                        trainingOverrides: {
-                          ...editedJob.trainingOverrides,
-                          latencySamples: parseInt(e.target.value, 10) || 0
-                        }
-                      }
-                    })}
-                  /></div>
-                <p className="property-hint">
-                  {latencyMode === 'auto' ? 'Analyzes the training signal before the run and applies the measured delay.' : 'Delay in samples. Use 0 for no latency correction.'}
-                </p>
-                {latencyLocked && (
-                  <p className="property-hint">
-                    This preset locks delay through its expert data config, so NAM-BOT will not run auto-align for this job.
-                  </p>
                 )}
               </div>
             </div>
@@ -1861,7 +1781,8 @@ function JobEditor({
                     const isLastSelected = isSelected && selectedPackedSubmodelOptionCount === 1
 
                     return (
-                      <label key={selectionKey} className="packed-submodel-option">
+                      <label key={selectionKey} className="packed-submodel-option"
+                        title={`Include ${formatPackedSubmodelDisplayName(submodel)} in this run's training and model export.${isLastSelected ? ' At least one model must remain selected.' : ''}`}>
                         <input
                           type="checkbox"
                           checked={isSelected}
@@ -1880,8 +1801,67 @@ function JobEditor({
                 )}
               </div></div>
             )}
-
-
+            <div className="property-row">
+              <label className="form-label" htmlFor="latency-samples">Latency (samples)</label>
+              <div className="property-control">
+                <div className="job-mode-options"><div className="toggle-group job-mode-controls" role="group" aria-label="Latency mode">
+                  <button
+                    type="button"
+                    className={`btn btn-sm ${latencyMode === 'manual' ? 'btn-blue' : 'btn-secondary'}`}
+                    title="Use the delay you enter in samples to align the training signal and capture. Use 0 for no latency correction."
+                    disabled={latencyLocked}
+                    aria-pressed={latencyMode === 'manual'}
+                    onClick={() => updateLatencyMode('manual')}
+                  >
+                    Manual
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn btn-sm ${latencyMode === 'auto' ? 'btn-green' : 'btn-secondary'}`}
+                    title="Analyzes the training signal before the run and applies the measured delay."
+                    disabled={latencyLocked}
+                    aria-pressed={latencyMode === 'auto'}
+                    onClick={() => updateLatencyMode('auto')}
+                  >
+                    Auto-align
+                  </button>
+                </div>
+                  <input
+                    id="latency-samples"
+                    type="number"
+                    className="form-input"
+                    title={latencyMode === 'auto'
+                      ? 'Auto-align measures the delay before training. Select Manual to enter a delay yourself.'
+                      : 'Delay in samples between the training signal and capture. Use 0 for no latency correction.'}
+                    value={displayedLatency}
+                    disabled={latencyInputDisabled}
+                    onChange={(e) => onSessionChange({
+                      ...session,
+                      job: {
+                        ...editedJob,
+                        trainingOverrides: {
+                          ...editedJob.trainingOverrides,
+                          latencySamples: parseInt(e.target.value, 10) || 0
+                        }
+                      }
+                    })}
+                  /></div>
+                {latencyMode === 'manual' && <p className="property-hint">Delay in samples. Use 0 for no latency correction.</p>}
+                {latencyLocked && (
+                  <p className="property-hint">
+                    This preset locks delay through its expert data config, so NAM-BOT will not run auto-align for this job.
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="training-mode-fields">
+              <TrainingModeFields id="job-training" policy={normalizeStoppingPolicyForTraining(editedJob.stopping)} onChange={stopping => {
+                persistStoppingPreference(stopping)
+                onSessionChange({ ...session, job: { ...editedJob, stopping } })
+              }} fixedEpochs={displayedEpochs} epochInputId="epochs" epochsLocked={epochsLocked}
+                onFixedEpochsChange={epochs => onSessionChange({ ...session, job: { ...editedJob,
+                  trainingOverrides: { ...editedJob.trainingOverrides, epochs } } })} />
+            </div>
           </section>
           <section className="property-section" aria-labelledby="job-model-output-heading">
             <h2 id="job-model-output-heading" tabIndex={-1}>Model output</h2>
@@ -1922,6 +1902,7 @@ function JobEditor({
                   <button
                     type="button"
                     className={`btn btn-sm ${outputRootMode === 'output-audio' ? 'btn-blue' : 'btn-secondary'}`}
+                    title="Save exported models beside the captured output audio. Batch jobs use each capture's folder."
                     aria-pressed={outputRootMode === 'output-audio'}
                     onClick={() => {
                       const dir = getDirname(editedJob.outputAudioPath)
@@ -1941,6 +1922,7 @@ function JobEditor({
                   <button
                     type="button"
                     className={`btn btn-sm ${outputRootMode === 'custom' ? 'btn-blue' : 'btn-secondary'}`}
+                    title="Choose a separate destination for this job's exported models."
                     aria-pressed={outputRootMode === 'custom'}
                     onClick={() => {
                       onSessionChange({
@@ -1974,9 +1956,10 @@ function JobEditor({
               <span className="form-label" id="job-file-naming-label">File naming</span>
               <div className="property-control">
                 <div className="job-check-options" role="group" aria-labelledby="job-file-naming-label">
-                  <label className="job-check-option">
+                  <label className="job-check-option" title="Include the selected preset name in exported model filenames. This choice becomes the default for new jobs.">
                     <input
                       type="checkbox"
+                      title="Include the selected preset name in exported model filenames. This choice becomes the default for new jobs."
                       checked={editedJob.appendPresetToModelFileName}
                       onChange={(event) => {
                         window.localStorage.setItem(
@@ -1994,9 +1977,10 @@ function JobEditor({
                     />
                     <span>Append preset name</span>
                   </label>
-                  <label className="job-check-option">
+                  <label className="job-check-option" title="Include the saved model's error-to-signal ratio in its filename. Lower ESR means a closer fit. This choice becomes the default for new jobs.">
                     <input
                       type="checkbox"
+                      title="Include the saved model's error-to-signal ratio in its filename. Lower ESR means a closer fit. This choice becomes the default for new jobs."
                       checked={editedJob.appendEsrToModelFileName}
                       onChange={(event) => {
                         window.localStorage.setItem(
@@ -2029,7 +2013,7 @@ function JobEditor({
               <div className="property-control">
                 <div className="job-check-options" role="group" aria-labelledby="job-training-reports-label">
                   {TRAINING_REPORT_OPTIONS.map((option) => (
-                    <label className="job-check-option" key={option.field}>
+                    <label className="job-check-option" title={option.field === 'saveTrainingImage' ? 'Save a PNG of training statistics and ESR history beside every saved model, including snapshots and extra copies. This choice becomes the default for new jobs.' : 'Save an offline interactive HTML report beside every saved model, including snapshots and extra copies. This choice becomes the default for new jobs.'} key={option.field}>
                       <input type="checkbox" checked={editedJob[option.field]} onChange={(event) => {
                         window.localStorage.setItem(option.key, String(event.target.checked))
                         onSessionChange({ ...session, job: { ...editedJob, [option.field]: event.target.checked } })
@@ -2044,9 +2028,10 @@ function JobEditor({
             <div className="property-row">
               <span className="form-label">Extra copy</span>
               <div className="property-control">
-                <label className="job-check-option">
+                <label className="job-check-option" title="Also copy each saved model beside its captured output audio, including snapshots. This choice becomes the default for new jobs.">
                   <input
                     type="checkbox"
+                    title="Also copy each saved model beside its captured output audio, including snapshots. This choice becomes the default for new jobs."
                     checked={editedJob.copyFinalModelToOutputAudioFolder}
                     onChange={(event) => {
                       window.localStorage.setItem(
@@ -2076,6 +2061,7 @@ function JobEditor({
                 <label className="form-label" htmlFor="meta-name">{isBatchMode ? 'Shared Model Name' : 'Model Name'}</label>
                 <div className="property-input-action">
                   <input
+                    title="Name embedded in the .nam file, independent of the exported filename. In a batch, leave blank to use each output filename."
                     id="meta-name"
                     type="text"
                     className="form-input"
@@ -2140,6 +2126,7 @@ function JobEditor({
               <div className="form-group">
                 <label className="form-label" htmlFor="meta-gear-type">Gear Type</label>
                 <select
+                  title="Equipment category embedded in the .nam metadata; this does not change the training recipe."
                   id="meta-gear-type"
                   className="form-select"
                   value={editedJob.metadata?.gearType || ''}
@@ -2157,6 +2144,7 @@ function JobEditor({
               <div className="form-group">
                 <label className="form-label" htmlFor="meta-tone-type">Tone Type</label>
                 <select
+                  title="Tone category embedded in the .nam metadata; this does not change the training recipe."
                   id="meta-tone-type"
                   className="form-select"
                   value={editedJob.metadata?.toneType || ''}
@@ -2174,6 +2162,7 @@ function JobEditor({
               <div className="form-group">
                 <label className="form-label" htmlFor="meta-input-dbu">Send Level (dBu)</label>
                 <input
+                  title="Optional send-level calibration in dBu, stored in model metadata. This does not adjust the training audio."
                   id="meta-input-dbu"
                   type="number"
                   step="0.1"
@@ -2187,6 +2176,7 @@ function JobEditor({
               <div className="form-group">
                 <label className="form-label" htmlFor="meta-output-dbu">Return Level (dBu)</label>
                 <input
+                  title="Optional return-level calibration in dBu, stored in model metadata. This does not adjust the training audio."
                   id="meta-output-dbu"
                   type="number"
                   step="0.1"

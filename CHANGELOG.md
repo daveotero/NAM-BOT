@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Automatic stopping at Fast, Balanced, or Thorough convergence, with optional epoch caps, live training-mode controls, and convergence feedback during fixed-epoch runs.
+- Automatic stopping at Fast, Balanced, or Obsessive convergence, with remembered safety limits starting at 2,000 epochs, progress against the limit, fixed stopping rules for each run, and convergence feedback during fixed-epoch runs.
 - Remembered training-mode defaults and convergence details in saved training reports.
 - Optional branded PNG training summaries and interactive, offline HTML reports alongside saved models, snapshots, and extra copies, plus manual report export from finished runs.
 - Readable training dates and times on finished runs and in reports.
@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Standardized typography, controls, diagnostic summaries, and training cards across the app, including narrow windows and higher zoom levels.
+- Added explanatory tooltips to important settings, training options, preset controls, and model-output choices.
 - Simplified individual checkbox options while retaining grouped panels for packed submodels.
 - Shared the animated NAM-BOT logo with HTML reports and added a monochrome horns cursor on logo hover.
 - Simplified About's legal notice while retaining the full license in packaged builds.

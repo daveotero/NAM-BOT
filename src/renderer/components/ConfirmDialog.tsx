@@ -10,6 +10,7 @@ interface ConfirmDialogProps {
   cancelLabel?: string
   alternateLabel?: string
   alternateClassName?: string
+  checkboxTitle?: string
   checkboxLabel?: string
   checkboxChecked?: boolean
   onCheckboxChange?: (checked: boolean) => void
@@ -28,6 +29,7 @@ export default function ConfirmDialog({
   cancelLabel = 'Cancel',
   alternateLabel,
   alternateClassName = 'btn btn-secondary',
+  checkboxTitle,
   checkboxLabel,
   checkboxChecked = false,
   onCheckboxChange,
@@ -87,7 +89,7 @@ export default function ConfirmDialog({
         <h3 id={titleId}>{title}</h3>
         <p id={descriptionId} className="ui-text-body" style={{ color: 'var(--text-steel)' }}>{message}</p>
         {checkboxLabel && onCheckboxChange && (
-          <label className="checkbox-container modal-option">
+          <label className="checkbox-container modal-option" title={checkboxTitle}>
             {checkboxLabel}
             <input
               type="checkbox"

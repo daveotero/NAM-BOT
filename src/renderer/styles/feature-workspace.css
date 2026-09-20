@@ -155,8 +155,17 @@
 .property-workspace .job-mode-controls .btn[aria-pressed] { border-color: #3b3b45; color: var(--text-steel); background: #111114; }
 .property-workspace .job-mode-controls .btn[aria-pressed='true'] { border-color: #00f0ff77; color: var(--neon-cyan); background: #00f0ff0d; }
 .property-workspace .job-mode-controls .btn:not([aria-pressed]) { margin-left: var(--space-2); }
-.job-latency-controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.job-mode-options { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.property-input-unit { display: inline-flex; align-items: center; gap: var(--space-2); max-width: 100%; }
 .property-control #epochs, .property-control #latency-samples { width: 120px; max-width: 100%; }
+.training-mode-settings { container: training-mode / inline-size; min-width: 0; }
+.training-mode-body { display: flex; flex-direction: column; gap: var(--space-3); }
+.training-mode-settings .property-row { grid-template-columns: 130px minmax(0, 1fr); gap: var(--space-2) var(--space-3); padding: 0; }
+.training-mode-settings .property-control { gap: var(--space-1); }
+@container training-mode (max-width: 500px) {
+  .training-mode-settings .property-row { grid-template-columns: minmax(0, 1fr); gap: var(--space-1); }
+  .training-mode-settings .property-row > .form-label { padding-top: 0; }
+}
 .job-field-help summary { color: var(--text-steel); cursor: pointer; font-size: var(--text-secondary); }
 .job-field-help summary:hover { color: var(--neon-cyan); }
 .job-field-help[open] summary { margin-bottom: 6px; }

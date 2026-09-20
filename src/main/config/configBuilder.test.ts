@@ -22,11 +22,14 @@ it('replaces only the epoch limit in convergence mode, including expert epoch ov
   const fixed = buildJobSpec()
   const original = resolveJobConfigs(fixed, preset)
   const auto = resolveJobConfigs({ ...fixed, stopping: { mode: 'convergence', level: 'fast', maxEpochs: null } }, preset)
-  expect(auto.learningConfig.trainer).toMatchObject({ max_epochs: -1, precision: '32-true' })
+  expect(auto.learningConfig.trainer).toMatchObject({ max_epochs: 2000, precision: '32-true' })
   expect(auto.modelConfig).toEqual(original.modelConfig)
   expect(preset.expert.learning?.trainer).toEqual({ max_epochs: 77, precision: '32-true' })
   const capped = resolveJobConfigs({ ...fixed, stopping: { mode: 'convergence', level: 'balanced', maxEpochs: 250 } }, preset)
   expect(capped.learningConfig.trainer).toMatchObject({ max_epochs: 250 })
+  const workspace = createTempDir()
+  buildJobConfigs({ ...fixed, stopping: { mode: 'convergence', level: 'fast', maxEpochs: null } }, workspace, preset)
+  expect(JSON.parse(readFileSync(join(workspace, 'stopping-policy.json'), 'utf8'))).toEqual({ mode: 'convergence', level: 'fast', maxEpochs: 2000 })
 })
 
 function createTempDir(): string {

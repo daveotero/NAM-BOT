@@ -80,7 +80,7 @@ The Dashboard should stay lightweight. Detailed troubleshooting, command copy bl
 
 ### Training mode
 
-Active training cards use the same convergence status and live training-mode controls as Jobs. Fixed-epoch runs show the highest convergence level reached without stopping. Runs using **Until convergence** show their selected level and optional cap; uncapped runs omit the overall completion percentage. See [training mode and convergence](jobs-system.md#training-mode-and-convergence) for switching rules and the shared detector thresholds.
+Active training cards group their read-only mode and convergence feedback in the bordered Preset box inside **Show Details**, alongside the existing latency, epoch, checkpoint, and device facts. Fixed-epoch runs show the highest convergence level reached without stopping. Runs using **Auto convergence** show their selected level and required maximum epochs, with a progress bar labeled as a percentage of the safety limit; convergence may stop the run sooner. The limit initially defaults to 2,000 epochs and remembers the user's last value. The mode, threshold, and limit stay fixed for the run. Save Snapshot and the existing stop controls remain available. See [training mode and convergence](jobs-system.md#training-mode-and-convergence) for the shared detector thresholds.
 
 ### Training reports
 

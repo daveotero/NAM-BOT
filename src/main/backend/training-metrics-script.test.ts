@@ -18,7 +18,7 @@ describe('training metrics Python callback', () => {
         { name: 'channels_8' }, { name: 'channels_20' }
       ] } } }))
       const result = spawnSync('python', ['-c', String.raw`
-import json, runpy, sys, types
+import json, runpy, sys, time, types, uuid
 from pathlib import Path
 script, config = sys.argv[1:]
 sys.argv = [script, "data.json", config, "learning.json", "output"]
@@ -64,6 +64,27 @@ single.on_validation_end(trainer, None)
 # visible monitoring error at the next epoch boundary.
 trainer.max_epochs = 10
 single.on_fit_start(trainer, None)
+# Commands from older clients cannot change a run's starting rules.
+controls = Path(script).with_name("training-controls")
+for starting_policy in [
+    {"mode": "fixed", "level": "balanced", "maxEpochs": None},
+    {"mode": "convergence", "level": "fast", "maxEpochs": None},
+    {"mode": "convergence", "level": "thorough", "maxEpochs": 2000},
+]:
+    single.monitor = scope["ConvergenceMonitor"]({None: "Model"}, starting_policy, 10)
+    before = single.monitor.status()
+    for requested in [
+        {"mode": "fixed", "level": "balanced", "maxEpochs": None},
+        {"mode": "convergence", "level": "balanced", "maxEpochs": 500},
+    ]:
+        request_id = str(uuid.uuid4())
+        (controls / "request.json").write_text(json.dumps({"id": request_id, "action": "set_stopping_policy",
+            "policy": requested, "expiresAt": time.time() + 120}))
+        single.handle_command(trainer, None, force=True)
+        response = json.loads((controls / (request_id + ".json")).read_text())
+        assert not response["ok"] and "fixed when the run starts" in response["error"], response
+        assert single.monitor.status() == before
+        assert trainer.max_epochs == 10
 original_open = Path.open
 def failing_open(target, *args, **kwargs):
     if target == path:

@@ -1,6 +1,7 @@
 // Run the installed nam-full entry point with metrics and user-requested controls.
 // The installed package and existing checkpoint callbacks stay untouched.
 import { buildConvergenceScript } from './convergence-script'
+import { DEFAULT_CONVERGENCE_MAX_EPOCHS } from '../../shared/convergence'
 export const TRAINING_METRICS_FILENAME = 'esr-history.jsonl'
 
 export function buildTrainingMetricsScript(): string {
@@ -53,11 +54,16 @@ def install_esr_callback():
         def on_fit_start(self, trainer, pl_module):
             original_limit = trainer.max_epochs if trainer.max_epochs is not None and trainer.max_epochs > 0 else None
             self.monitor = ConvergenceMonitor(expected_models, policy, original_limit)
+            if self.monitor.policy["mode"] == "convergence":
+                if self.monitor.policy["maxEpochs"] is None:
+                    self.monitor.policy["maxEpochs"] = ${DEFAULT_CONVERGENCE_MAX_EPOCHS}
+                    self.monitor.changes[0]["policy"] = dict(self.monitor.policy)
+                trainer.fit_loop.max_epochs = self.monitor.policy["maxEpochs"]
             if trainer.is_global_zero:
                 try:
                     control_dir.mkdir(exist_ok=True)
                     self.publish_convergence()
-                    write_result(control_dir / "ready.json", {"ready": True, "stoppingPolicy": CONVERGENCE_VERSION})
+                    write_result(control_dir / "ready.json", {"ready": True})
                 except Exception as error:
                     print("NAM-BOT: live export controls unavailable: " + str(error), flush=True)
                     if policy["mode"] == "convergence":
@@ -156,23 +162,7 @@ def install_esr_callback():
                     raise RuntimeError("The training command expired. Please try again.")
                 action = request.get("action")
                 if action == "set_stopping_policy":
-                    if self.monitor is None or trainer.should_stop or self.finishing:
-                        raise RuntimeError("Training is already finishing or does not support live mode changes")
-                    previous_monitor = deepcopy(self.monitor)
-                    previous_limit = trainer.fit_loop.max_epochs
-                    try:
-                        self.monitor.set_policy(request.get("policy"), int(trainer.current_epoch) + 1)
-                        limit = self.monitor.limit()
-                        trainer.fit_loop.max_epochs = -1 if limit is None else limit
-                        self.publish_convergence()
-                        write_result(response_path, {"ok": True, "epoch": int(trainer.current_epoch) + 1,
-                            "convergence": self.monitor.status()})
-                    except Exception:
-                        self.monitor = previous_monitor
-                        trainer.fit_loop.max_epochs = previous_limit
-                        self.publish_convergence()
-                        raise
-                    return
+                    raise RuntimeError("Training mode, threshold, and maximum epochs are fixed when the run starts.")
                 if action == "finish":
                     if self.monitor is not None:
                         self.monitor.finish("manual")
