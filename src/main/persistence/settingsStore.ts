@@ -32,6 +32,9 @@ export function normalizeSettings(input: unknown): AppSettings {
   )
 
   return {
+    notificationsEnabled: typeof getSetting(input, 'notificationsEnabled') === 'boolean'
+      ? getSetting(input, 'notificationsEnabled') === true
+      : defaultSettings.notificationsEnabled,
     condaExecutablePath,
     backendMode,
     environmentName: backendMode === 'conda-name'

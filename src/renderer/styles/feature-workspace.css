@@ -172,6 +172,8 @@
 .property-section > h2:focus-visible { outline: 1px solid var(--neon-cyan); outline-offset: 4px; }
 .property-row { display: grid; grid-template-columns: 154px minmax(0, 1fr); align-items: start; gap: 8px 18px; padding: 9px 0; }
 .property-workspace .property-row > .form-label { margin: 0; padding-top: 7px; color: var(--text-ash); line-height: 1.15; }
+.property-row-checkbox { align-items: center; }
+.property-workspace .property-row-checkbox > .form-label { padding-top: 0; }
 .job-label-detail { display: block; white-space: nowrap; color: var(--text-steel); font-size: 15px; letter-spacing: 0; }
 .property-control { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
 .property-control .form-input, .property-control .form-select { width: 100%; }

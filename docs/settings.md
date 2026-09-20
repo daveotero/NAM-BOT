@@ -2,11 +2,11 @@
 
 The Settings page manages global configuration for NAM-BOT, including backend paths, default metadata, and general application behavior.
 
-Settings uses the same continuous property sheet as Jobs and the Preset editor, with aligned labels and controls under **Backend**, **Folders**, **Author**, and **Application**. A fixed section strip smoothly scrolls to headings and highlights the current section in gray. Reduced-motion preferences use immediate scrolling. Save Settings and save status stay in the workspace toolbar. Fields use muted borders, while section dividers retain stronger contrast; narrow windows stack labels above their controls.
+Settings uses the same continuous property sheet as Jobs and the Preset editor, with aligned labels and controls under **Backend**, **Folders**, **Author**, and **Application**. A fixed section strip smoothly scrolls to headings and highlights the current section in gray. Reduced-motion preferences use immediate scrolling. Save status stays in the workspace toolbar. Fields use muted borders, while section dividers retain stronger contrast; narrow windows stack labels above their controls.
 
 ## Auto-save Behavior
 
-Settings in NAM-BOT are automatically saved after a short pause, and the header also provides an explicit **Save Settings** button.
+Settings in NAM-BOT are automatically saved after a short pause. The header shows save status; no manual save is required.
 
 - A short debounce (approximately 500 ms) prevents constant disk writes while typing.
 - Navigating away flushes the current settings draft instead of canceling the pending save.
@@ -40,6 +40,7 @@ Older settings files that selected the unsupported Direct Python mode are migrat
 ### Application Settings
 
 - **Default preset**: The saved preset used for new jobs, dropped or selected output audio files, and batches created from fresh files. It starts with A2 Packed WaveNet and includes all visible built-in and user presets. Each new job inherits the chosen preset's epoch count. Deleting the selected default in Presets resets this preference to A2 Packed WaveNet. If the preset becomes unavailable outside the app or is hidden, new jobs still fall back to A2, and Settings flags the unavailable selection. Existing jobs and batches created from a template retain their selected recipe.
+- **Enable desktop notifications**: Turns training alerts on or off. Enabled by default, including for existing installations. Changes auto-save and apply to future alerts without restarting, including jobs already running. Alerts cover completed, failed, or canceled training and jobs waiting for A2 diagnostics. Clicking an alert opens Jobs or Diagnostics. Suppressed alerts are not replayed when re-enabled. System notification settings still apply.
 - **Automatically open results folder**: Opens the completed run folder in your system file browser once training finishes.
   On Windows this usually means File Explorer. On macOS this means Finder.
 

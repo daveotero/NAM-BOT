@@ -158,9 +158,6 @@ export default function Settings() {
         <span className={`settings-save-status${settingsSaveError ? ' is-error' : ''}`} role="status">
           {settingsSaveError ? `Save failed: ${settingsSaveError}` : isSettingsSaving ? 'Saving...' : hasUnsavedChanges ? 'Unsaved changes' : 'Saved'}
         </span>
-        <button type="button" className={`btn btn-sm ${hasUnsavedChanges ? 'btn-green' : 'btn-secondary'}`} disabled={!hasUnsavedChanges || isBackendBusy} onClick={() => void handleSave()}>
-          Save Settings
-        </button>
       </WorkspaceToolbar>
       <div className="panel editor-sheet">
         {browseError && <p role="alert" className="operation-error">Could not open the picker: {browseError}</p>}
@@ -391,10 +388,10 @@ export default function Settings() {
               {presetsLoadError && <p role="alert" className="operation-error">Could not load presets: {presetsLoadError} <button type="button" className="btn btn-sm btn-secondary" onClick={() => void loadPresets()}>Retry</button></p>}
             </div>
           </div>
-          <div className="property-row">
+          <div className="property-row property-row-checkbox">
             <span className="form-label">Results folder</span>
             <div className="property-control">
-              <label className="property-check-option property-option-panel">
+              <label className="property-check-option">
                 <input
                   type="checkbox"
                   checked={localSettings.autoOpenResultsFolder}
@@ -407,6 +404,19 @@ export default function Settings() {
             </div>
           </div>
 
+          <div className="property-row property-row-checkbox">
+            <span className="form-label">Notifications</span>
+            <div className="property-control">
+              <label className="property-check-option">
+                <input
+                  type="checkbox"
+                  checked={localSettings.notificationsEnabled}
+                  onChange={(event) => setLocalSettings({ ...localSettings, notificationsEnabled: event.target.checked })}
+                />
+                <span className="label-text">Enable desktop notifications</span>
+              </label>
+            </div>
+          </div>
         </PropertySection>
       </div>
     </PropertySheet>

@@ -14,6 +14,11 @@ import { buildBackendSettingsKey } from '../../shared/backend-settings'
 
 let cachedSettings: AppSettings | null = null
 
+export function getCurrentSettings(): AppSettings {
+  cachedSettings ??= loadSettings()
+  return cachedSettings
+}
+
 async function validateAndBroadcast(): Promise<ReturnType<typeof validateBackend> extends Promise<infer TResult> ? TResult : never> {
   const settings: AppSettings = cachedSettings || loadSettings()
   cachedSettings = settings

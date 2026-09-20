@@ -17,6 +17,11 @@ import { defaultSettings } from '../types'
 import { normalizeSettings } from './settingsStore'
 
 describe('normalizeSettings', () => {
+  it('defaults notifications on for old settings and preserves an explicit opt-out', () => {
+    expect(normalizeSettings({}).notificationsEnabled).toBe(true)
+    expect(normalizeSettings({ notificationsEnabled: 'false' }).notificationsEnabled).toBe(true)
+    expect(normalizeSettings({ notificationsEnabled: false }).notificationsEnabled).toBe(false)
+  })
   it('migrates unsupported legacy settings to supported defaults and drops dead fields', () => {
     const normalized = normalizeSettings({
       backendMode: 'direct-python',

@@ -5,7 +5,6 @@ import {
   dialog,
   ipcMain,
   nativeImage,
-  Notification,
   powerSaveBlocker,
   shell,
   type MessageBoxOptions,
@@ -16,7 +15,7 @@ import { join } from 'path'
 import { pathToFileURL } from 'url'
 import log from 'electron-log/main'
 import { existsSync, mkdirSync } from 'fs'
-import { setupIpcHandlers, validateBackendOnStartup } from './ipc/settings'
+import { getCurrentSettings, setupIpcHandlers, validateBackendOnStartup } from './ipc/settings'
 import { setupJobIpcHandlers } from './ipc/jobs'
 import { setupPresetIpcHandlers } from './ipc/presets'
 import { setupLogsIpcHandlers } from './ipc/logs'
@@ -33,6 +32,7 @@ import { observeShellWindow, setupWindowShellIpc } from './shell/windowState'
 import { installDesktopSmokeIpc } from './shell/smokeIpc'
 import { createAppDialogs } from './shell/appDialogs'
 import { createAppCommands } from './shell/appCommands'
+import { createJobNotifier } from './shell/jobNotifications'
 
 const ownsInstance = app.requestSingleInstanceLock()
 if (!ownsInstance) app.exit(0)
@@ -45,7 +45,6 @@ const PROJECT_URL = 'https://github.com/daveotero/nam-bot'
 const ISSUE_TRACKER_URL = 'https://github.com/daveotero/nam-bot/issues'
 const NAM_GITHUB_URL = 'https://github.com/sdatkinson/neural-amp-modeler'
 const ACTIVE_JOB_STATUSES: JobStatus[] = ['preparing', 'running', 'stopping', 'finalizing']
-const FINISHED_JOB_STATUSES: JobStatus[] = ['succeeded', 'failed', 'canceled']
 const TRAINING_POWER_SAVE_BLOCKER_TYPE = process.platform === 'win32'
   ? 'prevent-display-sleep'
   : 'prevent-app-suspension'
@@ -92,8 +91,13 @@ let mainWindow: BrowserWindow | null = null
 const appDialogs = createAppDialogs(() => mainWindow)
 const appCommands = createAppCommands({ getWindow: () => mainWindow, focusWindow: focusMainWindow, hasModal: appDialogs.hasPending })
 let trainingPowerSaveBlockerId: number | null = null
-const reportedFinishedStatuses: Map<string, JobStatus> = new Map()
-const reportedDiagnosticBlocks: Set<string> = new Set()
+const maybeShowJobNotification = createJobNotifier({
+  isEnabled: () => getCurrentSettings().notificationsEnabled,
+  navigate: (path) => {
+    focusMainWindow()
+    sendAppCommand({ type: 'navigate', path })
+  }
+})
 const guardQuit = createQuitGuard({
   hasActiveWork: hasActiveTrainingWork,
   confirmQuit: async (): Promise<boolean> => {
@@ -332,64 +336,6 @@ function updateWindowProgress(): void {
   }
 
   mainWindow.setProgressBar(2)
-}
-
-function maybeShowJobNotification(runtime: JobRuntimeState): void {
-  if (runtime.status === 'queued' && runtime.errorCategory === 'a2_diagnostics_pending') {
-    if (reportedDiagnosticBlocks.has(runtime.jobId)) {
-      return
-    }
-    reportedDiagnosticBlocks.add(runtime.jobId)
-
-    if (!Notification.isSupported()) {
-      return
-    }
-
-    const notification = new Notification({
-      title: 'Diagnostics needed before training',
-      body: runtime.jobName
-    })
-
-    notification.on('click', () => {
-      focusMainWindow()
-      sendAppCommand({ type: 'navigate', path: '/diagnostics' })
-    })
-
-    notification.show()
-    return
-  }
-
-  reportedDiagnosticBlocks.delete(runtime.jobId)
-
-  if (!FINISHED_JOB_STATUSES.includes(runtime.status)) {
-    return
-  }
-
-  if (reportedFinishedStatuses.get(runtime.jobId) === runtime.status) {
-    return
-  }
-  reportedFinishedStatuses.set(runtime.jobId, runtime.status)
-
-  if (!Notification.isSupported()) {
-    return
-  }
-
-  const notification = new Notification({
-    title:
-      runtime.status === 'succeeded'
-        ? 'Training completed'
-        : runtime.status === 'failed'
-          ? 'Training failed'
-          : 'Training canceled',
-    body: runtime.jobName
-  })
-
-  notification.on('click', () => {
-    focusMainWindow()
-    sendAppCommand({ type: 'navigate', path: '/jobs' })
-  })
-
-  notification.show()
 }
 
 function setupShellIntegrations(): void {

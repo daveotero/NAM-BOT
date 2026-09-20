@@ -79,6 +79,7 @@ export interface AppSettings {
   defaultWorkspaceRoot: string | null
   defaultPresetId: string
   autoOpenResultsFolder: boolean
+  notificationsEnabled: boolean
   defaultAuthorName: string
   defaultAuthorUrl: string
 }

@@ -11,6 +11,7 @@ export interface AppSettings {
   defaultWorkspaceRoot: string | null
   defaultPresetId: string
   autoOpenResultsFolder: boolean
+  notificationsEnabled: boolean
   defaultAuthorName: string
   defaultAuthorUrl: string
 }
@@ -24,6 +25,7 @@ export const defaultSettings: AppSettings = {
   defaultWorkspaceRoot: null,
   defaultPresetId: DEFAULT_PRESET_ID,
   autoOpenResultsFolder: false,
+  notificationsEnabled: true,
   defaultAuthorName: '',
   defaultAuthorUrl: ''
 }
