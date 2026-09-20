@@ -280,6 +280,25 @@ export function setupJobIpcHandlers(): void {
     await queueManager.resumeQueue(terminationConfirmed === true)
   })
 
+  ipcMain.handle('jobs:dismissRecentRun', async (_event, jobId: unknown) => {
+    try {
+      if (typeof jobId !== 'string' || !jobId.trim()) throw new Error('Invalid completed run ID.')
+      return queueManager.dismissRecentRun(jobId)
+    } catch (error) {
+      log.error('Could not dismiss recent dashboard run:', error)
+      throw error
+    }
+  })
+
+  ipcMain.handle('jobs:dismissAllRecentRuns', async () => {
+    try {
+      return queueManager.dismissAllRecentRuns()
+    } catch (error) {
+      log.error('Could not clear recent dashboard runs:', error)
+      throw error
+    }
+  })
+
   ipcMain.handle('jobs:createDraft', async (_event, input?: Partial<JobSpec>) => {
     const job = createDraftFromInput(input)
     commitDrafts(new Map(drafts).set(job.id, job))

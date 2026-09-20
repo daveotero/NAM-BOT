@@ -25,6 +25,39 @@ function run(overrides: Partial<JobRuntimeState> = {}): JobRuntimeState {
 afterEach(() => { for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }) })
 
 describe('lifetime training statistics', () => {
+  it('clears every existing success from the dashboard while allowing future completions to appear', () => {
+    const path = createPath()
+    const store = new TrainingStatisticsStore(path)
+    store.record(Array.from({ length: 7 }, (_, index) => run({ jobId: `run-${index}` })))
+    store.record([run({ jobId: 'failed', status: 'failed' })])
+    const before = store.get()
+    store.dismissRecentRun('run-0')
+    store.dismissAllRecentRuns()
+    const restarted = new TrainingStatisticsStore(path)
+    expect(restarted.get().dismissedRecentRunIds).toHaveLength(7)
+    expect(restarted.get().runs).toEqual(before.runs)
+    expect(summarizeTraining(restarted.get())).toEqual(summarizeTraining(before))
+    restarted.record([run({ jobId: 'new-completion' })])
+    const after = restarted.get()
+    expect(after.runs.filter(entry => entry.status === 'succeeded' && !after.dismissedRecentRunIds?.includes(entry.jobId)).map(entry => entry.jobId)).toEqual(['new-completion'])
+  })
+
+  it('persists dashboard dismissals without changing records or totals, including after updates and history clearing', () => {
+    const path = createPath()
+    const store = new TrainingStatisticsStore(path)
+    store.record([run(), run({ jobId: 'second' })])
+    const before = store.get()
+    expect(store.dismissRecentRun('finished-run').dismissedRecentRunIds).toEqual(['finished-run'])
+    expect(store.dismissRecentRun('finished-run').runs).toEqual(before.runs)
+    expect(summarizeTraining(store.get())).toEqual(summarizeTraining(before))
+    const restarted = new TrainingStatisticsStore(path)
+    restarted.record([run({ currentEpoch: 21 })])
+    restarted.record([])
+    expect(restarted.get().dismissedRecentRunIds).toEqual(['finished-run'])
+    expect(restarted.get().runs).toHaveLength(2)
+    expect(() => restarted.dismissRecentRun('missing')).toThrow('no longer available')
+  })
+
   it('imports retained runs once, survives cleared history and restart, and counts retries separately', () => {
     const path = createPath()
     const store = new TrainingStatisticsStore(path)

@@ -139,17 +139,22 @@
 .training-totals .training-favorite { font-size: var(--text-heading); overflow-wrap: anywhere; color: var(--neon-green); }
 .training-totals small { color: var(--text-steel); font-size: var(--text-secondary); }
 .recent-training { padding: 14px var(--space-4) var(--space-1); border-top: 1px solid var(--border-panel); }
-.recent-training h3 { margin: 0 0 10px; color: var(--text-ash); font: var(--text-heading) var(--font-arcade); text-transform: uppercase; }
+.recent-training-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin-bottom: var(--space-2); }
+.recent-training h3 { margin: 0; color: var(--text-ash); font: var(--text-heading) var(--font-arcade); text-transform: uppercase; }
+.recent-training-heading .btn { flex-shrink: 0; }
 .recent-training-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: var(--text-body); }
 .recent-training-table th { padding: 0 var(--space-2) var(--space-2) 0; text-align: left; color: var(--text-steel); font-size: var(--text-secondary); font-weight: normal; text-transform: uppercase; }
-.recent-training-table th:first-child { width: 48%; }
-.recent-training-table th:last-child { width: 90px; }
-.recent-training-table td { padding: 10px var(--space-2) 10px 0; border-top: 1px solid #26262d; vertical-align: middle; color: var(--text-ash); }
+.recent-training-table th:nth-child(2) { width: 23%; }
+.recent-training-table th:nth-child(3) { width: 210px; }
+.recent-training-table th:nth-child(4) { width: 80px; }
+.recent-training-table th:last-child { width: var(--control-height-compact); }
+.recent-training-table td { padding: var(--space-1) var(--space-2) var(--space-1) 0; border-top: 1px solid var(--border-panel); vertical-align: middle; color: var(--text-ash); }
 .recent-training-table :is(th, td):last-child { padding-right: 0; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .recent-training-table td > span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.recent-training-table time { display: block; margin-top: 3px; color: var(--text-steel); font-size: var(--text-secondary); }
+.recent-training-table time { color: var(--text-steel); font-size: var(--text-secondary); }
+.recent-training-duration { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.recent-training-actions .recent-training-dismiss { width: var(--control-height-compact); padding: 0; }
 .recent-training-empty { padding: var(--space-3) 0; color: var(--text-steel); font-size: var(--text-body); }
-.training-statistics-footnote { padding: var(--space-2) var(--space-4) var(--space-3); color: var(--text-steel); font-size: var(--text-secondary); }
 .training-statistics-notice { padding: 18px var(--space-4); color: var(--text-steel); }
 .console-panel { border: 1px solid var(--border-panel); background: var(--surface-panel); min-width: 0; }
 .console-panel-heading { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2); padding: 11px 14px; border-bottom: 1px solid var(--border-panel); background: var(--surface-header); }
@@ -179,6 +184,14 @@
   .console-counter { padding: 14px var(--space-3); }
 }
 @media (max-width: 900px) {
+  .recent-training-table :is(tbody, tr, td) { display: block; }
+  .recent-training-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .recent-training-table tbody tr { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); padding: var(--space-2) 0; border-top: 1px solid var(--border-panel); }
+  .recent-training-table td { padding: 0; border: 0; min-width: 0; }
+  .recent-training-table .recent-training-model { flex: 1 1 calc(100% - var(--control-height-compact) - var(--space-3)); order: 0; }
+  .recent-training-table .recent-training-actions { order: 1; }
+  .recent-training-table :is(.recent-training-preset, .recent-training-finished, .recent-training-duration) { order: 2; color: var(--text-steel); }
+  .recent-training-table .recent-training-preset { max-width: 100%; }
   .training-totals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .training-totals > div { border-bottom: 1px solid var(--border-panel); }
   .training-totals > div:nth-child(even) { border-right: 0; }

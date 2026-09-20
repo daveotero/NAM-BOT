@@ -31,15 +31,43 @@ export class TrainingStatisticsStore {
       if (existsSync(this.path) || existsSync(`${this.path}.bak`)) {
         const stored = readJsonWithBackupSync(this.path)
         if (!isRecord(stored) || stored.schemaVersion !== 1 || typeof stored.trackingStartedAt !== 'string'
-          || !Array.isArray(stored.runs) || !stored.runs.every(isTrainingRecord)) {
+          || !Array.isArray(stored.runs) || !stored.runs.every(isTrainingRecord)
+          || (stored.dismissedRecentRunIds !== undefined && (!Array.isArray(stored.dismissedRecentRunIds)
+            || !stored.dismissedRecentRunIds.every(id => typeof id === 'string')))) {
           throw new Error('Training statistics could not be read. The existing file has been preserved.')
         }
-        this.data = { schemaVersion: 1, trackingStartedAt: stored.trackingStartedAt, runs: stored.runs }
+        this.data = { schemaVersion: 1, trackingStartedAt: stored.trackingStartedAt, runs: stored.runs,
+          dismissedRecentRunIds: Array.isArray(stored.dismissedRecentRunIds) ? stored.dismissedRecentRunIds : [] }
       } else {
         this.data = { schemaVersion: 1, trackingStartedAt: new Date().toISOString(), runs: [] }
       }
     }
     return structuredClone(this.data)
+  }
+
+  dismissRecentRun(jobId: string): TrainingStatistics {
+    const previous = this.get()
+    if (!previous.runs.some(run => run.jobId === jobId && run.status === 'succeeded')) {
+      throw new Error('This completed run is no longer available.')
+    }
+    const dismissed = previous.dismissedRecentRunIds ?? []
+    if (dismissed.includes(jobId)) return previous
+    const next = { ...previous, dismissedRecentRunIds: [...dismissed, jobId] }
+    atomicWriteJsonSync(this.path, next)
+    this.data = next
+    return this.get()
+  }
+
+  dismissAllRecentRuns(): TrainingStatistics {
+    const previous = this.get()
+    const dismissed = new Set(previous.dismissedRecentRunIds ?? [])
+    for (const run of previous.runs) {
+      if (run.status === 'succeeded') dismissed.add(run.jobId)
+    }
+    const next = { ...previous, dismissedRecentRunIds: [...dismissed] }
+    atomicWriteJsonSync(this.path, next)
+    this.data = next
+    return this.get()
   }
 
   record(queue: JobRuntimeState[]): void {

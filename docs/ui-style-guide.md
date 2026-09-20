@@ -78,6 +78,8 @@ Automated checks are a guardrail. Inspect screenshots for clipping, crowded cont
 
 ## Standalone training reports
 
+Keep manual report export controls on Jobs cards. A successful save returns the button to its idle state without an inline success notice. Errors and warnings belong in the card's shared feedback area, never beneath an individual action button where they would disturb row alignment. Verify the post-save state as well as the idle layout.
+
 Training reports reuse the canonical tokens, shared card/text/control styles, and ESR chart. `report/report.css` supplies document layout only; app screens retain their existing stylesheet contract. The build bundles report CSS, JavaScript, local Inter/VT323 fonts, and their license notices into a single offline HTML document. Embedding these built assets in the exported document is intentional and does not permit embedded stylesheets in application JSX. The PNG uses the same theme and an explicit static chart variant, rendered at a fixed 1,000-pixel width with content-driven height independently of application zoom and display scaling.
 
 Keep the NAM-BOT wordmark and project attribution visible in both formats. The PNG has a readable repository address; HTML has one keyboard-accessible link to the NAM-BOT GitHub repository. Review generated exports as well as the application controls, including narrow/zoomed HTML and multi-submodel legends.

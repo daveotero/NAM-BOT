@@ -15,6 +15,8 @@ export interface TrainingStatistics {
   schemaVersion: 1
   trackingStartedAt: string
   runs: TrainingRecord[]
+  /** Dashboard-only dismissals; records still contribute to lifetime totals. */
+  dismissedRecentRunIds?: string[]
 }
 
 export function createTrainingRecord(runtime: JobRuntimeState): TrainingRecord | null {

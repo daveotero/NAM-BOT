@@ -1325,6 +1325,16 @@ export class QueueManager extends EventEmitter {
     return this.statistics.get()
   }
 
+  dismissRecentRun(jobId: string): TrainingStatistics {
+    this.statistics.record(this.queue)
+    return this.statistics.dismissRecentRun(jobId)
+  }
+
+  dismissAllRecentRuns(): TrainingStatistics {
+    this.statistics.record(this.queue)
+    return this.statistics.dismissAllRecentRuns()
+  }
+
   private stopOutputPolling(): void {
     if (this.outputPollTimer) {
       clearInterval(this.outputPollTimer)

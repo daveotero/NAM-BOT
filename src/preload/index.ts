@@ -32,6 +32,8 @@ export interface NamBotApi {
   }
   jobs: {
     getTrainingStatistics: () => Promise<TrainingStatistics>
+    dismissRecentRun: (jobId: string) => Promise<TrainingStatistics>
+    dismissAllRecentRuns: () => Promise<TrainingStatistics>
     getControlState: () => Promise<QueueControlState>
     resumeQueue: (terminationConfirmed?: boolean) => Promise<void>
     createDraft: (input?: unknown) => Promise<unknown>
@@ -127,6 +129,8 @@ const api: NamBotApi = {
   },
   jobs: {
     getTrainingStatistics: () => ipcRenderer.invoke('jobs:getTrainingStatistics'),
+    dismissRecentRun: (jobId: string) => ipcRenderer.invoke('jobs:dismissRecentRun', jobId),
+    dismissAllRecentRuns: () => ipcRenderer.invoke('jobs:dismissAllRecentRuns'),
     getControlState: () => ipcRenderer.invoke('jobs:getControlState'),
     resumeQueue: (terminationConfirmed) => ipcRenderer.invoke('jobs:resumeQueue', terminationConfirmed),
     createDraft: (input) => ipcRenderer.invoke('jobs:createDraft', input),

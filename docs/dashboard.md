@@ -58,7 +58,9 @@ The command strip offers `New job`; its hover hint includes the platform's exist
 
 ## Lifetime Training Record
 
-The training record displays completed runs, recorded training hours, epochs trained, and the most-used preset. A compact recent-runs table shows the five most recent successful runs, newest first, with model name, completion date, preset, and duration. There is no date cutoff, so occasional users still see their last captures. Before any successful runs, it shows `No completed runs yet`.
+The training record displays completed runs, recorded training hours, epochs trained, and the most-used preset. A compact recent-runs table shows up to five non-dismissed successful runs, newest first, with model name, completion date, preset, and duration on one line at normal desktop widths. At narrow widths or high zoom, metadata wraps below the name without shrinking the text. There is no date cutoff, so occasional users still see their last captures. Before any successful runs, it shows `No completed runs yet`.
+
+The right-aligned **×** hides an individual run from this section only; the next older eligible run fills the space. **Clear all** in the section header hides all currently completed runs, including those beyond the five visible rows. These actions persist across app restarts, do not delete Jobs history or exported files, and do not change lifetime totals. Newly completed runs appear normally. After all eligible runs are hidden, the section shows `No recent runs to show`.
 
 - Completed runs counts successful training jobs. A packed-model run counts once, regardless of the number of embedded models or intermediate exports.
 - Training time sums recorded start-to-finish wall time for finished runs, including failed and canceled runs. It includes setup/finalization time within those timestamps. Runs with missing/invalid timestamps or unknown duration after an interrupted process are excluded.
@@ -80,4 +82,4 @@ The Dashboard should stay lightweight. Detailed troubleshooting, command copy bl
 
 Recent completed runs show their completion date and time in the user's local timezone and date format.
 
-Recent completed runs whose detailed Jobs history is still available offer **Save Report**, matching finished Jobs cards: choose a PNG detail card or a standalone interactive HTML report, then choose a destination. Saved reports are listed with the run's artifacts in Jobs. Clearing Jobs history removes the export action while retaining lifetime statistics. Report content, remembered automatic-export choices, and sharing behavior are documented in [Jobs: branded training reports](jobs-system.md#branded-training-reports).
+**Save Report** is available on finished Jobs cards only. Dashboard recent rows are a compact summary with dismissal controls. Report content, remembered automatic-export choices, and sharing behavior are documented in [Jobs: branded training reports](jobs-system.md#branded-training-reports).

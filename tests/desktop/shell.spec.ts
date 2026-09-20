@@ -17,7 +17,7 @@ test.beforeEach(async ({}, info) => {
     // Occasional users still see their latest runs, even outside the old 28-day window.
     const finishedAt = '2026-01-01T12:30:00.000Z'
     const startedAt = '2026-01-01T12:00:00.000Z'
-    const runs: JobRuntimeState[] = Array.from({ length: 3 }, (_, index) => ({
+    const runs: JobRuntimeState[] = Array.from({ length: info.title.includes('dismisses') ? 8 : 3 }, (_, index) => ({
       jobId: `history-${index}`, jobName: `Capture ${index}`, status: index === 2 ? 'failed' : 'succeeded', pid: null,
       frozenJob: { ...defaultJobSpec, id: `history-${index}`, name: `Capture ${index}`, createdAt: startedAt, updatedAt: startedAt },
       frozenPreset: createTrainingPreset({ id: 'test-preset', name: 'Studio capture' }),
@@ -652,7 +652,7 @@ test('early ESR charts keep their scale and terminal logs follow until scrolled 
   expect(errors).toEqual([])
 })
 
-test('branded training reports save real PNG and offline HTML from Jobs and Dashboard', async ({}, info) => {
+test('branded training reports save real PNG and offline HTML from Jobs without success notices', async ({}, info) => {
   test.setTimeout(120_000)
   const destinations = { html: info.outputPath('Studio Amp.training.html'), png: info.outputPath('Studio Amp.training.png') }
   await app.evaluate(({ dialog }, paths) => {
@@ -662,17 +662,20 @@ test('branded training reports save real PNG and offline HTML from Jobs and Dash
       return { canceled: false, filePath: png ? paths.png : paths.html }
     }
   }, destinations)
-  for (const [view, format] of [['Jobs', 'HTML'], ['Dashboard', 'PNG']]) {
-    await chooseMenu('Navigate', view)
-    const card = view === 'Jobs'
-      ? page.locator('.queue-card').filter({ has: page.getByRole('heading', { name: 'Studio Amp', exact: true }) })
-      : page.getByRole('table', { name: 'Recent completed runs' }).getByRole('row').filter({ hasText: 'Studio Amp' })
+  await expect(page.getByRole('button', { name: 'Save Report', exact: true })).toHaveCount(0)
+  for (const format of ['HTML', 'PNG']) {
+    await chooseMenu('Navigate', 'Jobs')
+    const card = page.locator('.queue-card').filter({ has: page.getByRole('heading', { name: 'Studio Amp', exact: true }) })
     const finishedTime = card.locator('time[datetime="2026-09-19T10:18:30Z"]')
     await expect(finishedTime).toHaveText(await page.evaluate(() => new Date('2026-09-19T10:18:30Z').toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })))
-    if (view === 'Jobs') await captureRenderer(info, 'report-finished-run.png')
+    await captureRenderer(info, 'report-finished-run.png')
+    const before = await card.getByRole('button', { name: 'Save Report', exact: true }).boundingBox()
     await card.getByRole('button', { name: 'Save Report', exact: true }).click()
     await page.getByRole('alertdialog').getByRole('button', { name: `Save ${format}`, exact: true }).click()
-    await expect(card.getByRole('status').filter({ hasText: `${format} report saved.` })).toBeVisible({ timeout: 40_000 })
+    await expect(card.getByRole('button', { name: 'Save Report', exact: true })).toBeEnabled({ timeout: 40_000 })
+    await expect(card.getByText(/report saved\./i)).toHaveCount(0)
+    expect(await card.getByRole('button', { name: 'Save Report', exact: true }).boundingBox()).toEqual(before)
+    await captureRenderer(info, `report-after-save-${format.toLowerCase()}.png`)
   }
   const size = await app.evaluate(({ nativeImage }, path) => nativeImage.createFromPath(path).getSize(), destinations.png)
   expect(size.width).toBe(1000)
@@ -685,6 +688,7 @@ test('branded training reports save real PNG and offline HTML from Jobs and Dash
     window.webContents.setZoomFactor(1.5)
   })
   await assertSafeArea()
+  await chooseMenu('Navigate', 'Dashboard')
   await page.getByRole('table', { name: 'Recent completed runs' }).scrollIntoViewIfNeeded()
   await captureRenderer(info, 'report-dashboard-small.png')
   await chooseMenu('Navigate', 'Jobs')
@@ -1298,6 +1302,44 @@ test('blank new jobs cancel quietly after default audio loads; actual and revert
   await expect(page.getByRole('alertdialog')).toHaveCount(0)
   await expect(toolbar.getByRole('status')).toHaveText('Saved')
   await expect(toolbar.getByRole('button', { name: 'Save Settings', exact: true })).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('lifetime dashboard dismisses recent runs without deleting Jobs or lifetime records', async ({}, info) => {
+  const panel = page.getByRole('region', { name: 'Lifetime training statistics' })
+  const table = panel.getByRole('table', { name: 'Recent completed runs' })
+  await expect(table.locator('tbody tr')).toHaveCount(5)
+  await expect(table.locator('.recent-training-name')).toHaveText(['Capture 7', 'Capture 6', 'Capture 5', 'Capture 4', 'Capture 3'])
+  await expect(panel.getByRole('button', { name: 'Save Report', exact: true })).toHaveCount(0)
+  await app.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0].setSize(1400, 950) })
+  const hide = panel.getByRole('button', { name: 'Hide Capture 7 from Dashboard', exact: true })
+  await hide.focus()
+  await expect(hide).toBeFocused()
+  await captureRenderer(info, 'recent-runs-compact.png')
+  expect(await table.locator('tbody tr').first().evaluate(element => element.getBoundingClientRect().height)).toBeLessThanOrEqual(42)
+  await page.keyboard.press('Enter')
+  await expect(table.locator('.recent-training-name')).toHaveText(['Capture 6', 'Capture 5', 'Capture 4', 'Capture 3', 'Capture 1'])
+  await chooseMenu('Navigate', 'Jobs')
+  await expect(page.getByRole('heading', { name: 'Capture 7', exact: true })).toBeVisible()
+  await chooseMenu('Navigate', 'Dashboard')
+  await expect(table).toBeVisible()
+  await page.reload()
+  await expect(table.locator('.recent-training-name')).toHaveText(['Capture 6', 'Capture 5', 'Capture 4', 'Capture 3', 'Capture 1'])
+  await app.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows()[0]; window.setSize(1000, 700); window.webContents.setZoomFactor(1.5) })
+  await table.scrollIntoViewIfNeeded()
+  await assertSafeArea()
+  await expect.poll(() => panel.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
+  await captureRenderer(info, 'recent-runs-zoomed.png')
+  await panel.getByRole('button', { name: 'Clear all', exact: true }).click()
+  await expect(panel.getByText('No recent runs to show.')).toBeVisible()
+  await expect(panel.getByRole('button', { name: 'Clear all', exact: true })).toBeDisabled()
+  await page.reload()
+  await expect(panel.getByText('No recent runs to show.')).toBeVisible()
+  await expect(panel.locator('.training-totals > div').first().locator('dd')).toHaveText('7')
+  expect(await page.evaluate(async () => (await window.namBot.jobs.listQueue()).length)).toBe(8)
+  const saved = JSON.parse(await readFile(join(dataPath, 'training-statistics.json'), 'utf8'))
+  expect(saved.runs).toHaveLength(8)
+  expect(saved.dismissedRecentRunIds).toHaveLength(7)
   expect(errors).toEqual([])
 })
 

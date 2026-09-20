@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Shared the animated NAM-BOT logo with HTML reports and added a monochrome horns cursor on logo hover.
 - Simplified About's legal notice while retaining the full license in packaged builds.
 - Removed the duplicate activity indicator from the dashboard's Active Training heading.
+- Compact dashboard recent runs into rows with individual dismissal and Clear all controls, preserving Jobs history and lifetime totals across restarts.
+- Keep manual report export in Jobs and remove redundant report-save success notices and dashboard explanatory text.
 
 ### Fixed
 

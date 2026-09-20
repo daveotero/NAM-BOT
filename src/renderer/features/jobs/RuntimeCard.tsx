@@ -404,7 +404,7 @@ export default function RuntimeCard({
                 </button>
               )}
 
-              {isFinishedDisplay && <SaveReportButton jobId={runtime.jobId} />}
+              {isFinishedDisplay && <SaveReportButton jobId={runtime.jobId} onError={setActionError} />}
 
               {isFinishedDisplay && onClearFinished && (
                 <button className="btn btn-sm btn-secondary" onClick={() => void runAction(() => onClearFinished(runtime.jobId))}>
