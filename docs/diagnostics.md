@@ -1,5 +1,7 @@
 # Diagnostics Screen
 
+UI presentation follows the shared [UI style guide](ui-style-guide.md), including typography, controls, and responsive review requirements.
+
 ## Overview
 
 The Diagnostics screen is NAM-BOT's main environment-health page.

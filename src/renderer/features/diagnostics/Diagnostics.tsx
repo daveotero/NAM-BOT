@@ -16,6 +16,11 @@ import PropertySheet, { PropertySection } from '../../components/PropertySheet'
 import WorkspaceToolbar from '../../components/WorkspaceToolbar'
 import CopyableCodeBlock from '../../components/CopyableCodeBlock'
 import WorkingIndicator from '../../components/WorkingIndicator'
+import DiagnosticSummaryCard, {
+  getDiagnosticStatusColor as getStatusColor,
+  getDiagnosticStatusLabel as getStatusLabel,
+  type DiagnosticStatus, type DiagnosticSummary
+} from '../../components/DiagnosticSummaryCard'
 
 const DIAGNOSTICS_SECTIONS = [
   { id: 'diagnostics-overview', label: 'Overview' },
@@ -93,28 +98,24 @@ function CheckResult({ result }: { result: BackendCheckResult }) {
       style={{
         padding: '16px',
         marginBottom: '12px',
-        border: `2px solid ${result.ok ? 'var(--neon-green)' : 'var(--neon-magenta)'}`,
+        border: `1px solid ${result.ok ? 'var(--neon-green)' : 'var(--neon-magenta)'}`,
         backgroundColor: 'var(--bg-void)'
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
         <span
-          style={{
-            color: result.ok ? 'var(--neon-green)' : 'var(--neon-magenta)',
-            fontSize: '24px',
-            fontFamily: 'var(--font-arcade)'
-          }}
+          className="ui-text-heading" style={{ color: result.ok ? 'var(--neon-green)' : 'var(--neon-magenta)' }}
         >
           {result.ok ? '✓ PASS' : '✗ FAIL'}
         </span>
-        <span style={{ fontFamily: 'var(--font-arcade)', fontSize: '20px', color: 'var(--text-ash)' }}>
+        <span className="ui-text-heading" style={{ color: 'var(--text-ash)' }}>
           {result.title}
         </span>
       </div>
-      <p style={{ color: 'var(--text-steel)', fontSize: '14px', marginBottom: result.suggestion ? '8px' : '0' }}>
+      <p className="ui-text-body" style={{ color: 'var(--text-steel)', marginBottom: result.suggestion ? '8px' : '0' }}>
         {result.message}
       </p>
-      {result.suggestion && <p style={{ color: 'var(--neon-cyan)', fontSize: '13px' }}>→ {result.suggestion}</p>}
+      {result.suggestion && <p className="ui-text-body" style={{ color: 'var(--neon-cyan)' }}>→ {result.suggestion}</p>}
     </div>
   )
 }
@@ -139,24 +140,12 @@ function DiagnosticFact({
       }}
     >
       <span
-        style={{
-          color: 'var(--text-steel)',
-          fontSize: '10px',
-          textTransform: 'uppercase',
-          letterSpacing: '0.1em',
-          whiteSpace: 'nowrap'
-        }}
+        className="ui-text-secondary" style={{ color: 'var(--text-steel)', textTransform: 'uppercase', letterSpacing: '0.1em', whiteSpace: 'nowrap' }}
       >
         {label}
       </span>
       <span
-        style={{
-          color: 'var(--text-ash)',
-          fontSize: '12px',
-          textAlign: 'right',
-          wordBreak: 'break-all',
-          fontFamily: 'Consolas, Monaco, monospace'
-        }}
+        className="ui-text-code" style={{ color: 'var(--text-ash)', textAlign: 'right', wordBreak: 'break-all' }}
       >
         {value}
       </span>
@@ -802,15 +791,8 @@ function shouldShowTroubleshootingExport(
   return acceleratorDiagnostics.status !== 'ready'
 }
 
-type MatrixStatus = 'pass' | 'warn' | 'fail' | 'skip'
-
-interface SummaryTile {
-  title: string
-  status: MatrixStatus
-  label: string
-  detail: string
-  checkedAt: string | null
-}
+type MatrixStatus = DiagnosticStatus
+type SummaryTile = DiagnosticSummary
 
 interface MatrixRow {
   status: MatrixStatus
@@ -838,61 +820,6 @@ interface ActionItem {
   showSettingsAction?: boolean
 }
 
-function getStatusColor(status: MatrixStatus): string {
-  switch (status) {
-    case 'pass':
-      return 'var(--neon-green)'
-    case 'warn':
-      return 'var(--neon-cyan)'
-    case 'fail':
-      return 'var(--neon-magenta)'
-    case 'skip':
-    default:
-      return 'var(--text-steel)'
-  }
-}
-
-function getStatusLabel(status: MatrixStatus): string {
-  switch (status) {
-    case 'pass':
-      return 'PASS'
-    case 'warn':
-      return 'CHECK'
-    case 'fail':
-      return 'FAIL'
-    case 'skip':
-    default:
-      return 'SKIP'
-  }
-}
-
-function SummaryTileCard({ tile }: { tile: SummaryTile }) {
-  const color = getStatusColor(tile.status)
-  return (
-    <div
-      style={{
-        border: `2px solid ${color}`,
-        backgroundColor: 'rgba(9, 9, 11, 0.55)',
-        padding: '12px',
-        minHeight: '118px',
-        display: 'grid',
-        alignContent: 'space-between',
-        gap: '8px'
-      }}
-    >
-      <div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'baseline', marginBottom: '8px' }}>
-          <p style={{ color: 'var(--text-steel)', fontSize: '10px', letterSpacing: '0.12em', textTransform: 'uppercase' }}>{tile.title}</p>
-          <span style={{ color, fontFamily: 'var(--font-arcade)', fontSize: '16px' }}>{getStatusLabel(tile.status)}</span>
-        </div>
-        <p style={{ color, fontFamily: 'var(--font-arcade)', fontSize: '22px', lineHeight: 1.05, marginBottom: '6px' }}>{tile.label}</p>
-        <p style={{ color: 'var(--text-steel)', fontSize: '12px', lineHeight: 1.35 }}>{tile.detail}</p>
-      </div>
-      <p style={{ color: 'var(--text-steel)', fontSize: '10px' }}>{tile.checkedAt ? `Checked ${new Date(tile.checkedAt).toLocaleTimeString()}` : 'Not checked yet'}</p>
-    </div>
-  )
-}
-
 function DiagnosticMatrixRow({ row }: { row: MatrixRow }) {
   const color = getStatusColor(row.status)
   return (
@@ -902,13 +829,13 @@ function DiagnosticMatrixRow({ row }: { row: MatrixRow }) {
         backgroundColor: row.status === 'fail' ? 'rgba(255, 0, 60, 0.06)' : 'rgba(9, 9, 11, 0.25)'
       }}
     >
-      <span style={{ color, fontFamily: 'var(--font-arcade)', fontSize: '16px' }}>{getStatusLabel(row.status)}</span>
-      <span style={{ color: 'var(--text-ash)', fontFamily: 'var(--font-arcade)', fontSize: '16px' }}>{row.title}</span>
+      <span className="ui-text-badge" style={{ color }}>{getStatusLabel(row.status)}</span>
+      <span className="ui-text-badge" style={{ color: 'var(--text-ash)' }}>{row.title}</span>
       <div style={{ minWidth: 0 }}>
-        <p style={{ color: 'var(--text-steel)', fontSize: '13px', lineHeight: 1.35 }}>{row.message}</p>
-        {row.detail && <p style={{ color: 'var(--text-steel)', fontSize: '11px', lineHeight: 1.35, marginTop: '4px', wordBreak: 'break-word' }}>{row.detail}</p>}
-        {row.suggestion && <p style={{ color: 'var(--neon-cyan)', fontSize: '12px', lineHeight: 1.35, marginTop: '4px' }}>→ {row.suggestion}</p>}
-        {row.outputTail && <p style={{ color: 'var(--neon-gold)', fontSize: '11px', lineHeight: 1.35, marginTop: '4px', wordBreak: 'break-word' }}>{row.outputTail}</p>}
+        <p className="ui-text-body" style={{ color: 'var(--text-steel)' }}>{row.message}</p>
+        {row.detail && <p className="ui-text-secondary" style={{ color: 'var(--text-steel)', marginTop: '4px', wordBreak: 'break-word' }}>{row.detail}</p>}
+        {row.suggestion && <p className="ui-text-body" style={{ color: 'var(--neon-cyan)', marginTop: '4px' }}>→ {row.suggestion}</p>}
+        {row.outputTail && <p className="ui-text-code" style={{ color: 'var(--neon-gold)', marginTop: '4px', wordBreak: 'break-word' }}>{row.outputTail}</p>}
       </div>
     </div>
   )
@@ -921,7 +848,7 @@ function DiagnosticMatrix({ groups }: { groups: MatrixGroup[] }) {
         {groups.map((group) => (
           <div key={group.title} style={{ border: '1px solid var(--border-dim)' }}>
             <div style={{ padding: '7px 10px', borderBottom: '1px solid var(--border-dim)', backgroundColor: 'rgba(9, 9, 11, 0.55)' }}>
-              <p style={{ color: 'var(--neon-cyan)', fontFamily: 'var(--font-arcade)', fontSize: '18px', letterSpacing: '0.05em' }}>{group.title}</p>
+              <p className="ui-text-label" style={{ color: 'var(--neon-cyan)', letterSpacing: '0.05em' }}>{group.title}</p>
             </div>
             {group.rows.map((row) => <DiagnosticMatrixRow key={`${group.title}-${row.title}-${row.message}`} row={row} />)}
           </div>
@@ -1346,8 +1273,8 @@ function ActionCenter({ actions, allReady, onOpenSettings }: { actions: ActionIt
     if (!allReady) {
       return (
         <div className="panel" style={{ marginBottom: '16px' }}>
-          <p style={{ color: 'var(--text-steel)', fontFamily: 'var(--font-arcade)', fontSize: '24px', marginBottom: '4px' }}>Diagnostics Pending</p>
-          <p style={{ color: 'var(--text-steel)', fontSize: '13px', lineHeight: 1.5 }}>
+          <p className="ui-text-heading" style={{ color: 'var(--text-steel)', marginBottom: '4px' }}>Diagnostics Pending</p>
+          <p className="ui-text-body" style={{ color: 'var(--text-steel)' }}>
             NAM-BOT is still waiting for enough diagnostic data to make a setup recommendation.
           </p>
         </div>
@@ -1358,8 +1285,8 @@ function ActionCenter({ actions, allReady, onOpenSettings }: { actions: ActionIt
       <div className="panel" style={{ marginBottom: '16px', borderColor: 'var(--neon-green)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'center' }}>
           <div>
-            <p style={{ color: 'var(--neon-green)', fontFamily: 'var(--font-arcade)', fontSize: '28px', marginBottom: '4px' }}>Ready To Train</p>
-            <p style={{ color: 'var(--text-steel)', fontSize: '13px', lineHeight: 1.5 }}>
+            <p className="ui-text-title" style={{ color: 'var(--neon-green)', marginBottom: '4px' }}>Ready To Train</p>
+            <p className="ui-text-body" style={{ color: 'var(--text-steel)' }}>
               NAM-BOT can reach the environment, inspect accelerator support, and launch the training process path successfully.
             </p>
           </div>
@@ -1375,9 +1302,9 @@ function ActionCenter({ actions, allReady, onOpenSettings }: { actions: ActionIt
       <div style={{ display: 'grid', gap: '12px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start' }}>
           <div>
-            <p style={{ color, fontFamily: 'var(--font-arcade)', fontSize: '28px', marginBottom: '4px' }}>{primary.title}</p>
-            <p style={{ color: 'var(--text-ash)', fontSize: '18px', marginBottom: '6px' }}>{primary.headline}</p>
-            <p style={{ color: 'var(--text-steel)', fontSize: '13px', lineHeight: 1.55 }}>{primary.body}</p>
+            <p className="ui-text-title" style={{ color, marginBottom: '4px' }}>{primary.title}</p>
+            <p className="ui-text-lead" style={{ color: 'var(--text-ash)', marginBottom: '6px' }}>{primary.headline}</p>
+            <p className="ui-text-body" style={{ color: 'var(--text-steel)' }}>{primary.body}</p>
           </div>
           {primary.showSettingsAction !== false && (
             <button className="btn btn-sm btn-secondary" onClick={onOpenSettings}>Open Settings</button>
@@ -1386,17 +1313,17 @@ function ActionCenter({ actions, allReady, onOpenSettings }: { actions: ActionIt
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '14px' }}>
           <div style={{ border: '1px solid var(--border-dim)', padding: '12px', backgroundColor: 'rgba(9, 9, 11, 0.45)' }}>
-            <p style={{ color: 'var(--text-ash)', fontFamily: 'var(--font-arcade)', fontSize: '18px', marginBottom: '8px' }}>How To Fix</p>
-            <ol style={{ color: 'var(--text-steel)', paddingLeft: '18px', lineHeight: 1.55, fontSize: '13px' }}>
+            <p className="ui-text-label" style={{ color: 'var(--text-ash)', marginBottom: '8px' }}>How To Fix</p>
+            <ol className="ui-text-body" style={{ color: 'var(--text-steel)', paddingLeft: '18px' }}>
               {primary.steps.map((step) => <li key={step}>{step}</li>)}
             </ol>
-            <p style={{ color: 'var(--neon-cyan)', fontSize: '12px', lineHeight: 1.45, marginTop: '10px' }}>Verify: {primary.verify}</p>
+            <p className="ui-text-body" style={{ color: 'var(--neon-cyan)', marginTop: '10px' }}>Verify: {primary.verify}</p>
           </div>
           <div style={{ display: 'grid', alignContent: 'start' }}>
             {primary.commands.length > 0 ? (
               primary.commands.map((command) => <CopyableCodeBlock key={command.label} label={command.label} command={command.command} />)
             ) : (
-              <div style={{ border: '1px solid var(--border-dim)', padding: '12px', color: 'var(--text-steel)', fontSize: '13px', lineHeight: 1.45 }}>
+              <div className="ui-text-body" style={{ border: '1px solid var(--border-dim)', padding: '12px', color: 'var(--text-steel)' }}>
                 No command is needed for this fix. Update the setting, folder, or app location, then re-check.
               </div>
             )}
@@ -1405,10 +1332,10 @@ function ActionCenter({ actions, allReady, onOpenSettings }: { actions: ActionIt
 
         {actions.length > 1 && (
           <div style={{ borderTop: '1px solid var(--border-dim)', paddingTop: '10px' }}>
-            <p style={{ color: 'var(--text-steel)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: '6px' }}>Also detected</p>
+            <p className="ui-text-secondary" style={{ color: 'var(--text-steel)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: '6px' }}>Also detected</p>
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
               {actions.slice(1).map((action) => (
-                <span key={action.headline} style={{ color: getStatusColor(action.tone), border: `1px solid ${getStatusColor(action.tone)}`, padding: '4px 8px', fontFamily: 'var(--font-arcade)', fontSize: '14px' }}>
+                <span key={action.headline} className="ui-text-badge" style={{ color: getStatusColor(action.tone), border: `1px solid ${getStatusColor(action.tone)}`, padding: '4px 8px' }}>
                   {action.headline}
                 </span>
               ))}
@@ -1532,11 +1459,11 @@ export default function Diagnostics() {
       </WorkspaceToolbar>
       <div className="panel editor-sheet">
         <PropertySection id="diagnostics-overview" title="Overview">
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
-            {tiles.map((tile) => <SummaryTileCard key={tile.title} tile={tile} />)}
+          <div className="diagnostic-summary-grid">
+            {tiles.map((tile) => <DiagnosticSummaryCard key={tile.title} summary={tile} />)}
           </div>
           {diagnosticErrors.length > 0 && (
-            <div style={{ marginTop: '12px', color: 'var(--neon-magenta)', fontSize: '13px' }}>
+            <div className="ui-text-body" style={{ marginTop: '12px', color: 'var(--neon-magenta)' }}>
               Diagnostics could not complete: {diagnosticErrors.join(' ')} Use Re-check All to try again.
             </div>
           )}
@@ -1583,8 +1510,8 @@ export default function Diagnostics() {
               </div>
 
               <div style={{ border: '1px solid var(--border-dim)', backgroundColor: 'rgba(9, 9, 11, 0.45)', padding: '14px' }}>
-                <p style={{ color: 'var(--text-ash)', fontFamily: 'var(--font-arcade)', fontSize: '18px', marginBottom: '8px' }}>Troubleshooting Export</p>
-                <p style={{ color: 'var(--text-steel)', fontSize: '13px', lineHeight: 1.5, marginBottom: '12px' }}>
+                <p className="ui-text-label" style={{ color: 'var(--text-ash)', marginBottom: '8px' }}>Troubleshooting Export</p>
+                <p className="ui-text-body" style={{ color: 'var(--text-steel)', marginBottom: '12px' }}>
                   These exports include backend checks, accelerator state, training launch readiness, host context, and prepared repair commands.
                 </p>
                 <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: showAiPrompt || showRawJson ? '12px' : 0 }}>
@@ -1603,9 +1530,9 @@ export default function Diagnostics() {
 
               {(acceleratorDiagnostics?.errors.length ?? 0) > 0 && (
                 <div style={{ border: '1px solid var(--border-dim)', backgroundColor: 'rgba(9, 9, 11, 0.45)', padding: '14px' }}>
-                  <p style={{ color: 'var(--text-ash)', fontFamily: 'var(--font-arcade)', fontSize: '18px', marginBottom: '8px' }}>Probe Notes</p>
+                  <p className="ui-text-label" style={{ color: 'var(--text-ash)', marginBottom: '8px' }}>Probe Notes</p>
                   {acceleratorDiagnostics?.errors.map((entry) => (
-                    <p key={entry} style={{ color: 'var(--text-steel)', fontSize: '13px', lineHeight: 1.45, marginBottom: '8px' }}>{entry}</p>
+                    <p key={entry} className="ui-text-body" style={{ color: 'var(--text-steel)', marginBottom: '8px' }}>{entry}</p>
                   ))}
                 </div>
               )}

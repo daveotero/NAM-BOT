@@ -1,9 +1,11 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import type { SaveDialogOptions } from 'electron'
 import { existsSync, copyFileSync, readFileSync, statSync } from 'fs'
 import log from 'electron-log/main'
-import { join } from 'path'
+import { basename, dirname, join } from 'path'
 import { v4 as uuidv4 } from 'uuid'
 import { AUDIO_EXTENSIONS } from '../../shared/audio'
+import { buildModelFilename, buildSnapshotFilename } from '../../shared/model-filename'
 import type { QueueControlState } from '../../shared/training'
 import { getQueueManager } from '../jobs/queueManager'
 import { loadSettings } from '../persistence/settingsStore'
@@ -37,10 +39,10 @@ interface DraftBatchRequest {
   source: DraftBatchSource | null
 }
 
-type JobArtifactTarget = 'workspace' | 'output' | 'workspace-log' | 'run-log' | 'model' | 'snapshot'
+type JobArtifactTarget = 'workspace' | 'output' | 'workspace-log' | 'run-log' | 'model' | 'snapshot' | 'report-png' | 'report-html'
 
 function isJobArtifactTarget(value: unknown): value is JobArtifactTarget {
-  return value === 'workspace'
+  return value === 'report-png' || value === 'report-html' || value === 'workspace'
     || value === 'output'
     || value === 'workspace-log'
     || value === 'run-log'
@@ -49,6 +51,7 @@ function isJobArtifactTarget(value: unknown): value is JobArtifactTarget {
 }
 
 function getJobArtifactPath(job: JobRuntimeState, target: JobArtifactTarget): string | null {
+  if (target === 'report-png' || target === 'report-html') return job.trainingReports?.filter(entry => entry.format === (target === 'report-png' ? 'png' : 'html')).at(-1)?.path ?? null
   if (target === 'snapshot') return job.modelExports?.at(-1)?.path ?? null
   if (target === 'workspace') {
     return job.workspaceDirectory ?? null
@@ -485,16 +488,42 @@ export function setupJobIpcHandlers(): void {
     await queueManager.forceStopJob(jobId)
   })
 
+  ipcMain.handle('jobs:saveReport', async (event, jobId: unknown, format: unknown) => {
+    try {
+      if (typeof jobId !== 'string' || (format !== 'png' && format !== 'html')) throw new Error('Invalid training report request.')
+      const runtime = queueManager.getQueue().find(entry => entry.jobId === jobId)
+      if (!runtime || !['succeeded', 'failed', 'canceled'].includes(runtime.status)) throw new Error('Reports can be saved from finished runs.')
+      const modelPath = [runtime.publishedModelPath, runtime.checkpointSummary?.modelFilePath, runtime.modelExports?.at(-1)?.path]
+        .find((path): path is string => typeof path === 'string' && existsSync(path))
+      const filename = modelPath ? basename(modelPath) : buildModelFilename(runtime.frozenJob, runtime.frozenPreset?.name, runtime.checkpointSummary?.bestValidationEsr)
+      const folder = modelPath ? dirname(modelPath) : runtime.resolvedRunDirectory ?? runtime.outputRootDir ?? app.getPath('documents')
+      const options: SaveDialogOptions = {
+        title: format === 'png' ? 'Save training image' : 'Save interactive training report',
+        defaultPath: join(folder, `${filename.replace(/\.nam$/i, '')}.training.${format}`),
+        properties: ['showOverwriteConfirmation'],
+        filters: [{ name: format === 'png' ? 'PNG image' : 'HTML report', extensions: [format] }]
+      }
+      const owner = BrowserWindow.fromWebContents(event.sender)
+      const result = owner ? await dialog.showSaveDialog(owner, options) : await dialog.showSaveDialog(options)
+      if (result.canceled || !result.filePath) return null
+      const destination = result.filePath.toLowerCase().endsWith(`.${format}`) ? result.filePath : `${result.filePath}.${format}`
+      return await queueManager.saveReport(jobId, format, destination)
+    } catch (error) {
+      log.error('Failed to save training report:', error)
+      throw error
+    }
+  })
+
   ipcMain.handle('jobs:exportModel', async (event, jobId: unknown, finishAfterExport: unknown = false) => {
     if (typeof jobId !== 'string' || typeof finishAfterExport !== 'boolean') throw new Error('Invalid model export request.')
     try {
       const runtime = queueManager.getCurrentJob()
       if (!runtime || runtime.jobId !== jobId || runtime.status !== 'running') throw new Error('This job is no longer training.')
-      const name = runtime.jobName.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').trim() || 'Model'
-      const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-      const options = {
+      const filename = buildSnapshotFilename(runtime.frozenJob, new Date(), runtime.frozenPreset?.name, runtime.checkpointSummary?.bestValidationEsr)
+      const options: SaveDialogOptions = {
         title: finishAfterExport ? 'Save best model and finish training' : 'Save snapshot and keep training',
-        defaultPath: join(runtime.resolvedRunDirectory ?? runtime.outputRootDir ?? app.getPath('documents'), `${name} - snapshot ${stamp}.nam`),
+        defaultPath: join(runtime.resolvedRunDirectory ?? runtime.outputRootDir ?? app.getPath('documents'), filename),
+        properties: ['showOverwriteConfirmation'],
         filters: [{ name: 'Neural Amp Modeler', extensions: ['nam'] }]
       }
       const owner = BrowserWindow.fromWebContents(event.sender)

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildModelFilename } from './model-filename'
+import { buildModelFilename, buildSnapshotFilename } from './model-filename'
 import { defaultJobSpec } from './training'
 
 const job = { ...defaultJobSpec, id: '12345678-abcd', name: '6534 Pedals', presetId: 'studio' }
@@ -31,5 +31,25 @@ describe('model filenames shared by preview and export', () => {
   it('omits unavailable preset names and does not use the embedded metadata name', () => {
     const namedJob = { ...job, metadata: { name: 'Embedded display name' }, appendPresetToModelFileName: true, appendEsrToModelFileName: false }
     expect(buildModelFilename(namedJob, null)).toBe('6534 Pedals.nam')
+  })
+})
+
+describe('snapshot filenames', () => {
+  const date = new Date(2026, 0, 2, 3, 4, 5, 987)
+
+  it.each([
+    [false, false, '6534 Pedals'],
+    [true, false, '6534 Pedals - Studio'],
+    [false, true, '6534 Pedals - ESR 0.0123'],
+    [true, true, '6534 Pedals - Studio - ESR 0.0123']
+  ] as const)('respects preset=%s and ESR=%s with a local timestamp to the second', (preset, esr, stem) => {
+    expect(buildSnapshotFilename({ ...job, appendPresetToModelFileName: preset, appendEsrToModelFileName: esr }, date, 'Studio', 0.012345))
+      .toBe(`${stem} - Snapshot 2026-01-02 03-04-05.nam`)
+  })
+
+  it('omits unavailable addendums and sanitizes names', () => {
+    const namedJob = { ...job, name: 'Amp:/\nTest', appendPresetToModelFileName: true, appendEsrToModelFileName: true }
+    expect(buildSnapshotFilename(namedJob, date, null, null)).toBe('Amp-Test - Snapshot 2026-01-02 03-04-05.nam')
+    expect(buildSnapshotFilename(namedJob, date, 'Studio', 0)).toBe('Amp-Test - Studio - ESR 0.0000 - Snapshot 2026-01-02 03-04-05.nam')
   })
 })

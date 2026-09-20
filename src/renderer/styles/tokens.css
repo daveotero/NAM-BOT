@@ -1,0 +1,59 @@
+/* Canonical UI tokens. See docs/ui-style-guide.md before changing these. */
+:root {
+  /* Colors */
+  --bg-void: #09090b;
+  --bg-charcoal: #18181b;
+  --bg-hover: #27272a;
+
+  --text-ash: #f4f4f5;
+  --text-steel: #a1a1aa;
+
+  --neon-cyan: #00f0ff;
+  --neon-magenta: #ff003c;
+  --neon-green: #39ff14;
+  --neon-gold: #ffcc00;
+
+  --border-dim: #3f3f46;
+  --border-field: #2b2b32;
+
+  /* Typography */
+  --font-arcade: 'VT323', monospace;
+  --font-system: 'Inter', system-ui, sans-serif;
+
+  /* Native Theming */
+  color-scheme: dark;
+
+  /* Reading roles: do not choose sizes per screen. */
+  --text-body: 14px;
+  --text-secondary: 12px;
+  --text-code: 13px;
+  --text-lead: 16px;
+  --text-chrome: 11px;
+  --text-badge: 16px;
+  --text-label: 18px;
+  --text-heading: 22px;
+  --text-title: 28px;
+  --text-metric: 34px;
+  --leading-body: 1.5;
+  --leading-heading: 1.15;
+  --leading-code: 1.6;
+  --font-mono: Consolas, 'Courier New', monospace;
+
+  /* Surfaces and rhythm shared by every workspace. */
+  --surface-workspace: #101013;
+  --surface-panel: #141417;
+  --surface-header: #1a1a1f;
+  --surface-hover: #1b1b20;
+  --surface-field: #0c0c0f;
+  --surface-selected: #303037;
+  --border-panel: #303037;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --control-height: 34px;
+  --control-height-compact: 30px;
+  --focus-ring: 2px solid var(--neon-cyan);
+}

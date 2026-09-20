@@ -25,6 +25,12 @@ This document provides guidance for AI agents working on the NAM-BOT project.
 - If no matching document exists yet, create one rather than leaving the feature undocumented.
 - Keep public documentation and release notes for unlisted terminal behavior oblique, using occasional BBS wordplay. Leave names, entry sequences, controls, and outcomes for users to discover.
 
+### 0.3 UI Styling Contract
+
+- Before changing existing UI or adding a screen, read [docs/ui-style-guide.md](docs/ui-style-guide.md). It is the canonical guide for typography, components, layout, interaction states, and visual verification.
+- Use the tokens in `src/renderer/styles/tokens.css` and shared components/classes. Do not introduce per-page font sizes, embedded stylesheets, or page-scoped versions of shared card/control styling.
+- Check all consumers of a shared style change at normal width and narrow/high-zoom layouts. Inspect rendered screenshots as well as running the style-contract and relevant desktop checks.
+
 ---
 
 ## 1. Project Overview
@@ -147,7 +153,7 @@ import { validateBackend } from '../backend/adapter'
 ### 4.4 React Components
 
 - Use **functional components** with hooks
-- Use **inline styles** for simple styling (matches design system)
+- Use **shared CSS classes and design tokens** for presentation. Reserve inline styles for runtime values and local layout; follow `docs/ui-style-guide.md`.
 
 ```typescript
 export default function Settings() {

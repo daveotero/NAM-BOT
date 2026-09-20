@@ -1,3 +1,6 @@
+import { type TrainingReportData, type TrainingReportFormat, type TrainingReportResult } from '../../shared/training-report'
+import { buildRuntimeTrainingReport as buildTrainingReportData } from '../reports/report-data'
+import { normalizeTrainingExportEvidence } from '../reports/report-evidence'
 import { EventEmitter } from 'events'
 import { app, shell } from 'electron'
 import { basename, dirname, extname, join, resolve } from 'path'
@@ -900,7 +903,13 @@ function normalizeRuntimeState(value: unknown): JobRuntimeState | null {
     modelExports: Array.isArray(candidate.modelExports) ? candidate.modelExports.flatMap((entry) => {
       if (!isRecord(entry) || typeof entry.path !== 'string' || typeof entry.exportedAt !== 'string'
         || typeof entry.epoch !== 'number' || !Number.isSafeInteger(entry.epoch) || entry.epoch < 1) return []
-      return [{ path: entry.path, epoch: entry.epoch, exportedAt: entry.exportedAt }]
+      return [{ path: entry.path, epoch: entry.epoch, exportedAt: entry.exportedAt, reportEvidence: normalizeTrainingExportEvidence(entry.reportEvidence) }]
+    }) : [],
+    finalReportEvidence: normalizeTrainingExportEvidence(candidate.finalReportEvidence),
+    trainingReports: Array.isArray(candidate.trainingReports) ? candidate.trainingReports.flatMap((entry) => {
+      if (!isRecord(entry) || (entry.format !== 'png' && entry.format !== 'html') || typeof entry.path !== 'string'
+        || typeof entry.createdAt !== 'string' || !Number.isFinite(Date.parse(entry.createdAt))) return []
+      return [{ format: entry.format, path: entry.path, createdAt: entry.createdAt, modelPath: typeof entry.modelPath === 'string' ? entry.modelPath : null }]
     }) : [],
     checkpointSummary: typeof candidate.checkpointSummary === 'object' && candidate.checkpointSummary !== null
       ? {
@@ -969,6 +978,43 @@ export class QueueManager extends EventEmitter {
   private controlState: QueueControlState = { pauseReason: null }
   private unconfirmedController: TrainingProcessController | null = null
   private shuttingDown = false
+
+  private async saveAutomaticReports(runtime: JobRuntimeState, modelPaths: string[], snapshot?: TrainingReportData): Promise<void> {
+    const formats: TrainingReportFormat[] = []
+    if (runtime.frozenJob.saveTrainingImage) formats.push('png')
+    if (runtime.frozenJob.saveTrainingHtml) formats.push('html')
+    for (const modelPath of [...new Set(modelPaths)]) {
+      const data = snapshot ? { ...snapshot, modelFilename: basename(modelPath) }
+        : buildTrainingReportData(runtime, { appVersion: app.getVersion(), modelPath })
+      for (const format of formats) {
+        try {
+          const { writeTrainingReport } = await import('../reports/training-report')
+          const destination = `${modelPath.replace(/\.nam$/i, '')}.training.${format}`
+          const path = await writeTrainingReport(data, format, destination)
+          runtime.trainingReports = [...(runtime.trainingReports ?? []), { format, path, modelPath, createdAt: data.generatedAt }]
+        } catch (error) {
+          this.appendCompletionWarning(runtime, `Model saved, but the ${format.toUpperCase()} training report failed: ${String(error)}. Use Save Report to retry.`)
+        }
+      }
+    }
+  }
+
+  async saveReport(jobId: string, format: TrainingReportFormat, destination: string): Promise<TrainingReportResult> {
+    const runtime = this.queue.find(entry => entry.jobId === jobId)
+    if (!runtime || !FINISHED_JOB_STATUSES.includes(runtime.status)) throw new Error('Reports can be saved from finished runs.')
+    const finalPath = runtime.status === 'succeeded'
+      ? [runtime.publishedModelPath, runtime.checkpointSummary?.modelFilePath].find((path): path is string => typeof path === 'string' && existsSync(path))
+      : null
+    const snapshot = !finalPath || !existsSync(finalPath) ? runtime.modelExports?.filter(entry => existsSync(entry.path)).at(-1) : undefined
+    const modelPath = finalPath && existsSync(finalPath) ? finalPath : snapshot?.path ?? null
+    const data = buildTrainingReportData(runtime, { appVersion: app.getVersion(), modelPath, evidence: runtime.finalReportEvidence,
+      ...(snapshot ? { evidence: snapshot.reportEvidence, snapshot: true, now: snapshot.exportedAt } : {}) })
+    const { writeTrainingReport } = await import('../reports/training-report')
+    const path = await writeTrainingReport(data, format, destination, true)
+    runtime.trainingReports = [...(runtime.trainingReports ?? []), { format, path, modelPath, createdAt: data.generatedAt }]
+    this.emitJobUpdate(runtime)
+    return { paths: [path], warnings: [] }
+  }
 
   private appendCompletionWarning(runtime: JobRuntimeState, message: string): void {
     runtime.completionWarnings = [...(runtime.completionWarnings ?? []), message]
@@ -2012,6 +2058,8 @@ export class QueueManager extends EventEmitter {
     runtime.trainingControlReady = false
     runtime.modelExportPending = false
     runtime.modelExports = []
+    runtime.trainingReports = []
+    runtime.finalReportEvidence = undefined
     runtime.finishedEarly = false
     this.esrHistoryReader = new EsrHistoryReader(join(workspaceDir, TRAINING_METRICS_FILENAME))
     runtime.stopRequestedAt = undefined
@@ -2041,8 +2089,19 @@ export class QueueManager extends EventEmitter {
         this.refreshTrainingArtifacts(runtime)
         this.renameExportedModel(runtime)
         this.injectMetadataIntoExportedModel(runtime)
+        const originalModelPath = runtime.publishedModelPath ?? runtime.checkpointSummary?.modelFilePath
         this.copyPublishedModelToOutputAudioFolder(runtime)
         this.refreshTrainingArtifacts(runtime)
+        // Reports describe completed training, and their rendering time is not training time.
+        runtime.finishedAt = new Date().toISOString()
+        const evidencePath = runtime.workspaceDirectory ? join(runtime.workspaceDirectory, 'final-report-evidence.json') : null
+        if (evidencePath && existsSync(evidencePath)) {
+          try { runtime.finalReportEvidence = normalizeTrainingExportEvidence(JSON.parse(readFileSync(evidencePath, 'utf8'))) }
+          catch (error) { log.warn('Could not read final report evidence:', error) }
+        }
+        const paths = [originalModelPath, runtime.publishedModelPath].filter((path): path is string => typeof path === 'string' && existsSync(path))
+        const reportData = buildTrainingReportData({ ...runtime, status: 'succeeded' }, { appVersion: app.getVersion(), modelPath: paths[0] ?? null, evidence: runtime.finalReportEvidence })
+        await this.saveAutomaticReports(runtime, paths, reportData)
         this.syncPublishedTerminalLog(runtime)
       } catch (error) {
         log.warn('Failed to refresh final training artifacts:', error)
@@ -2268,7 +2327,7 @@ export class QueueManager extends EventEmitter {
         } else {
           await finalizeSuccessfulRun()
           runtime.status = 'succeeded'
-          runtime.finishedAt = new Date().toISOString()
+          runtime.finishedAt ??= new Date().toISOString()
           this.appendUserMessage(runtime, runtime.completionWarnings?.length
             ? 'Training completed with warnings. Review the run details.'
             : runtime.finishedEarly ? 'Training finished early. Best validated model saved.' : 'Training completed successfully.')
@@ -2419,8 +2478,14 @@ export class QueueManager extends EventEmitter {
         exportDate: buildNamExportDate(new Date())
       })
       atomicWriteFileSync(destination, JSON.stringify(model), { backup: false })
-      runtime.modelExports = [...(runtime.modelExports ?? []), { path: destination, epoch: result.epoch, exportedAt: new Date().toISOString() }]
+      runtime.modelExports = [...(runtime.modelExports ?? []), { path: destination, epoch: result.epoch, exportedAt: new Date().toISOString(), reportEvidence: result.reportEvidence }]
       this.appendUserMessage(runtime, `Best validated model exported during epoch ${result.epoch}: ${destination}`)
+      const reportData = buildTrainingReportData(runtime, { appVersion: app.getVersion(), modelPath: destination,
+        evidence: result.reportEvidence, snapshot: true })
+      if ((runtime.frozenJob.saveTrainingImage || runtime.frozenJob.saveTrainingHtml) && !result.reportEvidence) {
+        this.appendCompletionWarning(runtime, result.reportWarning ?? 'Snapshot saved, but export-time report statistics were unavailable.')
+      }
+      let finishError: Error | null = null
       if (finishAfterExport && runtime.status === 'running' && isActive()) {
         // Save the user's file first. A failed export never stops the training run.
         runtime.finishedEarly = true
@@ -2434,9 +2499,11 @@ export class QueueManager extends EventEmitter {
           }
         } catch (error) {
           runtime.finishedEarly = false
-          throw new Error(`Model saved to ${destination}, but finishing the run failed: ${String(error)}`)
+          finishError = new Error(`Model saved to ${destination}, but finishing the run failed: ${String(error)}`)
         }
       }
+      await this.saveAutomaticReports(runtime, [destination], reportData)
+      if (finishError) throw finishError
       return destination
     } catch (error) {
       log.error('Training model export failed:', error)

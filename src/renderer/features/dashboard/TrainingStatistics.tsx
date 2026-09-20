@@ -3,6 +3,8 @@ import log from 'electron-log/renderer'
 
 import { summarizeTraining, type TrainingStatistics as Statistics } from '../../../shared/training-statistics'
 import { useAppStore } from '../../state/store'
+import SaveReportButton from '../jobs/SaveReportButton'
+import { formatLocalDateTime } from '../../utils/date-time'
 
 function formatRunDuration(durationMs: number | null): string {
   if (durationMs === null) return '—'
@@ -59,7 +61,9 @@ export default function TrainingStatistics(): JSX.Element {
                 <thead><tr><th scope="col">Model</th><th scope="col">Preset</th><th scope="col">Duration</th></tr></thead>
                 <tbody>{recentRuns.map(run => (
                   <tr key={run.jobId}>
-                    <td><span className="recent-training-name" title={run.modelName || 'Completed run'}>{run.modelName || 'Completed run'}</span><time dateTime={run.finishedAt}>{new Date(run.finishedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</time></td>
+                    <td><span className="recent-training-name" title={run.modelName || 'Completed run'}>{run.modelName || 'Completed run'}</span><time dateTime={run.finishedAt} title="Training finished (local time)">{formatLocalDateTime(run.finishedAt)}</time>
+                      {queue.some(entry => entry.jobId === run.jobId && entry.status === 'succeeded') && <SaveReportButton jobId={run.jobId} />}
+                    </td>
                     <td><span title={run.presetName}>{run.presetName}</span></td>
                     <td title={run.durationMs === null ? 'Duration not recorded' : undefined}>{formatRunDuration(run.durationMs)}</td>
                   </tr>

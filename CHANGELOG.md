@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Optional branded PNG training summaries and interactive, offline HTML reports alongside saved models, snapshots, and extra copies, plus manual report export from finished runs.
+- Readable training dates and times on finished runs and in reports.
+- A setting to enable or disable desktop training notifications.
+
+### Changed
+
+- Standardized typography, controls, diagnostic summaries, and training cards across the app, including narrow windows and higher zoom levels.
+- Simplified individual checkbox options while retaining grouped panels for packed submodels.
+- Shared the animated NAM-BOT logo with HTML reports and added a monochrome horns cursor on logo hover.
+- Simplified About's legal notice while retaining the full license in packaged builds.
+
+### Fixed
+
+- Snapshot filenames now honor the run's preset and ESR naming options and use local timestamps precise to the second.
+- Long batch filenames and paths wrap and expose their full values on hover.
+- Snapshot reports retain the metrics and history captured with the saved weights, even as training advances.
+
 ## [0.6.8] - 2026-09-19
 
 ### Added

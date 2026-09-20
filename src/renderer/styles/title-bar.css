@@ -52,44 +52,16 @@
   height: calc(36px * var(--shell-scale));
   padding: 0 calc(4px * var(--shell-scale));
   flex-shrink: 0;
-  cursor: crosshair;
 }
 
 .app-title-bar-wordmark {
-  display: inline-block;
+  --wordmark-scale: var(--shell-scale);
   pointer-events: none;
-  font: calc(28px * var(--shell-scale)) / 1 var(--font-arcade);
-  letter-spacing: calc(1px * var(--shell-scale));
-  flex-shrink: 0;
-  color: var(--text-ash);
-  text-shadow: calc(1px * var(--shell-scale)) calc(1px * var(--shell-scale)) 0 var(--neon-magenta),
-    calc(-1px * var(--shell-scale)) calc(-1px * var(--shell-scale)) 0 var(--neon-cyan);
-}
-
-@media (hover: hover) and (prefers-reduced-motion: no-preference) {
-  .app-title-bar-brand:hover .app-title-bar-wordmark {
-    animation: title-bar-flash .1s infinite, title-bar-shake .05s infinite;
-  }
-}
-
-@keyframes title-bar-flash {
-  0%, 100% { color: yellow; text-shadow: calc(2px * var(--shell-scale)) calc(2px * var(--shell-scale)) 0 red, 0 0 calc(5px * var(--shell-scale)) yellow; }
-  33% { color: var(--neon-cyan); text-shadow: calc(-2px * var(--shell-scale)) calc(2px * var(--shell-scale)) 0 var(--neon-magenta), 0 0 calc(6px * var(--shell-scale)) var(--neon-cyan); }
-  66% { color: var(--neon-green); text-shadow: calc(2px * var(--shell-scale)) calc(-2px * var(--shell-scale)) 0 blue, 0 0 calc(8px * var(--shell-scale)) var(--neon-green); }
-}
-
-@keyframes title-bar-shake {
-  0%, 70% { transform: translate(calc(1px * var(--shell-scale)), calc(.5px * var(--shell-scale))) rotate(-1deg); }
-  10%, 100% { transform: translate(calc(-.5px * var(--shell-scale)), calc(-1px * var(--shell-scale))) rotate(-1deg); }
-  20%, 60% { transform: translate(calc(-1.5px * var(--shell-scale)), calc(.5px * var(--shell-scale))) rotate(1deg); }
-  30%, 90% { transform: translate(0, calc(1px * var(--shell-scale))) rotate(0deg); }
-  40%, 80% { transform: translate(calc(.5px * var(--shell-scale)), calc(-.5px * var(--shell-scale))) rotate(1deg); }
-  50% { transform: translate(calc(-.5px * var(--shell-scale)), calc(1px * var(--shell-scale))) rotate(-1deg); }
 }
 
 .app-title-bar-divider { color: #55555f; }
 .app-title-bar-section, .app-title-bar-error {
-  font-size: calc(10px * var(--shell-scale));
+  font-size: calc(var(--text-chrome) * var(--shell-scale));
   letter-spacing: calc(1.3px * var(--shell-scale));
   text-transform: uppercase;
   color: var(--text-steel);

@@ -1,5 +1,7 @@
 # Settings System
 
+UI presentation follows the shared [UI style guide](ui-style-guide.md), including typography, controls, and responsive review requirements.
+
 The Settings page manages global configuration for NAM-BOT, including backend paths, default metadata, and general application behavior.
 
 Settings uses the same continuous property sheet as Jobs and the Preset editor, with aligned labels and controls under **Backend**, **Folders**, **Author**, and **Application**. A fixed section strip smoothly scrolls to headings and highlights the current section in gray. Reduced-motion preferences use immediate scrolling. Save status stays in the workspace toolbar. Fields use muted borders, while section dividers retain stronger contrast; narrow windows stack labels above their controls.

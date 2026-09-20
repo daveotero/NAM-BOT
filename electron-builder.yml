@@ -11,6 +11,7 @@ directories:
   output: release
 files:
   - out/**/*
+  - LICENSE.md
   - node_modules/node-pty/**/*
   - "!node_modules/node-pty/build/**/*.iobj"
   - "!node_modules/node-pty/build/**/*.ipdb"

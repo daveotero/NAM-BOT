@@ -11,50 +11,13 @@ import { isActiveRuntime } from '../jobs/job-helpers'
 import { useTerminalLogs } from '../../hooks/useTerminalLogs'
 import TrainingStatistics from './TrainingStatistics'
 import WorkingIndicator from '../../components/WorkingIndicator'
+import DiagnosticSummaryCard, { type DiagnosticStatus, type DiagnosticSummary } from '../../components/DiagnosticSummaryCard'
 
 interface DashboardProps {
   onNavigate: (path: string) => void
 }
 
-type DashboardDiagnosticsStatus = 'pass' | 'warn' | 'fail' | 'skip'
-
-interface DashboardDiagnosticsCard {
-  title: string
-  status: DashboardDiagnosticsStatus
-  label: string
-  detail: string
-  checkedAt: string | null
-}
-
-function getDashboardStatusColor(status: DashboardDiagnosticsStatus): string {
-  switch (status) {
-    case 'pass':
-      return 'var(--neon-green)'
-    case 'warn':
-      return 'var(--neon-cyan)'
-    case 'fail':
-      return 'var(--neon-magenta)'
-    case 'skip':
-    default:
-      return 'var(--text-steel)'
-  }
-}
-
-function getDashboardStatusLabel(status: DashboardDiagnosticsStatus): string {
-  switch (status) {
-    case 'pass':
-      return 'PASS'
-    case 'warn':
-      return 'CHECK'
-    case 'fail':
-      return 'FAIL'
-    case 'skip':
-    default:
-      return 'SKIP'
-  }
-}
-
-function getAcceleratorCardStatus(acceleratorDiagnostics: AcceleratorDiagnosticsSummary | null): DashboardDiagnosticsStatus {
+function getAcceleratorCardStatus(acceleratorDiagnostics: AcceleratorDiagnosticsSummary | null): DiagnosticStatus {
   if (!acceleratorDiagnostics) {
     return 'skip'
   }
@@ -76,7 +39,7 @@ function getAcceleratorCardStatus(acceleratorDiagnostics: AcceleratorDiagnostics
   }
 }
 
-function getTrainingLaunchCardStatus(trainingLaunchDiagnostics: TrainingLaunchDiagnosticsSummary | null): DashboardDiagnosticsStatus {
+function getTrainingLaunchCardStatus(trainingLaunchDiagnostics: TrainingLaunchDiagnosticsSummary | null): DiagnosticStatus {
   if (!trainingLaunchDiagnostics) {
     return 'skip'
   }
@@ -94,7 +57,7 @@ function getTrainingLaunchCardStatus(trainingLaunchDiagnostics: TrainingLaunchDi
   }
 }
 
-function getNamVersionCardStatus(namVersionInfo: NamVersionInfo | null): DashboardDiagnosticsStatus {
+function getNamVersionCardStatus(namVersionInfo: NamVersionInfo | null): DiagnosticStatus {
   if (!namVersionInfo) {
     return 'skip'
   }
@@ -127,7 +90,7 @@ function getDashboardDiagnosticsCards(
   acceleratorDiagnostics: AcceleratorDiagnosticsSummary | null,
   trainingLaunchDiagnostics: TrainingLaunchDiagnosticsSummary | null,
   namVersionInfo: NamVersionInfo | null
-): DashboardDiagnosticsCard[] {
+): DiagnosticSummary[] {
   return [
     {
       title: 'Backend',
@@ -178,22 +141,6 @@ function getDashboardDiagnosticsCards(
       checkedAt: null
     }
   ]
-}
-
-function DashboardDiagnosticsCardView({ card }: { card: DashboardDiagnosticsCard }): JSX.Element {
-  return (
-    <div className="console-health-row">
-      <div className="console-health-heading">
-        <span>{card.title}</span>
-        <span className="console-health-status" style={{ color: getDashboardStatusColor(card.status) }}>
-          <span className="status-led" aria-hidden="true" />{getDashboardStatusLabel(card.status)}
-        </span>
-      </div>
-      <strong>{card.label}</strong>
-      <p>{card.detail}</p>
-      {card.checkedAt && <small>Checked {new Date(card.checkedAt).toLocaleTimeString()}</small>}
-    </div>
-  )
 }
 
 export default function Dashboard({ onNavigate }: DashboardProps): JSX.Element {
@@ -364,7 +311,7 @@ export default function Dashboard({ onNavigate }: DashboardProps): JSX.Element {
             <div className="console-panel-heading">
               <h3 style={{ color: 'var(--neon-gold)' }}>Active Training<WorkingIndicator /></h3>
             </div>
-            <div className="job-list" style={{ marginTop: '12px' }}>
+            <div className="job-list">
               {trainingJobs.map(job => (
                 <RuntimeCard
                   key={job.jobId}
@@ -390,8 +337,8 @@ export default function Dashboard({ onNavigate }: DashboardProps): JSX.Element {
         <TrainingStatistics />
         <section className="console-panel" aria-label="Diagnostics summary">
           <div className="console-panel-heading"><h2>Diagnostics</h2><button className="console-link" onClick={() => onNavigate('/diagnostics')}>Open diagnostics →</button></div>
-          <div className="dashboard-diagnostics">
-            {diagnosticsCards.map(card => <DashboardDiagnosticsCardView key={card.title} card={card} />)}
+          <div className="diagnostic-summary-grid dashboard-diagnostics">
+            {diagnosticsCards.map(card => <DiagnosticSummaryCard key={card.title} summary={card} />)}
           </div>
         </section>
       </div>

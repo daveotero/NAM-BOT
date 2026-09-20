@@ -1,5 +1,7 @@
 # Jobs System
 
+UI presentation follows the shared [UI style guide](ui-style-guide.md), including typography, controls, and responsive review requirements.
+
 ## Overview
 
 NAM-BOT jobs are the runnable training units of the app. A job combines:
@@ -68,6 +70,8 @@ Drafts are where users can iterate safely before they commit a run to the queue.
 ### Create Batch From A Draft Template
 
 `Create Batch` opens a batch editor after output audio files are selected, then creates one new editable draft per selected output audio file when saved.
+
+The selected output filenames and full paths wrap rather than being clipped, with hover tooltips for their complete values. At narrow widths, each path moves below its filename.
 
 - the selected draft is the explicit template source
 - queued and finished runtime cards can also be used as the explicit template source through `Create Batch` / `Use as Template`
@@ -215,6 +219,22 @@ The preview includes `.nam`, updates when the job name, preset, or naming option
 
 The preview describes the final model in the run's output folder. An additional copy beside the audio may receive a numeric collision suffix if that location already contains the filename.
 
+### Branded training reports
+
+The **Model output → Training reports** options independently enable **Save training image (PNG)** and **Save interactive report (HTML)**. Both start off and remember the last-used choice, just like filename options. Saving/copying jobs, using templates, creating batches, and retrying preserve these fields; queued runs retain their frozen choices.
+
+Selected reports accompany normal completion, **Save snapshot**, and **Save & stop**. The final model's optional extra copy beside the output audio receives companion reports too. Files use the actual model filename stem with `.training.png` or `.training.html`; existing companion files receive a numeric suffix rather than being overwritten automatically. A report failure produces a visible warning and does not invalidate the saved model or prevent Save & stop from finishing.
+
+The PNG is a 1,000-pixel-wide, app-style detail card with content-driven height containing identity, training facts, every submodel's **Saved model ESR**, and the complete ESR graph. The HTML adds the frozen training recipe, model metadata, timestamps, and best-checkpoint epochs. Dates and times use the viewer's local timezone and readable date/time format, matching finished run cards in Jobs and Dashboard; unavailable timestamps stay clearly labeled. Its graph has the same hover/tap, pinning, keyboard inspection, model toggles, and All/100/30 epoch windows as the application. Both use logarithmic ESR with decimal labels. Saved-model values describe the exported checkpoints, which may differ from the last measured values on the chart.
+
+The summary follows the expanded run card: bordered training facts and ESR panels sit side by side above the graph, stacking on phones. The HTML graph fits the available screen width. Both formats use the title-bar logo and a compact, subdued project footer; hovering or focusing the HTML logo plays the familiar color-flash and shake animation unless reduced motion is enabled.
+
+Reports include NAM-BOT branding. The PNG prints the project address; the HTML has one link to the NAM-BOT GitHub repository. HTML files embed their fonts, scripts, styles, and recorded data, so they work offline and can be shared as a single file. Reports omit terminal logs, local folder paths, private job notes, and raw configuration JSON.
+
+Finished Jobs cards and Dashboard’s recent completed runs provide **Save Report** to choose PNG or HTML and a destination. This does not change defaults for future jobs. Failed, stopped, and older runs can export available statistics; missing history and metrics are explicitly unavailable. When no completed model remains, an available exported snapshot uses its own captured evidence; otherwise the report labels checkpoint values **Best recorded ESR** rather than claiming a saved model. Successful exports appear in the card's artifact links.
+
+The trainer captures checkpoint-specific report evidence at snapshot export and training completion. The queue persists this evidence and report locations, so later training updates or restarts cannot silently change snapshot statistics. PNG capture runs in an isolated hidden renderer and adds no training dependency on a browser or graphics package in the Python environment.
+
 ### Queue View
 
 Queued jobs appear in their own section.
@@ -248,6 +268,8 @@ Active jobs appear in the training section.
 ### Finished View
 
 Completed, failed, and stopped jobs appear in the finished section.
+
+Finished cards show their completion date and time, even when collapsed, in the user's local timezone and date format. Hover the timestamp for the training start time. Older records without a timestamp show `Date unavailable`.
 
 - failed and stopped jobs can create a new editable draft so settings can be changed before queueing another pass
 - successful jobs can also create a new editable draft for another pass
@@ -359,6 +381,8 @@ The queue tails complete JSONL records incrementally and persists validated `esr
 ### Export During Training And Stop Choices
 
 Active jobs expose `Save Snapshot` after a validated checkpoint is available. Choose a `.nam` destination in the save dialog; NAM-BOT exports the best validated checkpoint for each embedded model, which may come from different epochs. Training briefly waits at a safe batch boundary while a separate CPU-loaded snapshot is exported, then continues automatically. The live model, optimizer state, and training RNG remain intact, and dataset normalization compensation is preserved. `Latest exported snapshot` in Artifacts opens the most recently saved snapshot.
+
+The suggested filename honors the current run's frozen naming checkboxes: preset name first, then ESR (four decimal places) when selected and available. It ends with `Snapshot YYYY-MM-DD HH-mm-ss` in local time, for example `My Amp - Studio - ESR 0.0123 - Snapshot 2026-09-19 14-32-08.nam`. The ESR is the best reported checkpoint value when the save dialog opens; training can advance while the dialog remains open. The name stays editable, and the dialog asks before replacing an existing file. Save & stop uses the same naming rules. Later edits to a draft or library preset do not change the run's naming settings.
 
 `Stop` opens a dialog with three choices:
 

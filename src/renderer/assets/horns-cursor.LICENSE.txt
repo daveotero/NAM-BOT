@@ -1,0 +1,12 @@
+Metal Horns \m/ cursor by MustardSauce
+Source: https://www.cursor.cc/?action=icon&file_id=35046
+Original PNG: https://www.cursor.cc/cursor/46/35/cursor.png
+Downloaded: September 19, 2026
+
+The source lists the license as "Creative Commons, no attribution".
+It does not specify a license version. The site's terms permit downloading
+and using content explicitly licensed under Creative Commons:
+https://www.cursor.cc/?action=terms_and_conditions
+
+The PNG artwork is used unmodified. NAM-BOT sets the cursor hotspot at the
+raised index finger and embeds the image in standalone HTML reports.

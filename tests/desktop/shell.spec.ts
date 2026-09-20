@@ -37,6 +37,30 @@ test.beforeEach(async ({}, info) => {
     }))
     await writeFile(join(dataPath, 'queue.json'), JSON.stringify(runs))
   }
+  if (info.title.startsWith('branded training reports')) {
+    const start = '2026-09-19T10:00:00Z'
+    const finish = '2026-09-19T10:18:30Z'
+    const modelPath = join(dataPath, 'Studio Amp.nam')
+    await writeFile(modelPath, JSON.stringify({ architecture: 'SlimmableContainer', weights: [], config: {} }))
+    const runtime: JobRuntimeState = {
+      jobId: 'report-run', jobName: 'Studio Amp', status: 'succeeded', pid: null,
+      frozenJob: { ...defaultJobSpec, id: 'report-run', name: 'Studio Amp', createdAt: start, updatedAt: start,
+        inputAudioPath: 'C:/PRIVATE_CAPTURE_FOLDER/input.wav', uiNotes: 'PRIVATE SESSION NOTES',
+        metadata: { name: 'Studio Amp — bright channel', modeledBy: 'Dave Otero', gearMake: 'Marshall', gearModel: 'Plexi', toneType: 'crunch' } },
+      frozenPreset: getBuiltInPreset('a2-packed-wavenet-ultra-20'), startedAt: start, finishedAt: finish,
+      plannedEpochs: 150, currentEpoch: 150, publishedModelPath: modelPath, resolvedRunDirectory: dataPath,
+      latencyAlignment: { mode: 'auto', status: 'auto_applied', delaySamples: 128 },
+      deviceSummary: { deviceName: 'NVIDIA GeForce RTX 4090', acceleratorUsed: 'cuda' },
+      checkpointSummary: { checkpointCount: 8, packedSubmodels: [3, 8, 12, 16, 20].map((channels, index) => ({
+        submodelIndex: index, submodelName: `channels_${channels}`, bestValidationEsr: 0.002 / (index + 1), epoch: 120 + index
+      })) },
+      esrHistory: Array.from({ length: 150 }, (_, index) => ({ epoch: index + 1, step: (index + 1) * 10,
+        models: [3, 8, 12, 16, 20].map((channels, submodelIndex) => ({ submodelIndex, submodelName: `channels_${channels}`,
+          esr: (0.1 / (index + 1) + 0.003 * (1 + Math.sin(index * 0.25))) / (submodelIndex + 1) })) })),
+      userMessages: ['PRIVATE LOG TEXT']
+    }
+    await writeFile(join(dataPath, 'queue.json'), JSON.stringify([runtime]))
+  }
   const environment: Record<string, string> = {}
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined && key !== 'ELECTRON_RUN_AS_NODE') environment[key] = value
@@ -175,6 +199,13 @@ async function transitionNativeWindow(action: 'minimize' | 'restore' | 'maximize
 }
 
 test('isolated launch, preload, fixed header, zoom, resize and fullscreen', async () => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await page.locator('.app-title-bar-brand').hover()
+  await expect(page.locator('.app-title-bar-wordmark')).toHaveCSS('animation-name', 'title-bar-flash, title-bar-shake')
+  await expect(page.locator('.app-title-bar-brand')).toHaveCSS('cursor', /url\(.*4 1, pointer/)
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await expect(page.locator('.app-title-bar-wordmark')).toHaveCSS('animation-name', 'none')
+  await page.mouse.move(500, 300)
   expect(await app.evaluate(({ app }) => app.getPath('userData'))).toBe(dataPath)
   expect(await page.evaluate(() => ({ require: typeof Reflect.get(window, 'require'), process: typeof Reflect.get(window, 'process') })))
     .toEqual({ require: 'undefined', process: 'undefined' })
@@ -475,6 +506,78 @@ test('saved default presets apply to dropped audio and new batches while templat
   expect(errors).toEqual([])
 })
 
+test('shared typography and card styling stay consistent across workspaces', async ({}, info) => {
+  const now = new Date().toISOString()
+  const runtime: JobRuntimeState = {
+    jobId: 'style-audit', jobName: 'Studio capture', status: 'running', pid: null,
+    frozenJob: { ...defaultJobSpec, id: 'style-audit', name: 'Studio capture', createdAt: now, updatedAt: now },
+    frozenPreset: getBuiltInPreset(DEFAULT_PRESET_ID), startedAt: now,
+    currentEpoch: 25, plannedEpochs: 100, userMessages: []
+  }
+  await app.evaluate(({ BrowserWindow, ipcMain }, current) => {
+    ipcMain.removeHandler('jobs:listQueue')
+    ipcMain.handle('jobs:listQueue', () => [current])
+    BrowserWindow.getAllWindows()[0].webContents.send('queue:updated', [current])
+  }, runtime)
+
+  for (const width of [1400, 1000]) {
+    await app.evaluate(({ BrowserWindow }, value) => {
+      const window = BrowserWindow.getAllWindows()[0]
+      window.setSize(value, 950)
+      window.webContents.setZoomFactor(1)
+    }, width)
+    const cardStyles: Record<string, Record<string, string>[]> = {}
+    for (const view of ['Dashboard', 'Jobs']) {
+      await chooseMenu('Navigate', view)
+      const card = page.locator('.queue-card')
+      await expect(card).toBeVisible()
+      await page.mouse.move(100, 150)
+      await expect(card).toHaveCSS('background-color', 'rgb(20, 20, 23)')
+      await expect(card.locator('h4')).toHaveCSS('font-size', '22px')
+      await expect(card.locator('.queue-card-headline')).toHaveCSS('font-size', '14px')
+      await card.locator('h4').hover()
+      await expect(card).toHaveCSS('background-color', 'rgb(27, 27, 32)')
+      await expect(card).toHaveCSS('transform', 'none')
+      await expect(card).toHaveCSS('box-shadow', 'none')
+      await card.getByRole('button', { name: 'Show Details', exact: true }).click()
+      cardStyles[view] = await card.evaluate(element => {
+        const selectors = [':scope', 'h4', '.queue-status-badge', '.queue-card-headline', '.queue-card-stat', '.runtime-detail-column', '.btn-orange']
+        const properties = ['font-size', 'font-family', 'padding', 'gap', 'border-width', 'box-shadow', 'transform']
+        return selectors.map(selector => {
+          const target = selector === ':scope' ? element : element.querySelector(selector)!
+          const style = getComputedStyle(target)
+          return Object.fromEntries(properties.map(property => [property, style.getPropertyValue(property)]))
+        })
+      })
+      await captureRenderer(info, `style-${view.toLowerCase()}-${width}.png`)
+    }
+    expect(cardStyles.Dashboard).toEqual(cardStyles.Jobs)
+  }
+
+  for (const [menu, view] of [['Navigate', 'Dashboard'], ['Navigate', 'Presets'], [await settingsMenu(), 'Settings'], ['Navigate', 'Diagnostics'], ['Help', 'Setup Guide']]) {
+    await chooseMenu(menu, view)
+    await app.evaluate(({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows()[0]
+      window.setSize(1400, 950)
+      window.webContents.setZoomFactor(1)
+    })
+    await expect(page.locator('.workspace-title h1')).toHaveCSS('font-size', '28px')
+    if (view === 'Dashboard' || view === 'Diagnostics') {
+      await expect(page.locator('.diagnostic-summary-detail').first()).toHaveCSS('font-size', '14px')
+      await expect(page.locator('.diagnostic-summary-heading').first()).toHaveCSS('font-size', '12px')
+    }
+    await captureRenderer(info, `style-${view.toLowerCase().replaceAll(' ', '-')}.png`)
+    await app.evaluate(({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows()[0]
+      window.setSize(1000, 700)
+      window.webContents.setZoomFactor(1.5)
+    })
+    await expect.poll(() => page.locator('.workspace-content > .layout-main').evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
+    await captureRenderer(info, `style-${view.toLowerCase().replaceAll(' ', '-')}-zoom.png`)
+  }
+  expect(errors).toEqual([])
+})
+
 test('early ESR charts keep their scale and terminal logs follow until scrolled up', async ({}, info) => {
   const now = new Date().toISOString()
   const runtime: JobRuntimeState = {
@@ -549,6 +652,138 @@ test('early ESR charts keep their scale and terminal logs follow until scrolled 
   expect(errors).toEqual([])
 })
 
+test('branded training reports save real PNG and offline HTML from Jobs and Dashboard', async ({}, info) => {
+  test.setTimeout(120_000)
+  const destinations = { html: info.outputPath('Studio Amp.training.html'), png: info.outputPath('Studio Amp.training.png') }
+  await app.evaluate(({ dialog }, paths) => {
+    dialog.showSaveDialog = async (...args: unknown[]) => {
+      const options = args.at(-1)
+      const png = typeof options === 'object' && options !== null && 'title' in options && options.title === 'Save training image'
+      return { canceled: false, filePath: png ? paths.png : paths.html }
+    }
+  }, destinations)
+  for (const [view, format] of [['Jobs', 'HTML'], ['Dashboard', 'PNG']]) {
+    await chooseMenu('Navigate', view)
+    const card = view === 'Jobs'
+      ? page.locator('.queue-card').filter({ has: page.getByRole('heading', { name: 'Studio Amp', exact: true }) })
+      : page.getByRole('table', { name: 'Recent completed runs' }).getByRole('row').filter({ hasText: 'Studio Amp' })
+    const finishedTime = card.locator('time[datetime="2026-09-19T10:18:30Z"]')
+    await expect(finishedTime).toHaveText(await page.evaluate(() => new Date('2026-09-19T10:18:30Z').toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })))
+    if (view === 'Jobs') await captureRenderer(info, 'report-finished-run.png')
+    await card.getByRole('button', { name: 'Save Report', exact: true }).click()
+    await page.getByRole('alertdialog').getByRole('button', { name: `Save ${format}`, exact: true }).click()
+    await expect(card.getByRole('status').filter({ hasText: `${format} report saved.` })).toBeVisible({ timeout: 40_000 })
+  }
+  const size = await app.evaluate(({ nativeImage }, path) => nativeImage.createFromPath(path).getSize(), destinations.png)
+  expect(size.width).toBe(1000)
+  expect(size.height).toBeGreaterThan(500)
+  const html = await readFile(destinations.html, 'utf8')
+  expect(html).not.toMatch(/PRIVATE_CAPTURE_FOLDER|PRIVATE SESSION NOTES|PRIVATE LOG TEXT/)
+  await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0]
+    window.setSize(1000, 700)
+    window.webContents.setZoomFactor(1.5)
+  })
+  await assertSafeArea()
+  await page.getByRole('table', { name: 'Recent completed runs' }).scrollIntoViewIfNeeded()
+  await captureRenderer(info, 'report-dashboard-small.png')
+  await chooseMenu('Navigate', 'Jobs')
+  await page.locator('.queue-card time').scrollIntoViewIfNeeded()
+  await captureRenderer(info, 'report-finished-run-small.png')
+  const reportWindow = app.waitForEvent('window')
+  const reportId = await app.evaluate(async ({ BrowserWindow }, path) => {
+    const window = new BrowserWindow({ show: false, width: 1200, height: 1000,
+      webPreferences: { sandbox: true, nodeIntegration: false, contextIsolation: true, partition: 'report-browser-test' } })
+    await window.loadFile(path)
+    return window.id
+  }, destinations.html)
+  const report = await reportWindow
+  const reportErrors: string[] = []
+  report.on('pageerror', error => reportErrors.push(error.message))
+  try {
+    await expect(report.locator('html')).toHaveAttribute('data-report-ready', 'true')
+    await expect(report.getByRole('heading', { name: 'Saved model ESR', exact: true })).toBeVisible()
+    await expect(report.locator('.report-metrics .runtime-esr-item')).toHaveCount(5)
+    await expect(report.getByRole('link')).toHaveCount(1)
+    await expect(report.getByRole('link', { name: 'NAM-BOT GitHub' })).toHaveAttribute('href', 'https://github.com/daveotero/nam-bot')
+    expect(await report.evaluate(() => typeof window.namBot)).toBe('undefined')
+    expect(await report.evaluate(() => document.fonts.check('18px VT323'))).toBe(true)
+    await report.emulateMedia({ reducedMotion: 'no-preference' })
+    await report.locator('.nam-bot-brand').hover()
+    await expect(report.locator('.nam-bot-brand')).toHaveCSS('cursor', /url\(.*data:image\/png.*4 1, pointer/)
+    await expect(report.locator('.nam-bot-wordmark')).toHaveCSS('animation-name', 'title-bar-flash, title-bar-shake')
+    await report.emulateMedia({ reducedMotion: 'reduce' })
+    await expect(report.locator('.nam-bot-wordmark')).toHaveCSS('animation-name', 'none')
+    await report.emulateMedia({ reducedMotion: 'no-preference' })
+    await expect.poll(() => report.evaluate(() => {
+      const overview = document.querySelector('.report-overview')!.getBoundingClientRect()
+      const metrics = document.querySelector('.report-metrics')!.getBoundingClientRect()
+      return Math.abs(overview.top - metrics.top) < 1 && metrics.left > overview.right
+    })).toBe(true)
+    const slider = report.getByRole('slider', { name: 'Inspect training epoch' })
+    await slider.press('Home')
+    await expect(slider).toHaveAttribute('aria-valuenow', '1')
+    await slider.press('ArrowRight')
+    await expect(slider).toHaveAttribute('aria-valuenow', '2')
+    await expect(report.getByText('Values at epoch 2 · Pinned')).toBeVisible()
+    await report.getByRole('button', { name: 'Return to latest', exact: true }).click()
+    await expect(slider).toHaveAttribute('aria-valuenow', '150')
+    await report.getByRole('button', { name: '30 epochs', exact: true }).click()
+    await expect(slider).toHaveAttribute('aria-valuemin', '121')
+    await report.getByRole('button', { name: '100 epochs', exact: true }).click()
+    await expect(slider).toHaveAttribute('aria-valuemin', '51')
+    await report.getByRole('button', { name: 'All', exact: true }).click()
+    const legend = report.locator('.esr-chart-model').first()
+    await legend.click()
+    await expect(legend).toHaveAttribute('aria-pressed', 'false')
+    await expect(slider.locator('polyline')).toHaveCount(4)
+    await legend.click()
+    await expect(slider.locator('polyline')).toHaveCount(5)
+    await slider.hover({ position: { x: 250, y: 100 } })
+    await expect(report.locator('.esr-chart-readout > span').first()).not.toContainText('Latest')
+    await slider.click({ position: { x: 350, y: 100 } })
+    await expect(report.locator('.esr-chart-readout')).toContainText('Pinned')
+    await slider.press('Escape')
+    await report.screenshot({ path: info.outputPath('report-full.png'), fullPage: true })
+    await app.evaluate(({ BrowserWindow }, id) => {
+      const window = BrowserWindow.fromId(id)
+      window?.setSize(1000, 700)
+      window?.webContents.setZoomFactor(1.5)
+    }, reportId)
+    expect(await report.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true)
+    await expect.poll(() => report.locator('.esr-chart-plot').evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
+    // Playwright fullPage capture clips Electron pages with non-default zoom.
+    // Capture the compositor at the top, chart, and footer instead.
+    for (const [section, selector] of [['top', '.report-brand'], ['chart', '.esr-chart'], ['footer', '.report-footer']]) {
+      await report.locator(selector).scrollIntoViewIfNeeded()
+      await report.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+      const png = await app.evaluate(async ({ BrowserWindow }, id) => {
+        const window = BrowserWindow.fromId(id)
+        if (!window) throw new Error('Report window is unavailable')
+        return (await window.webContents.capturePage()).toPNG().toString('base64')
+      }, reportId)
+      await writeFile(info.outputPath(`report-zoom-${section}.png`), Buffer.from(png, 'base64'))
+    }
+    await app.evaluate(({ BrowserWindow }, id) => {
+      const window = BrowserWindow.fromId(id)
+      window?.setSize(390, 844)
+      window?.webContents.setZoomFactor(1)
+    }, reportId)
+    await expect.poll(() => report.locator('.esr-chart-plot').evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
+    await expect.poll(() => report.evaluate(() => {
+      const overview = document.querySelector('.report-overview')!.getBoundingClientRect()
+      const metrics = document.querySelector('.report-metrics')!.getBoundingClientRect()
+      return metrics.top >= overview.bottom && Math.abs(metrics.left - overview.left) < 1
+    })).toBe(true)
+    await report.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+    await report.screenshot({ path: info.outputPath('report-phone.png'), fullPage: true })
+    expect(reportErrors).toEqual([])
+  } finally {
+    await app.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id)?.destroy(), reportId)
+  }
+  expect(errors).toEqual([])
+})
+
 test('job properties align inputs, preview filenames, and preserve edits through save', async ({}, info) => {
   await chooseMenu('File', 'New Job')
   const sections = page.getByRole('navigation', { name: 'Job editor sections' })
@@ -594,6 +829,10 @@ test('job properties align inputs, preview filenames, and preserve edits through
   await waitForPropertyScroll()
   await expect(page.locator('#job-model-output-heading')).toBeFocused()
   await expect(sections.getByRole('button', { name: 'Model output', exact: true })).toHaveAttribute('aria-current', 'location')
+  await expect(page.getByRole('checkbox', { name: 'Save training image (PNG)', exact: true })).not.toBeChecked()
+  await expect(page.getByRole('checkbox', { name: 'Save interactive report (HTML)', exact: true })).not.toBeChecked()
+  await page.getByRole('checkbox', { name: 'Save training image (PNG)', exact: true }).check()
+  await page.getByRole('checkbox', { name: 'Save interactive report (HTML)', exact: true }).check()
   await expect.poll(() => page.evaluate(() => {
     const label = document.querySelector('#model-filename-preview-label')!.getBoundingClientRect()
     const filename = document.querySelector('.model-filename-output')!.getBoundingClientRect()
@@ -618,6 +857,8 @@ test('job properties align inputs, preview filenames, and preserve edits through
   await expect(page.locator('#epochs')).toHaveValue('42')
   await expect(page.locator('#latency-samples')).toHaveValue('128')
   await expect(page.locator('#meta-modeled-by')).toHaveValue('Dave Otero')
+  await expect(page.getByRole('checkbox', { name: 'Save training image (PNG)', exact: true })).toBeChecked()
+  await expect(page.getByRole('checkbox', { name: 'Save interactive report (HTML)', exact: true })).toBeChecked()
   await expect(page.locator('.workspace-toolbar').getByRole('button', { name: 'Save Job', exact: true })).toBeDisabled()
 
   await app.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows()[0]; window.setSize(1000, 700); window.webContents.setZoomFactor(1.5) })
@@ -632,6 +873,8 @@ test('job properties align inputs, preview filenames, and preserve edits through
   await waitForPropertyScroll()
   await expect(sections.getByRole('button', { name: 'Model output', exact: true })).toHaveAttribute('aria-current', 'location')
   await captureRenderer(info, 'job-model-output-small.png')
+  await page.getByRole('checkbox', { name: 'Save interactive report (HTML)', exact: true }).scrollIntoViewIfNeeded()
+  await captureRenderer(info, 'job-report-options-small.png')
   await sections.getByRole('button', { name: 'Name & audio', exact: true }).click()
   await waitForPropertyScroll()
   await expect(sections.getByRole('button', { name: 'Name & audio', exact: true })).toHaveAttribute('aria-current', 'location')

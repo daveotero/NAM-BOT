@@ -8,6 +8,20 @@ import {
 } from '../../state/types'
 import { getDirname } from './job-helpers'
 
+export const LAST_SAVE_TRAINING_IMAGE_STORAGE_KEY = 'nam-bot:last-save-training-image'
+export const LAST_SAVE_TRAINING_HTML_STORAGE_KEY = 'nam-bot:last-save-training-html'
+export const TRAINING_REPORT_OPTIONS = [
+  { field: 'saveTrainingImage', key: LAST_SAVE_TRAINING_IMAGE_STORAGE_KEY, label: 'Save training image (PNG)' },
+  { field: 'saveTrainingHtml', key: LAST_SAVE_TRAINING_HTML_STORAGE_KEY, label: 'Save interactive report (HTML)' }
+] as const
+
+export function getStoredTrainingReportPreferences(): Pick<JobSpec, 'saveTrainingImage' | 'saveTrainingHtml'> {
+  return {
+    saveTrainingImage: window.localStorage.getItem(LAST_SAVE_TRAINING_IMAGE_STORAGE_KEY) === 'true',
+    saveTrainingHtml: window.localStorage.getItem(LAST_SAVE_TRAINING_HTML_STORAGE_KEY) === 'true'
+  }
+}
+
 export const LAST_USED_PRESET_STORAGE_KEY = 'nam-bot:last-used-preset-id'
 export const LAST_APPEND_PRESET_NAME_STORAGE_KEY = 'nam-bot:last-append-preset-name'
 export const LAST_APPEND_ESR_STORAGE_KEY = 'nam-bot:last-append-esr'
@@ -270,6 +284,7 @@ export function createNewJobDraft(options: CreateNewJobDraftOptions): JobSpec {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     presetId: fallbackPreset?.id ?? DEFAULT_PRESET_ID,
+    ...getStoredTrainingReportPreferences(),
     appendPresetToModelFileName: getStoredAppendPresetToModelFileNamePreference(),
     appendEsrToModelFileName: getStoredAppendEsrToModelFileNamePreference(),
     copyFinalModelToOutputAudioFolder: getStoredCopyFinalModelToOutputAudioFolderPreference(),

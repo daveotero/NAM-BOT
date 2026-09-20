@@ -237,17 +237,10 @@ function buildBaseLearningConfig(job: JobSpec, preset: TrainingPresetFile): Reco
   }
 }
 
-export function buildJobConfigs(
+export function resolveJobConfigs(
   job: JobSpec,
-  workspaceDir: string,
   preset: TrainingPresetFile
-): GeneratedConfigPaths {
-  log.info('Building job configs for:', job.id, 'with preset:', preset.id)
-
-  if (!existsSync(workspaceDir)) {
-    mkdirSync(workspaceDir, { recursive: true })
-  }
-
+): { dataConfig: Record<string, unknown>; modelConfig: Record<string, unknown>; learningConfig: Record<string, unknown> } {
   const dataConfig = preset.expert.data && isRecord(preset.expert.data)
     ? deepMerge(buildBaseDataConfig(job, preset), preset.expert.data)
     : buildBaseDataConfig(job, preset)
@@ -260,6 +253,18 @@ export function buildJobConfigs(
   const learningConfig = preset.expert.learning && isRecord(preset.expert.learning)
     ? deepMerge(buildBaseLearningConfig(job, preset), preset.expert.learning)
     : buildBaseLearningConfig(job, preset)
+
+  return { dataConfig, modelConfig, learningConfig }
+}
+
+export function buildJobConfigs(
+  job: JobSpec,
+  workspaceDir: string,
+  preset: TrainingPresetFile
+): GeneratedConfigPaths {
+  log.info('Building job configs for:', job.id, 'with preset:', preset.id)
+  if (!existsSync(workspaceDir)) mkdirSync(workspaceDir, { recursive: true })
+  const { dataConfig, modelConfig, learningConfig } = resolveJobConfigs(job, preset)
 
   const dataConfigPath = join(workspaceDir, 'data.json')
   const modelConfigPath = join(workspaceDir, 'model.json')

@@ -1,5 +1,7 @@
 # Setup Guide
 
+UI presentation follows the shared [UI style guide](ui-style-guide.md), including typography, controls, and responsive review requirements.
+
 NAM-BOT uses an existing Conda environment, addressed by its name or full environment-folder path. Direct Python executable and standalone virtual-environment modes are not supported.
 
 The guide uses the shared section navigation for Existing setup, New environment, and Links. The current section has the same muted gray highlight as the editors; jumps scroll smoothly and focus the heading, with immediate scrolling for reduced-motion preferences. Section dividers, spacing, and copyable command blocks use the shared workspace styles. Hardware choices remain within the new-environment instructions, with a muted selected state. The setup sequence and platform-specific commands are unchanged.

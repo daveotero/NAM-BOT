@@ -8,6 +8,8 @@ import {
   createTrainingPreset
 } from '../../state/types'
 import {
+  LAST_SAVE_TRAINING_IMAGE_STORAGE_KEY,
+  LAST_SAVE_TRAINING_HTML_STORAGE_KEY,
   LAST_COPY_FINAL_MODEL_TO_OUTPUT_AUDIO_FOLDER_STORAGE_KEY,
   LAST_LATENCY_MODE_STORAGE_KEY,
   LAST_LATENCY_SAMPLES_STORAGE_KEY,
@@ -186,4 +188,14 @@ describe('job editor change tracking', () => {
     expect(serializeJobEditorSession({ ...custom, job: { ...custom.job, inputAudioPath: 'C:/custom.wav' } })).not.toBe(serializeJobEditorSession(custom))
     expect(serializeJobEditorSession({ ...custom, job: { ...custom.job, outputRootDir: 'C:/models' } })).not.toBe(serializeJobEditorSession(custom))
   })
+})
+
+it('seeds report options independently from last-used choices', () => {
+  const storage = stubLocalStorage({ [LAST_SAVE_TRAINING_IMAGE_STORAGE_KEY]: 'true' })
+  const first = createNewJobDraft({ settings: null, presets: [] })
+  expect(first).toMatchObject({ saveTrainingImage: true, saveTrainingHtml: false })
+  storage.set(LAST_SAVE_TRAINING_IMAGE_STORAGE_KEY, 'false')
+  storage.set(LAST_SAVE_TRAINING_HTML_STORAGE_KEY, 'true')
+  expect(createNewJobDraft({ settings: null, presets: [] })).toMatchObject({ saveTrainingImage: false, saveTrainingHtml: true })
+  expect(first).toMatchObject({ saveTrainingImage: true, saveTrainingHtml: false })
 })

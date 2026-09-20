@@ -4,6 +4,7 @@ import log from 'electron-log/renderer'
 
 import type { ShellWindowState } from '../../shared/appShell'
 import { getSectionLabel } from './title-bar-state'
+import NamBotWordmark from './NamBotWordmark'
 import '../styles/title-bar.css'
 
 interface TitleBarStyle extends CSSProperties {
@@ -95,8 +96,8 @@ function AppTitleBar(): ReactElement {
             <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12" /></svg>
           </button>
         )}
-        <span className="app-title-bar-brand">
-          <span className="app-title-bar-wordmark">NAM-BOT</span>
+        <span className="app-title-bar-brand nam-bot-brand">
+          <NamBotWordmark className="app-title-bar-wordmark" />
         </span>
         <span className="app-title-bar-divider" aria-hidden="true">/</span>
         <span className="app-title-bar-section">{section}</span>

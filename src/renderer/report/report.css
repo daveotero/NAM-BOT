@@ -1,0 +1,48 @@
+/* Standalone document layout. Typography and components come from the app. */
+body { height: auto; overflow: auto; }
+html[data-report-format="png"], html[data-report-format="png"] body { overflow: hidden; }
+#root { height: auto; }
+.training-report { width: 100%; max-width: 1200px; margin: 0 auto; padding: var(--space-5); }
+.report-brand { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); padding-bottom: var(--space-3); margin-bottom: var(--space-3); border-bottom: 1px solid var(--border-panel); }
+.report-card { display: block; margin: 0 0 var(--space-3); padding: var(--space-4); }
+.report-card:hover { background: var(--surface-panel); }
+.report-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-4); margin-bottom: var(--space-4); }
+.report-heading > div { min-width: 0; overflow-wrap: anywhere; }
+.report-heading h1 { margin-bottom: var(--space-1); }
+.report-heading .queue-status-badge { flex-shrink: 0; }
+.report-heading p { color: var(--text-steel); }
+.report-summary { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: var(--space-4); margin-bottom: var(--space-4); }
+.report-summary h2, .report-details h2 { margin: 0; font-weight: normal; }
+.report-summary-facts .runtime-detail-fact { grid-template-columns: 112px minmax(0, 1fr); }
+.report-summary-facts .runtime-detail-value { white-space: normal; overflow-wrap: anywhere; }
+.report-esr-table { width: 100%; max-width: 360px; border-collapse: collapse; text-align: left; }
+.report-esr-table th[scope='row'] { width: 42%; }
+.report-esr-table th { font-weight: normal; }
+.report-esr-table thead { color: var(--text-steel); font-size: var(--text-secondary); }
+.report-esr-table th, .report-esr-table td { padding: var(--space-1) var(--space-2) var(--space-1) 0; vertical-align: baseline; }
+.report-esr-table th:last-child, .report-esr-table td:last-child { padding-right: 0; }
+.report-esr-table .runtime-esr-item { display: table-row; }
+.report-esr-table .runtime-esr-label { white-space: normal; overflow-wrap: anywhere; }
+.report-best-epoch { color: var(--text-steel); }
+.report-metrics-note { margin-top: auto; color: var(--text-steel); }
+.report-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3) var(--space-4); }
+.report-facts > div { min-width: 0; }
+.report-facts dt { color: var(--text-steel); margin-bottom: var(--space-1); }
+.report-facts dd { overflow-wrap: anywhere; }
+.report-details { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-4); margin-bottom: var(--space-3); }
+.report-caption { color: var(--text-steel); margin-top: var(--space-2); }
+.report-footer { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: var(--space-2) var(--space-3); border-top: 1px solid var(--border-panel); padding-top: var(--space-3); color: var(--text-steel); font-size: var(--text-secondary); }
+.report-footer nav { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+.report-footer a { color: inherit; text-underline-offset: 3px; }
+.report-footer a:hover { color: var(--neon-cyan); }
+.report-footer a:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+.report-image .esr-chart-plot { overflow: visible; }
+@media (max-width: 700px) {
+  .training-report { padding: var(--space-3); }
+  .report-summary, .report-details { grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
+  .report-heading { flex-direction: column; gap: var(--space-2); }
+  .report-card { padding: var(--space-3); }
+}
+@media (max-width: 380px) {
+  .report-facts { grid-template-columns: minmax(0, 1fr); }
+}

@@ -55,6 +55,16 @@ def command(trainer, module, action):
     callback.handle_command(trainer, module, force=True)
     result = json.loads((controls / (request_id + ".json")).read_text())
     assert result["ok"], result
+    if action == "export":
+        assert result.get("reportWarning") is None, result
+        evidence = result["reportEvidence"]
+        assert len(evidence["metrics"]) == 2
+        assert len(evidence["history"]) == 1
+        for metric in evidence["metrics"]:
+            assert metric["epoch"] == 1
+            measured = next(item["esr"] for item in evidence["history"][0]["models"]
+                            if item["submodelIndex"] == metric["submodelIndex"])
+            assert abs(metric["esr"] - measured) < 1e-12
     return controls / request_id / "model.nam"
 
 class ExerciseControls(pl.Callback):
@@ -104,6 +114,9 @@ torch.manual_seed(123)
 full.main(deepcopy(data), deepcopy(model), learning, root / "out", no_show=True, make_plots=False)
 history = [json.loads(line) for line in (root / "esr-history.jsonl").read_text().splitlines()]
 assert 2 <= len(history) < 8, history
+final_evidence = json.loads((root / "final-report-evidence.json").read_text())
+assert len(final_evidence["history"]) == len(history)
+assert all(metric["esr"] is not None for metric in final_evidence["metrics"])
 assert exported_path is not None and exported_path.exists()
 assert (root / "out" / "model.nam").exists()
 print("LIVE_EXPORT_AND_FINISH_PASSED")

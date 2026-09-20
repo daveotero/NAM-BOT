@@ -1,5 +1,7 @@
 # Presets System
 
+UI presentation follows the shared [UI style guide](ui-style-guide.md), including typography, controls, and responsive review requirements.
+
 ## Overview
 
 NAM-BOT presets are the source of truth for training configuration. A preset defines:

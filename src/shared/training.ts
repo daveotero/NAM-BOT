@@ -1,3 +1,5 @@
+import type { TrainingExportEvidence } from './training-report'
+
 export type JobStatus =
   | 'draft'
   | 'queued'
@@ -87,10 +89,18 @@ export interface JobEsrEpoch {
   models: JobEsrMeasurement[]
 }
 
+export interface TrainingReportArtifact {
+  format: 'png' | 'html'
+  path: string
+  modelPath: string | null
+  createdAt: string
+}
+
 export interface JobModelExport {
   path: string
   epoch: number
   exportedAt: string
+  reportEvidence?: TrainingExportEvidence
 }
 
 export interface NamEmbeddedMetadata {
@@ -130,6 +140,8 @@ export interface JobSpec {
   presetId: string | null
   appendPresetToModelFileName: boolean
   appendEsrToModelFileName: boolean
+  saveTrainingImage: boolean
+  saveTrainingHtml: boolean
   copyFinalModelToOutputAudioFolder: boolean
   inputAudioPath: string
   inputAudioIsDefault: boolean
@@ -226,6 +238,8 @@ export interface JobRuntimeState {
   trainingControlReady?: boolean
   modelExportPending?: boolean
   modelExports?: JobModelExport[]
+  trainingReports?: TrainingReportArtifact[]
+  finalReportEvidence?: TrainingExportEvidence
   finishedEarly?: boolean
   stopRequestedAt?: string
   stopMode?: JobStopMode | null
@@ -313,6 +327,8 @@ export const defaultJobSpec: Omit<JobSpec, 'id' | 'createdAt' | 'updatedAt'> = {
   presetId: DEFAULT_PRESET_ID,
   appendPresetToModelFileName: false,
   appendEsrToModelFileName: false,
+  saveTrainingImage: false,
+  saveTrainingHtml: false,
   copyFinalModelToOutputAudioFolder: false,
   inputAudioPath: '',
   inputAudioIsDefault: true,
@@ -1144,6 +1160,8 @@ export function normalizeJobSpec(value: unknown): JobSpec {
     appendEsrToModelFileName: typeof value.appendEsrToModelFileName === 'boolean'
       ? value.appendEsrToModelFileName
       : false,
+    saveTrainingImage: value.saveTrainingImage === true,
+    saveTrainingHtml: value.saveTrainingHtml === true,
     copyFinalModelToOutputAudioFolder: typeof value.copyFinalModelToOutputAudioFolder === 'boolean'
       ? value.copyFinalModelToOutputAudioFolder
       : false,

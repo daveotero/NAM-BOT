@@ -1,11 +1,15 @@
 import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { v4 as uuidv4 } from 'uuid'
+import type { TrainingExportEvidence } from '../../shared/training-report'
+import { normalizeTrainingExportEvidence } from '../reports/report-evidence'
 import { atomicWriteJsonSync } from '../persistence/atomicFile'
 
 export interface TrainingControlResult {
   epoch: number
   modelPath: string
+  reportEvidence?: TrainingExportEvidence
+  reportWarning?: string
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -35,7 +39,11 @@ export async function requestTrainingControl(
       if (typeof result.epoch !== 'number' || !Number.isSafeInteger(result.epoch) || result.epoch < 1) {
         throw new Error('The trainer returned an invalid export result.')
       }
-      return { epoch: result.epoch, modelPath: join(directory, id, 'model.nam') }
+      const evidence = normalizeTrainingExportEvidence(result.reportEvidence)
+      return { epoch: result.epoch, modelPath: join(directory, id, 'model.nam'),
+        ...(evidence ? { reportEvidence: evidence } : {}),
+        ...(typeof result.reportWarning === 'string' ? { reportWarning: result.reportWarning } : {}) }
+
     }
     if (!isActive()) throw new Error('Training ended before the export request could be completed. Check the final model in the output folder.')
     if (Date.now() >= expiresAt) throw new Error('Timed out waiting for the trainer. Training has not been force-stopped; check its status before retrying.')

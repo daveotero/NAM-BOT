@@ -22,6 +22,8 @@ const analyzeNamLatencyMock = vi.hoisted(() => vi.fn())
 const requestTrainingControlMock = vi.hoisted(() => vi.fn<typeof import('./training-control').requestTrainingControl>())
 
 vi.mock('./training-control', () => ({ requestTrainingControl: requestTrainingControlMock }))
+const writeTrainingReportMock = vi.hoisted(() => vi.fn<typeof import('../reports/training-report').writeTrainingReport>())
+vi.mock('../reports/training-report', () => ({ writeTrainingReport: writeTrainingReportMock }))
 
 vi.mock('../backend/adapter', () => {
   function compareVersions(left: string, right: string): number {
@@ -108,6 +110,11 @@ beforeEach(() => {
   runNamFullMock.mockReset()
   inspectTorchRuntimeMock.mockReset()
   analyzeNamLatencyMock.mockReset()
+  writeTrainingReportMock.mockReset()
+  writeTrainingReportMock.mockImplementation(async (_data, _format, destination) => {
+    writeFileSync(destination, 'report')
+    return destination
+  })
   requestTrainingControlMock.mockReset()
   inspectTorchRuntimeMock.mockResolvedValue(null)
 })
@@ -897,5 +904,86 @@ describe('QueueManager A2 diagnostics gate', () => {
     expect(runtime.status).toBe('failed')
     expect(queueManager.getCurrentJob()).toBeNull()
     expect(queueManager.isQueueProcessing()).toBe(false)
+  })
+})
+
+describe('training report export lifecycle', () => {
+  it.each([false, true])('generates both reports at final and extra-copy destinations, preserving model success on report failure (fail=%s)', async (fail) => {
+    const manager = createQueueManager()
+    manager.setKnownNamVersion(defaultSettings, '0.13.0')
+    const job = buildJobSpec({ saveTrainingImage: true, saveTrainingHtml: true, copyFinalModelToOutputAudioFolder: true })
+    manager.addToQueue(job)
+    job.saveTrainingImage = false
+    if (fail) writeTrainingReportMock.mockRejectedValue(new Error('Report disk unavailable'))
+    runNamFullMock.mockImplementation(async (_settings, args, hooks) => {
+      mkdirSync(args.outputRootDir, { recursive: true })
+      writeNamModel(join(args.outputRootDir, 'model.nam'))
+      hooks.onStarted(1234)
+      hooks.onExit(0)
+      return { cancel: vi.fn(), forceKill: vi.fn(async () => true), forceKillSync: vi.fn() }
+    })
+    await manager.startQueue()
+    const result = manager.getQueue()[0]
+    expect(result.status).toBe('succeeded')
+    expect(existsSync(result.publishedModelPath!)).toBe(true)
+    expect(writeTrainingReportMock).toHaveBeenCalledTimes(4)
+    expect(writeTrainingReportMock.mock.calls.map(call => call[1])).toEqual(['png', 'html', 'png', 'html'])
+    expect(writeTrainingReportMock.mock.calls.every(call => call[0].status === 'Completed' && call[0].finishedAt)).toBe(true)
+    expect(new Set(writeTrainingReportMock.mock.calls.map(call => call[2])).size).toBe(4)
+    if (fail) expect(result.completionWarnings?.join(' ')).toContain('Report disk unavailable')
+    else {
+      expect(result.trainingReports).toHaveLength(4)
+      expect(createQueueManager().getQueue()[0].trainingReports).toHaveLength(4)
+    }
+  })
+
+  it.each([false, true])('captures snapshot evidence independently of later metrics and permits finish despite report failure (finish=%s)', async (finish) => {
+    const manager = createQueueManager()
+    manager.setKnownNamVersion(defaultSettings, '0.13.0')
+    const job = buildJobSpec({ saveTrainingHtml: true })
+    manager.addToQueue(job)
+    let exit: (code: number) => void = () => undefined
+    runNamFullMock.mockImplementation(async (_settings, args, hooks) => {
+      mkdirSync(args.outputRootDir, { recursive: true })
+      writeFileSync(join(args.outputRootDir, '0000_10_1.000e-3_1.000e-6.ckpt'), 'checkpoint')
+      mkdirSync(join(args.cwd!, 'training-controls'))
+      writeFileSync(join(args.cwd!, 'training-controls', 'ready.json'), '{}')
+      exit = hooks.onExit
+      hooks.onStarted(1234)
+      return { cancel: vi.fn(), forceKill: vi.fn(async () => true), forceKillSync: vi.fn() }
+    })
+    requestTrainingControlMock.mockImplementation(async (workspace, action) => {
+      const modelPath = join(workspace, 'snapshot.nam')
+      if (action === 'export') writeNamModel(modelPath)
+      else { writeNamModel(join(job.outputRootDir, 'model.nam')); exit(0) }
+      return { modelPath, epoch: 2, reportEvidence: { capturedAt: '2026-09-19T10:00:00Z',
+        history: [{ epoch: 1, step: 10, models: [{ submodelIndex: null, esr: 0.1 }] }],
+        metrics: [{ submodelIndex: null, submodelName: null, esr: 0.1, epoch: 1 }] } }
+    })
+    writeTrainingReportMock.mockRejectedValue(new Error('Report write failed'))
+    const running = manager.startQueue()
+    try {
+      await vi.waitFor(() => expect(manager.getCurrentJob()?.trainingControlReady).toBe(true))
+      const destination = join(job.outputRootDir, 'snapshot.nam')
+      await manager.exportTrainingModel(job.id, destination, finish)
+      expect(existsSync(destination)).toBe(true)
+      const snapshotReport = writeTrainingReportMock.mock.calls.find(call => call[0].status === 'Training snapshot')?.[0]
+      expect(snapshotReport?.metrics[0].esr).toBe(0.1)
+      expect(snapshotReport?.history).toHaveLength(1)
+      expect(requestTrainingControlMock.mock.calls.map(call => call[1])).toEqual(finish ? ['export', 'finish'] : ['export'])
+      if (!finish) exit(1)
+      await running
+      expect(manager.getQueue()[0].status).toBe(finish ? 'succeeded' : 'failed')
+      const restarted = createQueueManager()
+      expect(restarted.getQueue()[0].modelExports?.[0].reportEvidence?.metrics[0].esr).toBe(0.1)
+      if (!finish) {
+        writeTrainingReportMock.mockResolvedValue(join(job.outputRootDir, 'manual.html'))
+        await restarted.saveReport(job.id, 'html', join(job.outputRootDir, 'manual.html'))
+        expect(writeTrainingReportMock.mock.calls.at(-1)?.[0].metrics[0].esr).toBe(0.1)
+      }
+    } finally {
+      if (manager.getCurrentJob()) exit(1)
+      await running
+    }
   })
 })

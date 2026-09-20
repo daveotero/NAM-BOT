@@ -894,14 +894,7 @@ function PresetCard({
         </>
       )}
 
-      <style>{`
-        .queue-status-badge.reward {
-          background: rgba(68, 24, 92, 0.88);
-          border-color: rgba(184, 124, 255, 0.75);
-          color: #f2d8ff;
-          box-shadow: 0 0 12px rgba(184, 124, 255, 0.22);
-        }
-      `}</style>
+
     </div>
   )
 }
@@ -1216,7 +1209,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                 <div className="property-row">
                   <div className="form-label-row">
                     <label className="form-label" htmlFor="preset-name">
-                      Name {showValidationErrors && !isNameValid && <span style={{ color: 'var(--neon-magenta)', fontSize: '12px' }}>(Required)</span>}
+                      Name {showValidationErrors && !isNameValid && <span className="ui-text-secondary" style={{ color: 'var(--neon-magenta)' }}>(Required)</span>}
                     </label>
                   </div>
                   <div className="property-control">
@@ -1489,7 +1482,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                     {renderInfoButton(BASIC_FIELD_HELP_TEXT.fitMrstft)}
                   </div>
                   <div className="property-control">
-                    <label className="property-check-option property-option-panel">
+                    <label className="property-check-option">
                       <input
                         id="preset-fit-mrstft"
                         type="checkbox"
@@ -1650,15 +1643,15 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
             />
 
             {!session.importJson.trim() ? (
-              <p style={{ color: 'var(--text-steel)', marginBottom: '12px', fontSize: '13px' }}>
+              <p className="ui-text-body" style={{ color: 'var(--text-steel)', marginBottom: '12px' }}>
                 Paste JSON to validate it automatically.
               </p>
             ) : importValidation.error ? (
-              <p style={{ color: 'var(--neon-magenta)', marginBottom: '12px', fontSize: '13px' }}>
+              <p className="ui-text-body" style={{ color: 'var(--neon-magenta)', marginBottom: '12px' }}>
                 {importValidation.error.message}
               </p>
             ) : (
-              <p style={{ color: 'var(--neon-green)', marginBottom: '12px', fontSize: '13px' }}>
+              <p className="ui-text-body" style={{ color: 'var(--neon-green)', marginBottom: '12px' }}>
                 Valid {formatImportKind(importValidation.imported?.kind ?? 'full-preset')} detected. Import is ready.
               </p>
             )}

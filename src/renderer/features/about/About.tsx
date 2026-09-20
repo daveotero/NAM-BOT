@@ -4,6 +4,7 @@ import type { UpdateStatus } from '../../../shared/update'
 import { useAppStore } from '../../state/store'
 import { normalizeTrainingPreset } from '../../state/types'
 import AboutMiniGame from './AboutMiniGame'
+import './about.css'
 import { hasEpochRunnerSession } from './about-game-session'
 import {
   EPOCH_RUNNER_COMMAND,
@@ -61,6 +62,7 @@ interface BootSequenceLogo {
 }
 
 interface BootSequenceRow {
+  className?: string
   type: 'row' | 'header' | 'text'
   content: string
   color?: 'neon-green' | 'neon-cyan' | 'neon-magenta' | 'neon-gold'
@@ -84,6 +86,7 @@ interface BootSequenceRichTextSegment {
 }
 
 interface BootSequenceRichText {
+  className?: string
   type: 'rich-text'
   segments: BootSequenceRichTextSegment[]
   style?: CSSProperties
@@ -145,11 +148,6 @@ function createBootSequence(updateStatus: UpdateStatus): BootSequenceItem[] {
       ]
     },
     { type: 'text', content: 'NAM-BOT is licensed under MIT. © 2026 Dave Otero.' },
-    {
-      type: 'text',
-      content: 'THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY.',
-      style: { fontSize: '11px', marginTop: '12px', opacity: 0.7 }
-    },
     { type: 'break' }
   ]
 }
@@ -255,12 +253,12 @@ function renderBootItem(
       )
     }
     case 'text':
-      return <p key={index} className="terminal-text" style={item.style}>{item.content.slice(0, visibleInItem)}</p>
+      return <p key={index} className={`terminal-text ${item.className ?? ''}`} style={item.style}>{item.content.slice(0, visibleInItem)}</p>
     case 'rich-text': {
       let remainingChars = visibleInItem
 
       return (
-        <p key={index} className="terminal-text" style={item.style}>
+        <p key={index} className={`terminal-text ${item.className ?? ''}`} style={item.style}>
           {item.segments.map((segment, segmentIndex) => {
             if (remainingChars <= 0) {
               return null
@@ -614,241 +612,7 @@ export default function About() {
         </div>
       </div>
 
-      <style>{`
-        .terminal-game-active { padding: 14px !important; cursor: default !important; }
-        .terminal-game-active .terminal-scroll-area { padding: 0; overflow: auto; min-height: 0; }
-        .terminal-game-active .terminal-content { flex: 1; display: flex; min-height: 0; }
-        .terminal-game-container { flex: 1; min-width: 0; display: flex; }
-        .terminal-container {
-          background-color: var(--bg-void);
-          padding: 24px;
-          color: var(--neon-green);
-          font-family: var(--font-arcade);
-          font-size: 18px;
-          min-height: 100%;
-          max-height: 100%;
-          display: flex;
-          flex-direction: column;
-          overflow: hidden;
-          cursor: pointer;
-        }
 
-        .terminal-container:focus { outline: none; }
-
-        .terminal-screen {
-          border: 2px solid var(--border-dim);
-          background: rgba(0, 0, 0, 0.8);
-          flex: 1;
-          box-shadow: inset 0 0 100px rgba(0, 255, 0, 0.05);
-          position: relative;
-          overflow: hidden;
-          display: flex;
-          flex-direction: column;
-        }
-
-        .terminal-scroll-area {
-          flex: 1;
-          overflow-y: auto;
-          padding: 40px;
-          display: flex;
-          flex-direction: column;
-        }
-
-        .terminal-screen::after {
-          content: " ";
-          display: block;
-          position: absolute;
-          top: 0;
-          left: 0;
-          bottom: 0;
-          right: 0;
-          background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
-          z-index: 2;
-          background-size: 100% 2px, 3px 100%;
-          pointer-events: none;
-        }
-
-        .terminal-content {
-          position: relative;
-          z-index: 3;
-        }
-
-        .terminal-end {
-          height: 1.5em;
-          font-size: 20px;
-        }
-
-        .terminal-logo {
-          color: var(--neon-cyan);
-          line-height: 1.1;
-          margin-bottom: 30px;
-          text-shadow: 0 0 10px rgba(0, 240, 255, 0.5);
-          white-space: pre;
-          font-size: 12px;
-          flex-shrink: 0;
-        }
-
-        .terminal-row {
-          margin: 8px 0;
-          letter-spacing: 1px;
-          font-size: 20px;
-        }
-
-        .terminal-header {
-          font-size: 20px;
-          font-weight: bold;
-          margin-top: 32px;
-          margin-bottom: 8px;
-          letter-spacing: 2px;
-        }
-
-        .terminal-entry {
-          margin: 8px 0;
-          display: flex;
-          gap: 16px;
-        }
-
-        .terminal-label {
-          color: var(--text-steel);
-          min-width: 140px;
-          font-size: 20px;
-        }
-
-        .terminal-field-value {
-          color: var(--neon-green);
-          font-size: 20px;
-        }
-
-        .terminal-entry-status {
-          color: var(--neon-gold);
-          font-size: 18px;
-          text-shadow: 0 0 10px rgba(255, 204, 0, 0.75);
-        }
-
-        .terminal-entry-status-update {
-          animation: terminalCrtFlash 1.1s steps(2, end) infinite;
-        }
-
-        .terminal-secondary-link {
-          color: var(--neon-cyan);
-          text-transform: uppercase;
-          font-size: 18px;
-        }
-
-        .terminal-link {
-          color: var(--neon-green);
-          text-decoration: underline;
-          cursor: pointer;
-          position: relative;
-          z-index: 5;
-          font-size: 20px;
-        }
-
-        .terminal-link:hover {
-          color: var(--text-ash);
-        }
-
-        .terminal-text {
-          font-size: 20px;
-          color: var(--text-steel);
-          line-height: 1.4;
-          margin-top: 8px;
-        }
-
-        .terminal-history-item {
-          margin-bottom: 12px;
-        }
-
-        .terminal-loader-line,
-        .terminal-status-message {
-          margin-top: 4px;
-          margin-left: 20px;
-        }
-
-        .terminal-output-line {
-          display: flex;
-          gap: 10px;
-          align-items: flex-start;
-          margin-top: 4px;
-          margin-left: 20px;
-          color: var(--text-steel);
-          line-height: 1.4;
-        }
-
-        .terminal-output-prefix {
-          flex-shrink: 0;
-        }
-
-        .terminal-output-text {
-          color: var(--text-steel);
-        }
-
-        .terminal-loader {
-          margin-top: 12px;
-          margin-bottom: 6px;
-        }
-
-        .terminal-prompt {
-          margin-top: 8px;
-          font-size: 20px;
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          flex-wrap: wrap;
-        }
-
-        .terminal-cursor {
-          margin-left: -4px;
-          animation: blink 1s step-end infinite;
-        }
-
-        @keyframes terminalCrtFlash {
-          0%, 100% {
-            opacity: 1;
-            text-shadow: 0 0 6px currentColor, 0 0 18px currentColor;
-          }
-          45% {
-            opacity: 0.35;
-            text-shadow: 0 0 2px currentColor;
-          }
-          55% {
-            opacity: 0.9;
-            text-shadow: 0 0 12px currentColor, 0 0 24px currentColor;
-          }
-        }
-
-        .neon-green { color: var(--neon-green); }
-        .neon-cyan { color: var(--neon-cyan); }
-        .neon-magenta { color: var(--neon-magenta); }
-        .neon-gold { color: var(--neon-gold); }
-
-        @media (max-width: 900px) {
-          .terminal-scroll-area {
-            padding: 24px;
-          }
-
-          .terminal-row,
-          .terminal-header,
-          .terminal-label,
-          .terminal-field-value,
-          .terminal-link,
-          .terminal-text,
-          .terminal-prompt,
-          .terminal-entry-status,
-          .terminal-secondary-link {
-            font-size: 16px;
-          }
-
-          .terminal-entry {
-            flex-direction: column;
-            gap: 4px;
-          }
-
-          .terminal-label {
-            min-width: 0;
-          }
-        }
-      `}</style>
     </div>
   )
 }

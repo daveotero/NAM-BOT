@@ -278,7 +278,7 @@ export default function Settings() {
               <WorkingIndicator active={isBackendBusy} />
             </button>
             {validationError && (
-              <p style={{ marginTop: '8px', color: 'var(--neon-magenta)', fontSize: '13px' }}>
+              <p className="ui-text-body" style={{ marginTop: '8px', color: 'var(--neon-magenta)' }}>
                 Validation failed: {validationError}
               </p>
             )}

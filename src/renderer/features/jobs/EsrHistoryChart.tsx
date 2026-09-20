@@ -1,4 +1,4 @@
-import { useMemo, useState, type JSX, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState, type JSX, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react'
 import type { JobEsrEpoch } from '../../../shared/training'
 import { buildEsrChartSeries, getEsrChartDomain, getEsrEpochDomain, selectEsrHistoryWindow, type EsrEpochWindow } from './esr-chart-data'
 import { formatEsr } from './job-helpers'
@@ -6,16 +6,31 @@ import { formatEsr } from './job-helpers'
 interface EsrHistoryChartProps {
   history: JobEsrEpoch[]
   active: boolean
+  interactive?: boolean
+  responsive?: boolean
 }
 
 const WIDTH = 900
 const HEIGHT = 260
-const LEFT = 100
-const RIGHT = WIDTH - 24
 const TOP = 16
 const BOTTOM = HEIGHT - 36
 
-export default function EsrHistoryChart({ history, active }: EsrHistoryChartProps): JSX.Element {
+export default function EsrHistoryChart({ history, active, interactive = true, responsive = false }: EsrHistoryChartProps): JSX.Element {
+  const plotRef = useRef<HTMLDivElement>(null)
+  const [plotWidth, setPlotWidth] = useState(WIDTH)
+  const hasHistory = history.length > 0
+  useLayoutEffect(() => {
+    const plot = plotRef.current
+    if (!responsive || !plot) return
+    const update = (): void => setPlotWidth(Math.min(WIDTH, Math.max(1, Math.round(plot.clientWidth))))
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(plot)
+    return () => observer.disconnect()
+  }, [responsive, hasHistory])
+  const width = responsive ? plotWidth : WIDTH
+  const left = width < 560 ? 76 : 100
+  const right = width - 24
   const [epochWindow, setEpochWindow] = useState<EsrEpochWindow>('all')
   const [hidden, setHidden] = useState<string[]>([])
   const [selectedEpoch, setSelectedEpoch] = useState<number | null>(null)
@@ -32,16 +47,17 @@ export default function EsrHistoryChart({ history, active }: EsrHistoryChartProp
   const requestedIndex = windowHistory.findIndex((record) => record.epoch === (pinned ? selectedEpoch : hoveredEpoch))
   const selectionIndex = requestedIndex < 0 ? windowHistory.length - 1 : requestedIndex
   const selection = windowHistory[selectionIndex]
-  const x = (epoch: number): number => LEFT + (epoch - xMin) / (xMax - xMin) * (RIGHT - LEFT)
+  const x = (epoch: number): number => left + (epoch - xMin) / (xMax - xMin) * (right - left)
   const y = (esr: number): number => esr === 0 ? BOTTOM
     : BOTTOM - (Math.log10(esr) - yMin) / (yMax - yMin) * (BOTTOM - TOP)
-  const xTicks = [...new Set(Array.from({ length: 5 }, (_, index) => Math.round(xMin + (xMax - xMin) * index / 4)))]
+  const tickCount = width < 560 ? 3 : 5
+  const xTicks = [...new Set(Array.from({ length: tickCount }, (_, index) => Math.round(xMin + (xMax - xMin) * index / (tickCount - 1))))]
 
   function epochFromPointer(event: PointerEvent<SVGSVGElement> | MouseEvent<SVGSVGElement>): number | null {
     const transform = event.currentTarget.getScreenCTM()
     if (!transform || windowHistory.length === 0) return null
     const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(transform.inverse())
-    const epoch = xMin + Math.max(0, Math.min(1, (point.x - LEFT) / (RIGHT - LEFT))) * (xMax - xMin)
+    const epoch = xMin + Math.max(0, Math.min(1, (point.x - left) / (right - left))) * (xMax - xMin)
     const closest = windowHistory.reduce((previous, record) =>
       Math.abs(record.epoch - epoch) < Math.abs(previous.epoch - epoch) ? record : previous)
     return closest.epoch
@@ -72,12 +88,12 @@ export default function EsrHistoryChart({ history, active }: EsrHistoryChartProp
   }
 
   return (
-    <section className="esr-chart" data-no-card-toggle="true" aria-label="Validation ESR history">
+    <section className={`esr-chart${responsive ? ' esr-chart-responsive' : ''}`} data-no-card-toggle="true" aria-label="Validation ESR history">
       <div className="esr-chart-header">
         <div>
           <h5>ESR over time</h5>
         </div>
-        {history.length > 0 && (
+        {interactive && history.length > 0 && (
           <div className="esr-chart-controls">
             {active && <span className="esr-chart-live">Live</span>}
             <div className="esr-chart-scale" role="group" aria-label="Epoch window">
@@ -98,22 +114,22 @@ export default function EsrHistoryChart({ history, active }: EsrHistoryChartProp
           : 'No epoch history was recorded for this run. New training runs collect it automatically.'}</p>
       ) : (
         <>
-          <div className="esr-chart-plot">
-            <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} role="slider" tabIndex={0}
+          <div ref={plotRef} className="esr-chart-plot">
+            <svg viewBox={`0 0 ${width} ${HEIGHT}`} role={interactive ? "slider" : "img"} tabIndex={interactive ? 0 : undefined}
               aria-label="Inspect training epoch"
               aria-valuemin={firstEpoch} aria-valuemax={lastEpoch} aria-valuenow={selection?.epoch ?? lastEpoch}
               aria-valuetext={`Epoch ${selection?.epoch ?? lastEpoch}${pinned ? ', pinned' : ''}`}
-              onKeyDown={inspectWithKeyboard}
-              onClick={(event) => setSelectedEpoch(epochFromPointer(event))}
-              onPointerMove={(event) => { if (event.pointerType === 'mouse') setHoveredEpoch(epochFromPointer(event)) }}
+              onKeyDown={interactive ? inspectWithKeyboard : undefined}
+              onClick={interactive ? (event) => setSelectedEpoch(epochFromPointer(event)) : undefined}
+              onPointerMove={(event) => { if (interactive && event.pointerType === 'mouse') setHoveredEpoch(epochFromPointer(event)) }}
               onPointerLeave={() => setHoveredEpoch(null)}>
               <title>Per-model validation ESR, logarithmic scale. Hover to inspect, click to pin. Arrow keys inspect epochs; Escape or End returns to latest.</title>
               {Array.from({ length: 5 }, (_, index) => {
                 const position = TOP + (BOTTOM - TOP) * index / 4
                 const value = yMax - (yMax - yMin) * index / 4
                 return <g key={index}>
-                  <line x1={LEFT} x2={RIGHT} y1={position} y2={position} className="esr-chart-grid" />
-                  <text x={LEFT - 12} y={position + 4} textAnchor="end">{formatEsr(10 ** value)}</text>
+                  <line x1={left} x2={right} y1={position} y2={position} className="esr-chart-grid" />
+                  <text x={left - 12} y={position + 4} textAnchor="end">{formatEsr(10 ** value)}</text>
                 </g>
               })}
               {xTicks.map((epoch) => <text key={epoch} x={x(epoch)} y={BOTTOM + 22} textAnchor="middle">{epoch}</text>)}
@@ -124,7 +140,7 @@ export default function EsrHistoryChart({ history, active }: EsrHistoryChartProp
                   {entry.points.length === 1 && <circle cx={x(entry.points[0].epoch)} cy={y(entry.points[0].esr)} r="3" />}
                 </g>
               })}
-              {selection && <line x1={x(selection.epoch)} x2={x(selection.epoch)} y1={TOP} y2={BOTTOM} className="esr-chart-cursor" />}
+              {interactive && selection && <line x1={x(selection.epoch)} x2={x(selection.epoch)} y1={TOP} y2={BOTTOM} className="esr-chart-cursor" />}
             </svg>
           </div>
           <div className="esr-chart-readout">
@@ -136,7 +152,7 @@ export default function EsrHistoryChart({ history, active }: EsrHistoryChartProp
             {series.map((entry) => {
               const enabled = !hidden.includes(entry.id)
               const point = entry.points.find((candidate) => candidate.epoch === selection?.epoch)
-              return <button key={entry.id} type="button" className={`esr-chart-model${enabled ? '' : ' is-hidden'}`}
+              return <button disabled={!interactive} key={entry.id} type="button" className={`esr-chart-model${enabled ? '' : ' is-hidden'}`}
                 aria-pressed={enabled} title={`${enabled ? 'Hide' : 'Show'} ${entry.label}`}
                 onClick={() => setHidden((current) => enabled ? [...current, entry.id] : current.filter((id) => id !== entry.id))}>
                 <span className="esr-chart-swatch" style={{ backgroundColor: entry.color }} />

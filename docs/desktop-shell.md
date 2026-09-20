@@ -1,5 +1,7 @@
 # Desktop shell
 
+UI presentation follows the shared [UI style guide](ui-style-guide.md), including typography, controls, and responsive review requirements.
+
 NAM-BOT uses one compact retro header for the wordmark and current section. The header stays above scrolling content, uses the existing pixel font, and becomes subtly muted when the window loses focus. Training activity appears only in the persistent footer: Idle, Training (including preparation and stopping), Finalizing, or Queue Paused. Active work takes precedence over a pending queue pause. The wordmark restores the original cyan/magenta split shadow and wild color-flash/shake on hover, scaled to the compact header. Reduced-motion preferences disable the animation. The logo has a stable hover area; drag the blank header space to move the window.
 
 The workspace fills the window below the title bar. An attached sidebar groups the primary work screens and system tools with a small gap; both groups remain together at the top. A persistent command strip sits above independently scrolling screen content. Its right side contains only page-specific actions, with no generic product label. A bottom status bar opens Diagnostics or Jobs and uses the existing unsaved-editor guard. It shows current backend, accelerator, job, and queue state. Standard controls use compact borders and stationary hover feedback; the logo and About terminal retain their distinctive animation. The Dashboard keeps its job counters, active training cards, diagnostics, and lifetime training record; see [Dashboard](dashboard.md).

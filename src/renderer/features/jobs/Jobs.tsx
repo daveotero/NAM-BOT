@@ -79,6 +79,8 @@ import {
   getOutputRootModeForJob,
   getPreferredOutputRootSelection,
   getPreferredJobPreset,
+  TRAINING_REPORT_OPTIONS,
+  getStoredTrainingReportPreferences,
   LAST_APPEND_ESR_STORAGE_KEY,
   LAST_APPEND_PRESET_NAME_STORAGE_KEY,
   LAST_COPY_FINAL_MODEL_TO_OUTPUT_AUDIO_FOLDER_STORAGE_KEY,
@@ -566,6 +568,7 @@ export default function Jobs() {
         ...defaultJobSpec,
         name: outputStem,
         presetId: fallbackPreset?.id ?? DEFAULT_PRESET_ID,
+        ...getStoredTrainingReportPreferences(),
         appendPresetToModelFileName,
         appendEsrToModelFileName,
         copyFinalModelToOutputAudioFolder,
@@ -1072,7 +1075,6 @@ export default function Jobs() {
             <h2 className="drop-zone-headline">Drop output audio files</h2>
             <button
               className="btn btn-secondary"
-              style={{ fontSize: '18px', padding: '10px 20px' }}
               onClick={() => fileInputRef.current?.click()}
             >
               CLICK TO BROWSE FILES
@@ -1478,6 +1480,9 @@ function JobEditor({
         LAST_COPY_FINAL_MODEL_TO_OUTPUT_AUDIO_FOLDER_STORAGE_KEY,
         editedJob.copyFinalModelToOutputAudioFolder ? 'true' : 'false'
       )
+      for (const option of TRAINING_REPORT_OPTIONS) {
+        window.localStorage.setItem(option.key, editedJob[option.field] ? 'true' : 'false')
+      }
       persistOutputRootPreference(outputRootMode, editedJob.outputRootDir)
       persistReusableJobDefaults(editedJob, inputMode)
       await Promise.resolve(onSave(editedJob))
@@ -1589,7 +1594,7 @@ function JobEditor({
             <h2 id="job-audio-heading" tabIndex={-1}>Name & audio</h2>
             <div className="property-row">
               <label className="form-label" htmlFor="job-name">
-                {isBatchMode ? 'Batch Label' : 'Job Name'} {showValidationErrors && !isNameValid && <span style={{ color: 'var(--neon-magenta)', fontSize: '12px' }}>(Required)</span>}
+                {isBatchMode ? 'Batch Label' : 'Job Name'} {showValidationErrors && !isNameValid && <span className="ui-text-secondary" style={{ color: 'var(--neon-magenta)' }}>(Required)</span>}
               </label>
               <div className="property-control">
                 <div className="property-input-action">
@@ -1628,7 +1633,7 @@ function JobEditor({
             <div className="property-row">
               <label className="form-label" htmlFor="input-audio-path">
                 Input Audio <span className="job-label-detail">(Training Signal)</span>
-                {showValidationErrors && !isInputValid && <span style={{ color: 'var(--neon-magenta)', fontSize: '12px' }}>(Required)</span>}
+                {showValidationErrors && !isInputValid && <span className="ui-text-secondary" style={{ color: 'var(--neon-magenta)' }}>(Required)</span>}
               </label>
               <div className="property-control">
                 {/* Toggle buttons */}
@@ -1680,7 +1685,7 @@ function JobEditor({
             <div className="property-row">
               <label className="form-label" htmlFor="output-audio-path">
                 {isBatchMode ? `Output Audio Files (${batchOutputFiles?.length ?? 0})` : <>Output Audio <span className="job-label-detail">(Re-amped Signal)</span></>}
-                {showValidationErrors && !isOutputValid && <span style={{ color: 'var(--neon-magenta)', fontSize: '12px' }}>(Required)</span>}
+                {showValidationErrors && !isOutputValid && <span className="ui-text-secondary" style={{ color: 'var(--neon-magenta)' }}>(Required)</span>}
               </label>
               <div className="property-control">
                 {isBatchMode ? (
@@ -1688,8 +1693,8 @@ function JobEditor({
                     {batchOutputFiles?.map((outputFile, index) => (
                       <div className="batch-output-item" key={`${outputFile.outputAudioPath}:${index}`}>
                         <span className="batch-output-index">{index + 1}</span>
-                        <span className="batch-output-name">{getBasename(outputFile.outputAudioPath) || outputFile.outputFileName}</span>
-                        <span className="batch-output-path">{outputFile.outputAudioPath}</span>
+                        <span className="batch-output-name" title={getBasename(outputFile.outputAudioPath) || outputFile.outputFileName}>{getBasename(outputFile.outputAudioPath) || outputFile.outputFileName}</span>
+                        <span className="batch-output-path" title={outputFile.outputAudioPath}>{outputFile.outputAudioPath}</span>
                       </div>
                     ))}
                   </div>
@@ -1859,7 +1864,7 @@ function JobEditor({
                   })}
                 </div>
                 {!isPackedSubmodelSelectionValid && (
-                  <p style={{ color: 'var(--neon-magenta)', fontSize: '12px', marginBottom: 0 }}>
+                  <p className="ui-text-body" style={{ color: 'var(--neon-magenta)', marginBottom: 0 }}>
                     Select at least one packed submodel.
                   </p>
                 )}
@@ -1872,7 +1877,7 @@ function JobEditor({
             <h2 id="job-model-output-heading" tabIndex={-1}>Model output</h2>
             <div className="property-row">
               <label className="form-label" htmlFor="output-root-dir">
-                Output folder {showValidationErrors && !isRootDirValid && <span style={{ color: 'var(--neon-magenta)', fontSize: '12px' }}>(Required)</span>}
+                Output folder {showValidationErrors && !isRootDirValid && <span className="ui-text-secondary" style={{ color: 'var(--neon-magenta)' }}>(Required)</span>}
               </label>
               <div className="property-control">
                 {/* Toggle buttons */}
@@ -1958,7 +1963,7 @@ function JobEditor({
             <div className="property-row">
               <span className="form-label" id="job-file-naming-label">File naming</span>
               <div className="property-control">
-                <div className="job-check-options property-option-panel" role="group" aria-labelledby="job-file-naming-label">
+                <div className="job-check-options" role="group" aria-labelledby="job-file-naming-label">
                   <label className="job-check-option">
                     <input
                       type="checkbox"
@@ -2010,9 +2015,26 @@ function JobEditor({
               </div>
             </div>
             <div className="property-row">
+              <span className="form-label" id="job-training-reports-label">Training reports</span>
+              <div className="property-control">
+                <div className="job-check-options" role="group" aria-labelledby="job-training-reports-label">
+                  {TRAINING_REPORT_OPTIONS.map((option) => (
+                    <label className="job-check-option" key={option.field}>
+                      <input type="checkbox" checked={editedJob[option.field]} onChange={(event) => {
+                        window.localStorage.setItem(option.key, String(event.target.checked))
+                        onSessionChange({ ...session, job: { ...editedJob, [option.field]: event.target.checked } })
+                      }} />
+                      <span>{option.label}</span>
+                    </label>
+                  ))}
+                </div>
+                <p className="property-hint">Save branded statistics and ESR history beside each saved model, including snapshots and extra copies. HTML reports work offline.</p>
+              </div>
+            </div>
+            <div className="property-row">
               <span className="form-label">Extra copy</span>
               <div className="property-control">
-                <label className="job-check-option property-option-panel">
+                <label className="job-check-option">
                   <input
                     type="checkbox"
                     checked={editedJob.copyFinalModelToOutputAudioFolder}
@@ -2180,7 +2202,7 @@ function JobEditor({
               Cancel
             </button>
             {showValidationErrors && !isValid && (
-              <span style={{ color: 'var(--neon-magenta)', fontSize: '13px', fontWeight: 'bold' }}>
+              <span className="ui-text-body" style={{ color: 'var(--neon-magenta)', fontWeight: 'bold' }}>
                 Please fill in all required fields to save.
               </span>
             )}

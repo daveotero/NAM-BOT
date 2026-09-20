@@ -72,7 +72,7 @@ function renderGuideIntro(mode: GuideMode): JSX.Element {
         borderLeft: '4px solid var(--neon-cyan)',
         marginBottom: '16px'
       }}>
-        <p style={{ color: 'var(--text-steel)', margin: 0, fontSize: '14px' }}>
+        <p className="ui-text-body" style={{ color: 'var(--text-steel)', margin: 0 }}>
           <strong>NVIDIA path:</strong> This flow explicitly replaces a CPU-only PyTorch install with a CUDA-enabled build.
           If you previously installed the wrong torch build, follow the NVIDIA commands exactly and then verify the result in Diagnostics.
         </p>
@@ -88,7 +88,7 @@ function renderGuideIntro(mode: GuideMode): JSX.Element {
         borderLeft: '4px solid var(--neon-cyan)',
         marginBottom: '16px'
       }}>
-        <p style={{ color: 'var(--text-steel)', margin: 0, fontSize: '14px' }}>
+        <p className="ui-text-body" style={{ color: 'var(--text-steel)', margin: 0 }}>
           <strong>Apple Silicon path:</strong> Use the standard PyTorch install. NAM-BOT will check for MPS availability on the Diagnostics page.
         </p>
       </div>
@@ -103,7 +103,7 @@ function renderGuideIntro(mode: GuideMode): JSX.Element {
         borderLeft: '4px solid var(--neon-cyan)',
         marginBottom: '16px'
       }}>
-        <p style={{ color: 'var(--text-steel)', margin: 0, fontSize: '14px' }}>
+        <p className="ui-text-body" style={{ color: 'var(--text-steel)', margin: 0 }}>
           <strong>AMD ROCm path:</strong> Requires Python 3.12 and official AMD ROCm wheels. This installs ROCm-enabled PyTorch for AMD GPU acceleration on Windows.
         </p>
       </div>
@@ -117,7 +117,7 @@ function renderGuideIntro(mode: GuideMode): JSX.Element {
       borderLeft: '4px solid var(--neon-magenta)',
       marginBottom: '16px'
     }}>
-      <p style={{ color: 'var(--text-steel)', margin: 0, fontSize: '14px' }}>
+      <p className="ui-text-body" style={{ color: 'var(--text-steel)', margin: 0 }}>
         <strong>Standard path:</strong> This is the safest option if you are unsure about your GPU. You can always switch later after Diagnostics tells you what the environment can see.
       </p>
     </div>
@@ -140,7 +140,7 @@ function renderTorchInstall(mode: GuideMode): JSX.Element {
           label="Step E: Verify CUDA Torch"
           command={'python -c "import torch; print(torch.__version__); print(torch.version.cuda); print(torch.cuda.is_available()); print(torch.cuda.device_count()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else None)"'}
         />
-        <p style={{ color: 'var(--text-steel)', fontSize: '12px', marginTop: '-8px', marginBottom: '16px' }}>
+        <p className="ui-text-body" style={{ color: 'var(--text-steel)', marginTop: '-8px', marginBottom: '16px' }}>
           Expected result: the version string should include <strong>+cu130</strong> and <strong>torch.cuda.is_available()</strong> should print <strong>True</strong>.
         </p>
       </>
@@ -166,7 +166,7 @@ function renderTorchInstall(mode: GuideMode): JSX.Element {
           label="Step F: Verify ROCm PyTorch"
           command={'python -c "import torch; print(\'CUDA Available:\', torch.cuda.is_available()); print(\'HIP Version:\', torch.version.hip)"'}
         />
-        <p style={{ color: 'var(--text-steel)', fontSize: '12px', marginTop: '-8px', marginBottom: '16px' }}>
+        <p className="ui-text-body" style={{ color: 'var(--text-steel)', marginTop: '-8px', marginBottom: '16px' }}>
           Expected result: <strong>CUDA Available: True</strong> and <strong>HIP Version:</strong> shows a version string. Note: torch.version.cuda will be None for ROCm builds.
         </p>
         <CopyableCodeBlock
@@ -184,7 +184,7 @@ function renderTorchInstall(mode: GuideMode): JSX.Element {
         command="pip install torch"
       />
       {mode === 'apple' && (
-        <p style={{ color: 'var(--text-steel)', fontSize: '12px', marginTop: '-8px', marginBottom: '16px' }}>
+        <p className="ui-text-body" style={{ color: 'var(--text-steel)', marginTop: '-8px', marginBottom: '16px' }}>
           On Apple Silicon, NAM-BOT will later check whether PyTorch can use MPS on your machine.
         </p>
       )}
@@ -215,7 +215,7 @@ export default function Help() {
               borderLeft: '4px solid var(--neon-cyan)',
               marginBottom: '16px'
             }}>
-              <p style={{ color: 'var(--text-steel)', margin: 0, fontSize: '14px' }}>
+              <p className="ui-text-body" style={{ color: 'var(--text-steel)', margin: 0 }}>
                 <strong>Use this path if:</strong> you can already run NAM training from its built-in GUI or from your existing terminal workflow and just want NAM-BOT to use that same environment.
               </p>
             </div>
@@ -226,7 +226,7 @@ export default function Help() {
               borderLeft: '4px solid var(--neon-cyan)',
               marginBottom: '16px'
             }}>
-              <p style={{ color: 'var(--text-steel)', margin: 0, fontSize: '14px' }}>
+              <p className="ui-text-body" style={{ color: 'var(--text-steel)', margin: 0 }}>
                 <strong>macOS note:</strong> use <strong>Terminal</strong> instead of Command Prompt or PowerShell, expect the Conda command to be <code style={{ color: 'var(--neon-cyan)' }}>conda</code>, and on Apple Silicon the accelerator path is <strong>MPS</strong> rather than CUDA.
               </p>
             </div>
@@ -308,12 +308,12 @@ export default function Help() {
               borderLeft: '4px solid var(--neon-cyan)',
               marginBottom: '16px'
             }}>
-              <p style={{ color: 'var(--text-steel)', margin: 0, fontSize: '14px' }}>
+              <p className="ui-text-body" style={{ color: 'var(--text-steel)', margin: 0 }}>
                 <strong>Important:</strong> Scroll to the bottom of the Anaconda download page to find the <strong>Miniconda</strong> installers.
                 If prompted, allow Miniconda to add itself to PATH.
               </p>
             </div>
-            <p style={{ color: 'var(--text-steel)', fontSize: '13px', marginTop: '-4px', marginBottom: '16px' }}>
+            <p className="ui-text-body" style={{ color: 'var(--text-steel)', marginTop: '-4px', marginBottom: '16px' }}>
               On Apple Silicon, choose the Apple Silicon installer. On macOS builds, you may need to right-click the app and choose <strong>Open</strong> on first launch if Gatekeeper warns about an unsigned app.
             </p>
 
@@ -366,7 +366,7 @@ export default function Help() {
             <p style={{ color: 'var(--text-steel)' }}>
               NAM-BOT validates the selected setup automatically on startup. You can always go to <strong>Diagnostics</strong> and click <strong>Re-check All</strong> to inspect backend readiness, Training Launch readiness, GPU visibility, and NAM version detection together.
             </p>
-            <p style={{ color: 'var(--text-steel)', fontSize: '13px', marginTop: '8px' }}>
+            <p className="ui-text-body" style={{ color: 'var(--text-steel)', marginTop: '8px' }}>
               On Windows, GPU diagnostics check for both NVIDIA CUDA and AMD ROCm GPUs. On Apple Silicon, the same screen also reports whether PyTorch can see <strong>MPS</strong>.
             </p>
 

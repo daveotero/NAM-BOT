@@ -114,8 +114,8 @@ export default function JsonCodeEditor({
           data-color-mode="dark"
           className="json-code-editor"
           style={{
-            fontFamily: 'Consolas, "Courier New", monospace',
-            fontSize: 13,
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--text-code)',
             backgroundColor: 'var(--bg-void)'
           }}
         />

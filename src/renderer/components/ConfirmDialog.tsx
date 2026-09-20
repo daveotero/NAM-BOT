@@ -85,7 +85,7 @@ export default function ConfirmDialog({
     <div className="modal-overlay" onClick={onCancel}>
       <div ref={dialogRef} className="modal-content" role="alertdialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId} onClick={(event) => event.stopPropagation()}>
         <h3 id={titleId}>{title}</h3>
-        <p id={descriptionId} style={{ color: 'var(--text-steel)', lineHeight: '1.6' }}>{message}</p>
+        <p id={descriptionId} className="ui-text-body" style={{ color: 'var(--text-steel)' }}>{message}</p>
         {checkboxLabel && onCheckboxChange && (
           <label className="checkbox-container modal-option">
             {checkboxLabel}

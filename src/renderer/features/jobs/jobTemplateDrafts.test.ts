@@ -127,3 +127,10 @@ describe('buildDraftFromFrozenJob', () => {
     expect(draft.trainingOverrides.epochs).toBe(60)
   })
 })
+
+it('preserves report selections through batch templates and frozen-run copies', () => {
+  const template = buildTemplate({ saveTrainingHtml: true, saveTrainingImage: false })
+  const batch = buildDraftFromTemplateForOutput({ template, outputAudioPath: '/captures/new.wav', batchId: 'batch', batchSourceName: 'Template' })
+  expect(batch).toMatchObject({ saveTrainingHtml: true, saveTrainingImage: false })
+  expect(buildDraftFromFrozenJob(template)).toMatchObject({ saveTrainingHtml: true, saveTrainingImage: false })
+})

@@ -1,5 +1,7 @@
 # Dashboard
 
+UI presentation follows the shared [UI style guide](ui-style-guide.md), including typography, controls, and responsive review requirements.
+
 ## Overview
 
 The Dashboard summarizes job activity, active training, and environment health. The compact counter strip and diagnostics section retain the original dashboard's focus. The attached sidebar, command strip, and bottom status bar remain available while the workspace scrolls.
@@ -19,6 +21,8 @@ These counts are read from the same draft and queue state used by the Jobs scree
 ## Active Training
 
 When any job is preparing, running, stopping, or finalizing, the Dashboard shows an `Active Training` section using the same runtime card component as the Jobs screen.
+
+The cards share the Jobs screen's styling, including flat background hover feedback, edge-to-edge rows, typography, status badges, action spacing, expanded details, and narrow-window layouts.
 
 - running jobs can be expanded
 - terminal logs can be shown and refreshed
@@ -68,6 +72,12 @@ Writes use the existing atomic-file/backup mechanism. History removal requires t
 
 The persistent bottom bar reports backend readiness, accelerator readiness, current training activity, and the number of waiting jobs. During a run it includes the job name and available progress percentage. Status items open Diagnostics or Jobs through the same unsaved-editor guard used by the sidebar and application menu.
 
-At narrower widths or higher zoom levels, the diagnostics grid changes from four columns to two. The sidebar and bottom bar remain accessible. The About terminal and title-bar logo animation retain their existing behavior.
+At narrower widths or higher zoom levels, the shared diagnostic cards wrap into fewer columns without reducing their text size. The sidebar and bottom bar remain accessible. The About terminal and title-bar logo animation retain their existing behavior.
 
 The Dashboard should stay lightweight. Detailed troubleshooting, command copy blocks, raw check matrices, and AI troubleshooting exports belong on the Diagnostics screen.
+
+### Training reports
+
+Recent completed runs show their completion date and time in the user's local timezone and date format.
+
+Recent completed runs whose detailed Jobs history is still available offer **Save Report**, matching finished Jobs cards: choose a PNG detail card or a standalone interactive HTML report, then choose a destination. Saved reports are listed with the run's artifacts in Jobs. Clearing Jobs history removes the export action while retaining lifetime statistics. Report content, remembered automatic-export choices, and sharing behavior are documented in [Jobs: branded training reports](jobs-system.md#branded-training-reports).

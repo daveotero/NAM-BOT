@@ -10,6 +10,7 @@ import re
 import sys
 import time
 from copy import deepcopy
+from datetime import datetime, timezone
 from importlib.metadata import distribution
 from pathlib import Path
 
@@ -49,6 +50,15 @@ def install_esr_callback():
 
         def on_train_end(self, trainer, pl_module):
             self.handle_command(trainer, pl_module, force=True)
+            if not trainer.is_global_zero:
+                return
+            try:
+                callback = next((item for item in trainer.callbacks if hasattr(item, "checkpoint_paths")), None)
+                selected = callback.checkpoint_paths if packed and callback is not None else [trainer.checkpoint_callback.best_model_path]
+                if selected and all(selected):
+                    write_result(Path(__file__).with_name("final-report-evidence.json"), self.report_evidence(selected))
+            except Exception as error:
+                print("NAM-BOT: final report statistics unavailable: " + str(error), flush=True)
 
         def handle_command(self, trainer, pl_module, force=False):
             try:
@@ -110,9 +120,55 @@ def install_esr_callback():
                         snapshot.net.export_container(outdir, checkpoint_paths_by_submodel=paths)
                     else:
                         snapshot.net.export(outdir)
-                write_result(response_path, {"ok": True, "epoch": int(trainer.current_epoch) + 1})
+                evidence = None
+                report_warning = None
+                try:
+                    evidence = self.report_evidence(paths if packed else [checkpoint])
+                except Exception as error:
+                    report_warning = "Export-time report statistics unavailable: " + str(error)
+                write_result(response_path, {"ok": True, "epoch": int(trainer.current_epoch) + 1,
+                    "reportEvidence": evidence, "reportWarning": report_warning})
             except Exception as error:
                 write_result(response_path, {"ok": False, "error": str(error)})
+
+        def report_evidence(self, selected_paths):
+            import torch
+            history = []
+            if history_path.exists():
+                for line in history_path.read_text(encoding="utf-8").splitlines():
+                    try:
+                        history.append(json.loads(line))
+                    except (ValueError, TypeError):
+                        pass
+            metrics = []
+            for index, selected_path in enumerate(selected_paths):
+                packed_entry = None
+                metadata_path = Path(selected_path).parent / "packed_best.json"
+                if packed and metadata_path.exists():
+                    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+                    packed_entry = next((entry for entry in metadata.get("submodels", [])
+                        if entry.get("submodel_index") == index
+                        and Path(entry.get("checkpoint_path", "")).resolve() == Path(selected_path).resolve()), None)
+                if packed_entry is not None:
+                    epoch = int(packed_entry["epoch"]) + 1
+                    step = int(packed_entry["step"])
+                else:
+                    checkpoint_data = torch.load(selected_path, map_location="cpu", weights_only=False)
+                    epoch = int(checkpoint_data["epoch"]) + 1
+                    step = int(checkpoint_data.get("global_step", -1))
+                record = next((item for item in reversed(history)
+                    if item.get("epoch") == epoch and item.get("step") == step), None)
+                measurement = next((item for item in (record or {}).get("models", [])
+                    if item.get("submodelIndex") == (index if packed else None)), None)
+                esr = None if measurement is None else measurement.get("esr")
+                if esr is None and packed_entry is not None and model_config.get("loss", {}).get("val_loss", "esr") == "esr":
+                    esr = packed_entry.get("best_metric")
+                if esr is not None and (not math.isfinite(esr) or esr < 0):
+                    esr = None
+                metrics.append({"submodelIndex": index if packed else None,
+                    "submodelName": submodels[index].get("name") if packed else None,
+                    "epoch": epoch, "esr": esr})
+            return {"capturedAt": datetime.now(timezone.utc).isoformat(), "history": history, "metrics": metrics}
 
         def on_validation_end(self, trainer, pl_module):
             if self.disabled or trainer.sanity_checking or not trainer.is_global_zero:

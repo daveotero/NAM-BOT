@@ -1,6 +1,10 @@
 # About Screen
 
+UI presentation follows the shared [UI style guide](ui-style-guide.md), including typography, controls, and responsive review requirements.
+
 The About screen doubles as NAM-BOT's in-app credits and lightweight update surface.
+
+The MIT attribution and copyright retain the terminal's normal typography. The warranty paragraph is omitted from About; the full license remains included in packaged builds as `LICENSE.md`.
 
 ## Update Checks
 

@@ -1,3 +1,4 @@
+import type { TrainingReportFormat, TrainingReportResult } from '../shared/training-report'
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
 import type { AppCommand, AppDialogRequest, AppMenuAnchor, ShellWindowState } from '../shared/appShell'
@@ -46,6 +47,7 @@ export interface NamBotApi {
     unqueueAll: () => Promise<unknown[]>
     cancel: (jobId: string) => Promise<void>
     forceStop: (jobId: string) => Promise<void>
+    saveReport: (jobId: string, format: TrainingReportFormat) => Promise<TrainingReportResult | null>
     exportModel: (jobId: string, finishAfterExport?: boolean) => Promise<string | null>
     retry: (jobId: string) => Promise<unknown>
     clearFinished: () => Promise<void>
@@ -140,6 +142,7 @@ const api: NamBotApi = {
     unqueueAll: () => ipcRenderer.invoke('jobs:unqueueAll'),
     cancel: (jobId) => ipcRenderer.invoke('jobs:cancel', jobId),
     forceStop: (jobId) => ipcRenderer.invoke('jobs:forceStop', jobId),
+    saveReport: (jobId, format) => ipcRenderer.invoke('jobs:saveReport', jobId, format),
     exportModel: (jobId, finishAfterExport = false) => ipcRenderer.invoke('jobs:exportModel', jobId, finishAfterExport),
     retry: (jobId) => ipcRenderer.invoke('jobs:retry', jobId),
     clearFinished: () => ipcRenderer.invoke('jobs:clearFinished'),

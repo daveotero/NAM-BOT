@@ -1,10 +1,11 @@
+import { trainingReportPlugin } from './build/training-report-plugin'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import { resolve } from 'path'
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [externalizeDepsPlugin(), trainingReportPlugin()],
     build: {
       rollupOptions: {
         input: {

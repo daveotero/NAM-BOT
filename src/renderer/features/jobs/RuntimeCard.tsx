@@ -1,3 +1,4 @@
+import SaveReportButton from './SaveReportButton'
 import { useLayoutEffect, useRef, useState, type UIEvent } from 'react'
 import {
   JobPackedSubmodelCheckpointSummary,
@@ -6,6 +7,7 @@ import {
   formatPresetArchitectureTag
 } from '../../state/types'
 import { handleCardToggleKeyDown, shouldIgnoreCardToggle } from '../../utils/card-toggle'
+import { formatLocalDateTime } from '../../utils/date-time'
 import WorkingIndicator from '../../components/WorkingIndicator'
 import EsrHistoryChart from './EsrHistoryChart'
 import { getEsrSeriesColor } from './esr-chart-data'
@@ -27,7 +29,7 @@ import {
   QueueDisplayState
 } from './job-helpers'
 
-export type RuntimeArtifactTarget = 'workspace' | 'output' | 'workspace-log' | 'run-log' | 'model' | 'snapshot'
+export type RuntimeArtifactTarget = 'workspace' | 'output' | 'workspace-log' | 'run-log' | 'model' | 'snapshot' | 'report-png' | 'report-html'
 
 interface RuntimeArtifactLink {
   target: RuntimeArtifactTarget
@@ -116,6 +118,8 @@ function buildRuntimeEsrItems(runtime: JobRuntimeState): RuntimeEsrItem[] {
 
 function buildArtifactLinks(runtime: JobRuntimeState, outputPath: string): RuntimeArtifactLink[] {
   const candidates: Array<{ target: RuntimeArtifactTarget; label: string; path: string | null }> = [
+    { target: 'report-png', label: 'Training image', path: cleanArtifactPath(runtime.trainingReports?.filter(entry => entry.format === 'png').at(-1)?.path) },
+    { target: 'report-html', label: 'Interactive report', path: cleanArtifactPath(runtime.trainingReports?.filter(entry => entry.format === 'html').at(-1)?.path) },
     { target: 'workspace', label: 'Workspace folder', path: cleanArtifactPath(runtime.workspaceDirectory) },
     { target: 'output', label: 'Output folder', path: cleanArtifactPath(outputPath) },
     { target: 'workspace-log', label: 'Workspace log', path: cleanArtifactPath(runtime.terminalLogPath) },
@@ -287,6 +291,17 @@ export default function RuntimeCard({
             </p>
           </div>
 
+          {isFinishedDisplay && (
+            <div className="queue-card-stat-row" title={`Training started: ${formatLocalDateTime(runtime.startedAt)}`}>
+              <span className="queue-card-stat">
+                <span className="meta-label">Finished</span>
+                {runtime.finishedAt && Number.isFinite(Date.parse(runtime.finishedAt))
+                  ? <time dateTime={runtime.finishedAt}>{formatLocalDateTime(runtime.finishedAt)}</time>
+                  : <span>Date unavailable</span>}
+              </span>
+            </div>
+          )}
+
           {collapsedSummaryItems.length > 0 && (
             <div className="queue-card-stat-row">
               {collapsedSummaryItems.map((item) => (
@@ -389,6 +404,8 @@ export default function RuntimeCard({
                 </button>
               )}
 
+              {isFinishedDisplay && <SaveReportButton jobId={runtime.jobId} />}
+
               {isFinishedDisplay && onClearFinished && (
                 <button className="btn btn-sm btn-secondary" onClick={() => void runAction(() => onClearFinished(runtime.jobId))}>
                   Clear
@@ -412,7 +429,7 @@ export default function RuntimeCard({
       {actionError && <p role="alert" className="operation-error">{actionError}</p>}
       {(runtime.completionWarnings?.length ?? 0) > 0 && (
         <div role="status" className="completion-warnings" data-no-card-toggle="true">
-          <strong>Completed with warnings</strong>
+          <strong>{isFinishedDisplay ? 'Completed with warnings' : 'Export warnings'}</strong>
           <ul>{runtime.completionWarnings?.map((warning, index) => <li key={index}>{warning}</li>)}</ul>
         </div>
       )}
