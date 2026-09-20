@@ -1202,7 +1202,7 @@ input[type="number"] {
 .runtime-detail-fact {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(92px, auto) minmax(0, 1fr);
+  grid-template-columns: 108px minmax(0, 1fr);
   align-items: baseline;
   gap: 10px;
 }
@@ -1215,6 +1215,12 @@ input[type="number"] {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.runtime-detail-value-wrap,
+.preset-detail-value.runtime-detail-value-wrap {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .runtime-esr-row {
@@ -2017,6 +2023,8 @@ input[type="number"] {
 }
 
 .job-info { min-width: 0; }
+
+.training-mode-fields { min-width: 0; }
 
 .job-list > :last-child > .draft-card,
 .job-list > .job-card:last-child,

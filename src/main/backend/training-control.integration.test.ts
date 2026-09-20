@@ -120,8 +120,116 @@ assert all(metric["esr"] is not None for metric in final_evidence["metrics"])
 assert exported_path is not None and exported_path.exists()
 assert (root / "out" / "model.nam").exists()
 print("LIVE_EXPORT_AND_FINISH_PASSED")
+
+# Real Lightning loop: start with Fast convergence and automatically export
+# using the unmodified production rules.
+launcher_source = (root / "launcher.py").read_text()
+auto_root = root / "auto"
+auto_root.mkdir()
+root = auto_root
+(root / "launcher.py").write_text(launcher_source)
+auto_model = deepcopy(model)
+auto_model["optimizer"]["lr"] = 0.0  # Constant validation, deterministic plateau.
+(root / "model.json").write_text(json.dumps(auto_model))
+sys.argv = [str(root / "launcher.py"), "data.json", str(root / "model.json"), "learning.json", str(root / "out")]
+
+(root / "stopping-policy.json").write_text(json.dumps({"mode": "convergence", "level": "fast", "maxEpochs": None}))
+
+class RejectPolicyChanges(pl.Callback):
+    def on_train_epoch_start(self, trainer, module):
+        if trainer.current_epoch != 1:
+            return
+        callback = next(item for item in trainer.callbacks if hasattr(item, "handle_command"))
+        request_id = str(uuid.uuid4())
+        controls = root / "training-controls"
+        (controls / "request.json").write_text(json.dumps({"id": request_id, "action": "set_stopping_policy",
+            "expiresAt": time.time() + 120, "policy": {"mode": "fixed", "level": "balanced", "maxEpochs": None}}))
+        callback.handle_command(trainer, module, force=True)
+        response = json.loads((controls / (request_id + ".json")).read_text())
+        assert not response["ok"] and "fixed when the run starts" in response["error"], response
+        assert callback.monitor.policy == {"mode": "convergence", "level": "fast", "maxEpochs": 2000}
+        assert trainer.max_epochs == 2000
+
+full._create_callbacks = lambda *args, **kwargs: [*base_callbacks(*args, **kwargs), RejectPolicyChanges()]
+auto_scope = runpy.run_path(str(root / "launcher.py"), run_name="convergence_integration_test")
+auto_scope["install_esr_callback"]()
+auto_learning = deepcopy(learning)
+auto_learning["trainer"]["max_epochs"] = -1
+auto_learning["trainer"]["enable_model_summary"] = False
+(root / "out").mkdir()
+torch.manual_seed(123)
+full.main(deepcopy(data), auto_model, auto_learning, root / "out", no_show=True, make_plots=False)
+auto_history = [json.loads(line) for line in (root / "esr-history.jsonl").read_text().splitlines()]
+assert len(auto_history) == 104, len(auto_history)
+status = json.loads((root / "training-controls" / "convergence.json").read_text())
+assert status["phase"] == "finished" and status["completionReason"] == "convergence", status
+assert status["achievedLevel"] == "fast" and status["originalEpochLimit"] is None
+auto_evidence = json.loads((root / "final-report-evidence.json").read_text())
+assert auto_evidence["convergence"] == status
+assert all(metric["epoch"] == 1 for metric in auto_evidence["metrics"])
+saved = json.loads((root / "out" / "model.nam").read_text())
+assert saved["architecture"] == "SlimmableContainer" and len(saved["config"]["submodels"]) == 2
+print("LOCKED_POLICY_AND_CONVERGENCE_PASSED")
+
+# Exercise immutable caps and fixed targets, and a failed status write
+# at the auto-stop boundary. Each case uses an isolated real CPU trainer.
+for scenario, expected_epochs, expected_reason in [("cap", 3, "safety_cap"), ("fixed", 2, "epoch_limit"), ("status_failure", 159, "convergence")]:
+    root = auto_root.parent / scenario
+    root.mkdir()
+    (root / "launcher.py").write_text(launcher_source)
+    (root / "model.json").write_text(json.dumps(auto_model))
+    if scenario != "fixed":
+        (root / "stopping-policy.json").write_text(json.dumps({"mode": "convergence", "level": "fast", "maxEpochs": 3 if scenario == "cap" else None}))
+    sys.argv = [str(root / "launcher.py"), "data.json", str(root / "model.json"), "learning.json", str(root / "out")]
+
+    def set_policy(trainer, module, mode):
+        callback = next(item for item in trainer.callbacks if hasattr(item, "handle_command"))
+        request_id = str(uuid.uuid4())
+        controls = root / "training-controls"
+        (controls / "request.json").write_text(json.dumps({"id": request_id, "action": "set_stopping_policy",
+            "expiresAt": time.time() + 120, "policy": {"mode": mode, "level": "fast", "maxEpochs": None}}))
+        callback.handle_command(trainer, module, force=True)
+        return json.loads((controls / (request_id + ".json")).read_text())
+
+    class ExercisePolicyBoundaries(pl.Callback):
+        def on_fit_start(self, trainer, module):
+            if scenario == "status_failure":
+                callback = next(item for item in trainer.callbacks if hasattr(item, "handle_command"))
+                publish = callback.publish_convergence
+                self.failed_once = False
+                def unreliable_publish():
+                    if callback.monitor.reason == "convergence" and not self.failed_once:
+                        self.failed_once = True
+                        raise OSError("Simulated status write failure")
+                    publish()
+                callback.publish_convergence = unreliable_publish
+
+        def on_train_epoch_start(self, trainer, module):
+            if scenario == "cap" and trainer.current_epoch == 1:
+                assert not set_policy(trainer, module, "fixed")["ok"]
+                assert trainer.max_epochs == 3
+            if scenario == "fixed" and trainer.current_epoch == 1:
+                assert not set_policy(trainer, module, "convergence")["ok"]
+                assert trainer.max_epochs == 2
+
+    full._create_callbacks = lambda *args, **kwargs: [*base_callbacks(*args, **kwargs), ExercisePolicyBoundaries()]
+    boundary_scope = runpy.run_path(str(root / "launcher.py"), run_name="boundary_integration_test")
+    boundary_scope["install_esr_callback"]()
+    boundary_learning = deepcopy(auto_learning)
+    boundary_learning["trainer"]["max_epochs"] = 3 if scenario == "cap" else 2 if scenario == "fixed" else -1
+    (root / "out").mkdir()
+    full.main(deepcopy(data), deepcopy(auto_model), boundary_learning, root / "out", no_show=True, make_plots=False)
+    boundary_history = (root / "esr-history.jsonl").read_text().splitlines()
+    boundary_status = json.loads((root / "training-controls" / "convergence.json").read_text())
+    assert len(boundary_history) == expected_epochs, (scenario, len(boundary_history))
+    assert boundary_status["completionReason"] == expected_reason, boundary_status
+    assert boundary_status["epoch"] == expected_epochs, boundary_status
+    assert (root / "out" / "model.nam").exists()
+print("POLICY_BOUNDARIES_AND_MONITOR_RECOVERY_PASSED")
 `, directory], { encoding: 'utf8', timeout: 150_000 })
     expect(output).toContain('LIVE_EXPORT_AND_FINISH_PASSED')
+    expect(output).toContain('LOCKED_POLICY_AND_CONVERGENCE_PASSED')
+    expect(output).toContain('POLICY_BOUNDARIES_AND_MONITOR_RECOVERY_PASSED')
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }

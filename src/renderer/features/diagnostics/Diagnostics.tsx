@@ -1452,7 +1452,7 @@ export default function Diagnostics() {
   return (
     <PropertySheet sections={DIAGNOSTICS_SECTIONS} navigationLabel="Diagnostics sections" className="reference-workspace diagnostics-workspace">
       <WorkspaceToolbar title="Diagnostics">
-        <button className="btn btn-sm btn-green" onClick={handleRecheck} disabled={isChecking}>
+        <button className="btn btn-sm btn-green" title="Refresh backend, accelerator, and training-launch checks using the current settings." onClick={handleRecheck} disabled={isChecking}>
           {isChecking ? 'Checking' : 'Re-check All'}
           <WorkingIndicator active={isChecking} />
         </button>
@@ -1476,7 +1476,7 @@ export default function Diagnostics() {
 
         <PropertySection id="diagnostics-details" title="Advanced details">
           <div className="reference-section-actions">
-            <button className={`btn btn-sm ${showAdvancedDetails ? 'btn-blue is-toggled' : 'btn-secondary'}`} onClick={() => setShowAdvancedDetails((value) => !value)}>
+            <button className={`btn btn-sm ${showAdvancedDetails ? 'btn-blue is-toggled' : 'btn-secondary'}`} title="Show or hide environment details, individual checks, and troubleshooting exports." onClick={() => setShowAdvancedDetails((value) => !value)}>
               {showAdvancedDetails ? 'Hide Details' : 'Show Details'}
             </button>
           </div>
@@ -1515,11 +1515,11 @@ export default function Diagnostics() {
                   These exports include backend checks, accelerator state, training launch readiness, host context, and prepared repair commands.
                 </p>
                 <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: showAiPrompt || showRawJson ? '12px' : 0 }}>
-                  <button className="btn btn-primary" onClick={() => copyText(aiTroubleshootingPrompt)}>Copy AI Prompt</button>
+                  <button className="btn btn-primary" title="Copy a troubleshooting prompt containing the current diagnostics for you to review and share." onClick={() => copyText(aiTroubleshootingPrompt)}>Copy AI Prompt</button>
                   <button className={`btn ${showAiPrompt ? 'btn-blue is-toggled' : 'btn-secondary'}`} onClick={() => setShowAiPrompt((value) => !value)}>
                     {showAiPrompt ? 'Hide AI Prompt' : 'Show AI Prompt'}
                   </button>
-                  <button className="btn btn-secondary" onClick={() => copyText(diagnosticsJson)}>Copy Raw JSON</button>
+                  <button className="btn btn-secondary" title="Copy the current diagnostic results as JSON, including local environment and path details." onClick={() => copyText(diagnosticsJson)}>Copy Raw JSON</button>
                   <button className={`btn ${showRawJson ? 'btn-blue is-toggled' : 'btn-secondary'}`} onClick={() => setShowRawJson((value) => !value)}>
                     {showRawJson ? 'Hide Raw JSON' : 'Show Raw JSON'}
                   </button>

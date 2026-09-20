@@ -10,8 +10,27 @@ import {
   getStopActionState,
   getPrimaryPackedSubmodel
 } from './job-helpers'
+import { getProgressPercent, getProgressHeadline, getPlannedEpochsLabel } from './job-helpers'
 
 const nowMs = Date.parse('2026-05-11T12:00:00.000Z')
+
+it('uses the safety limit and batch fraction for convergence progress instead of a stale percentage', () => {
+  const runtime = buildRuntime({ currentEpoch: 701, plannedEpochs: 2000,
+    frozenJob: { ...buildFrozenJob(), stopping: { mode: 'convergence', level: 'balanced', maxEpochs: 2000 } },
+    terminalProgress: { currentEpoch: 701, totalEpochs: 2000, currentBatch: 50, totalBatches: 100, percent: 99 } })
+  expect(getProgressPercent(runtime)).toBeCloseTo(35.025)
+  expect(getProgressHeadline(runtime)).toBe('Epoch 701 of 2000 (Auto convergence · Balanced) · batch 50/100')
+  expect(getProgressPercent({ ...runtime, status: 'succeeded' })).toBe(100)
+})
+
+it('does not show a stale epoch target or overall percentage for uncapped convergence', () => {
+  const current = buildRuntime({ currentEpoch: 700, plannedEpochs: null,
+    frozenJob: { ...buildFrozenJob(), stopping: { mode: 'convergence', level: 'fast', maxEpochs: null } },
+    terminalProgress: { currentEpoch: 700, totalEpochs: 666, percent: 99 } })
+  expect(getProgressPercent(current)).toBeNull()
+  expect(getProgressHeadline(current)).toBe('Epoch 700 (Auto convergence · Fast)')
+  expect(getPlannedEpochsLabel(current)).toBe('Until convergence')
+})
 
 function buildFrozenJob(): JobSpec {
   return {

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { defaultSettings } from '../../../main/types'
+import { getStoredStoppingPreference, getStoredConvergenceMaxEpochs, persistStoppingPreference, LAST_TRAINING_MODE_KEY, LAST_CONVERGENCE_MAX_EPOCHS_KEY } from './training-mode-preferences'
 
 import {
   A1_STANDARD_PRESET_ID,
@@ -17,6 +18,7 @@ import {
   applyStoredReusableDefaults,
   buildJobEditorSession,
   serializeJobEditorSession,
+  persistReusableJobDefaults,
   createNewJobDraft
 } from './jobEditorSession'
 
@@ -39,6 +41,54 @@ afterEach(() => {
 })
 
 describe('createNewJobDraft', () => {
+  it('starts with Balanced auto convergence unless a preset or saved user choice overrides it', () => {
+    stubLocalStorage()
+    const preset = createTrainingPreset()
+    const options = { settings: null, presets: [preset] }
+    expect(createNewJobDraft(options)).toMatchObject({
+      stopping: { mode: 'convergence', level: 'balanced', maxEpochs: 2000 }, stoppingSource: 'defaults'
+    })
+    persistStoppingPreference({ mode: 'fixed', level: 'fast', maxEpochs: null })
+    expect(createNewJobDraft(options).stopping?.mode).toBe('fixed')
+    preset.stopping = { mode: 'convergence', level: 'thorough', maxEpochs: 3200 }
+    const fromPreset = createNewJobDraft(options)
+    expect(fromPreset.stopping).toEqual(preset.stopping)
+    expect(fromPreset.stopping).not.toBe(preset.stopping)
+    persistReusableJobDefaults(fromPreset, 'default')
+    expect(getStoredStoppingPreference().mode).toBe('fixed')
+    const custom = { ...fromPreset, stoppingSource: 'override' as const,
+      stopping: { mode: 'convergence', level: 'fast', maxEpochs: 2300 } as const }
+    persistReusableJobDefaults(custom, 'default')
+    expect(getStoredStoppingPreference()).toEqual(custom.stopping)
+    expect(applyStoredReusableDefaults(defaultJobSpec, null, preset).stopping).toEqual(preset.stopping)
+  })
+  it('defaults the safety limit to 2000 and remembers a custom value through fixed mode and reloads', () => {
+    const storage = stubLocalStorage()
+    expect(getStoredConvergenceMaxEpochs()).toBe(2000)
+    persistStoppingPreference({ mode: 'convergence', level: 'fast', maxEpochs: 3500 })
+    persistStoppingPreference({ mode: 'fixed', level: 'fast', maxEpochs: null })
+    stubLocalStorage(Object.fromEntries(storage))
+    expect(getStoredStoppingPreference().mode).toBe('fixed')
+    expect(getStoredConvergenceMaxEpochs()).toBe(3500)
+    stubLocalStorage({ [LAST_TRAINING_MODE_KEY]: JSON.stringify({ mode: 'convergence', level: 'balanced', maxEpochs: 2800 }) })
+    expect(getStoredConvergenceMaxEpochs()).toBe(2800)
+    stubLocalStorage({ [LAST_TRAINING_MODE_KEY]: JSON.stringify({ mode: 'convergence', level: 'balanced', maxEpochs: null }),
+      [LAST_CONVERGENCE_MAX_EPOCHS_KEY]: '-1' })
+    expect(getStoredStoppingPreference().maxEpochs).toBe(2000)
+  })
+  it('remembers the last selected training mode and level for the next new job', () => {
+    stubLocalStorage()
+    const preset = createTrainingPreset({ values: { epochs: 37 } })
+    const stopping = { mode: 'convergence', level: 'thorough', maxEpochs: 2000 } as const
+    persistStoppingPreference(stopping)
+    expect(createNewJobDraft({ settings: defaultSettings, presets: [preset] }).stopping).toEqual(stopping)
+    persistStoppingPreference({ mode: 'fixed', level: 'thorough', maxEpochs: null })
+    const next = createNewJobDraft({ settings: defaultSettings, presets: [preset] })
+    expect(next.stopping?.mode).toBe('fixed')
+    expect(next.trainingOverrides.epochs).toBe(37)
+    stubLocalStorage({ [LAST_TRAINING_MODE_KEY]: '{invalid' })
+    expect(getStoredStoppingPreference()).toEqual({ mode: 'convergence', level: 'balanced', maxEpochs: 2000 })
+  })
   it('uses the saved default preset and its epochs ahead of the built-in and last-used presets', () => {
     stubLocalStorage({ [LAST_USED_PRESET_STORAGE_KEY]: A1_STANDARD_PRESET_ID })
     const preferred = createTrainingPreset({ id: 'studio-preset', name: 'Studio preset', values: { epochs: 37 } })

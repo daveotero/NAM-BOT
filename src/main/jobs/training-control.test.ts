@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { requestTrainingControl } from './training-control'
 
 const directories: string[] = []
@@ -24,6 +24,19 @@ afterEach(() => {
 })
 
 describe('training controls', () => {
+  it('serializes concurrent commands instead of overwriting the request file', async () => {
+    const path = workspace()
+    const first = requestTrainingControl(path, 'export', () => true)
+    const firstRequest = readFileSync(join(path, 'training-controls', 'request.json'), 'utf8')
+    const second = requestTrainingControl(path, 'finish', () => true)
+    expect(readFileSync(join(path, 'training-controls', 'request.json'), 'utf8')).toBe(firstRequest)
+    respond(path, { ok: true, epoch: 10 })
+    await first
+    await vi.waitFor(() => expect(JSON.parse(readFileSync(join(path, 'training-controls', 'request.json'), 'utf8')).action).toBe('finish'))
+    respond(path, { ok: true, epoch: 11 })
+    await expect(second).resolves.toMatchObject({ epoch: 11 })
+  })
+
   it('waits for a matching response and uses only its own workspace model path', async () => {
     const path = workspace()
     const pending = requestTrainingControl(path, 'export', () => true)

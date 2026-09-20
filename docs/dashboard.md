@@ -78,6 +78,10 @@ At narrower widths or higher zoom levels, the shared diagnostic cards wrap into 
 
 The Dashboard should stay lightweight. Detailed troubleshooting, command copy blocks, raw check matrices, and AI troubleshooting exports belong on the Diagnostics screen.
 
+### Training mode
+
+Active training cards group their read-only mode and convergence feedback in the bordered Preset box inside **Show Details**, alongside the existing latency, epoch, checkpoint, and device facts. Fixed-epoch runs show the highest convergence level reached without stopping. Runs using **Auto convergence** show their selected level and required maximum epochs, with a progress bar labeled as a percentage of the safety limit; convergence may stop the run sooner. The limit initially defaults to 2,000 epochs and remembers the user's last value. The mode, threshold, and limit stay fixed for the run. Save Snapshot and the existing stop controls remain available. See [training mode and convergence](jobs-system.md#training-mode-and-convergence) for the shared detector thresholds.
+
 ### Training reports
 
 Recent completed runs show their completion date and time in the user's local timezone and date format.

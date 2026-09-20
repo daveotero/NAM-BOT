@@ -54,12 +54,14 @@ describe('preset path validation', () => {
   it('saves a valid preset inside the preset directory', () => {
     const preset = createTrainingPreset({
       id: 'safe-preset_1',
-      name: 'Safe preset'
+      name: 'Safe preset',
+      stopping: { mode: 'convergence', level: 'thorough', maxEpochs: 3200 }
     })
 
     const saved = saveTrainingPreset(preset)
 
     expect(saved.id).toBe('safe-preset_1')
+    expect(getTrainingPresetById(saved.id).stopping).toEqual(preset.stopping)
     expect(existsSync(join(mockPaths.userDataPath, 'presets', 'safe-preset_1.json'))).toBe(true)
   })
 })

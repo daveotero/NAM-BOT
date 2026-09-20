@@ -3,6 +3,8 @@ import ConfirmDialog from '../../components/ConfirmDialog'
 import WorkspaceToolbar from '../../components/WorkspaceToolbar'
 import PropertySheet, { PropertySection } from '../../components/PropertySheet'
 import JsonCodeEditor, { type JsonEditorError } from '../../components/JsonCodeEditor'
+import TrainingModeFields from '../jobs/TrainingModeFields'
+import { CONVERGENCE_LABELS, normalizeStoppingPolicy } from '../../../shared/convergence'
 import { type AppSettings, type PresetEditorSession, useAppStore } from '../../state/store'
 import {
   DEFAULT_PRESET_ID,
@@ -24,7 +26,7 @@ import {
 } from '../../state/types'
 import { handleCardToggleKeyDown, shouldIgnoreCardToggle } from '../../utils/card-toggle'
 import { isEpochRunnerRewardPreset } from '../about/aboutRewardPreset'
-import { buildNewPresetDraft, buildPresetEditorSession } from './presetEditorSession'
+import { buildNewPresetDraft, buildPresetEditorSession, mergeImportedTechnicalFields } from './presetEditorSession'
 
 const PRESET_CATEGORY_OPTIONS: Array<{ value: PresetCategory; label: string }> = [
   { value: 'quality', label: 'Quality' },
@@ -60,11 +62,11 @@ const BASIC_FIELD_HELP_TEXT = {
   description: 'Quick note for what this profile is aiming at, what source files it came from, or what sounded best.',
   architectureVersion: 'a2 is the current NAM architecture. a1 remains available for older workflows. custom marks experimental local recipes.',
   modelFamily: 'Packed WaveNet is the A2 path. WaveNet and LSTM are available for a1 and custom local experiments.',
-  architectureSize: 'A2 uses Packed, which trains Lite and Full together. a1 presets still use Standard, Lite, Feather, or Nano.',
+  architectureSize: 'A2 uses Packed to train the selected model tiers together. A1 presets use Standard, Lite, Feather, or Nano.',
   epochs: 'How many passes NAM makes over the training material. More can improve the fit, but too many can start chasing noise or mismatches.',
   batchSize: 'Mostly a speed and memory knob. Raise it if your GPU has room; lower it if training runs out of memory.',
   learningRate: 'How aggressively the model updates while learning. Too high can make training unstable; too low can make it crawl.',
-  learningRateDecay: 'How quickly the learning rate backs off as training goes on. Higher decay means a stronger early push and gentler late fine-tuning.',
+  learningRateDecay: 'How quickly the learning rate decreases after each epoch. Higher decay reduces it more quickly; zero keeps it constant.',
   ny: 'Training window length. Larger values give NAM a longer slice of the signal to learn from, but they cost more memory and time.',
   fitMrstft: 'Adds an extra frequency-aware loss term. It can help preserve texture and top-end detail on some rigs, but it changes how the fit behaves.',
   mrstftWeight: 'Numeric strength of the MRSTFT loss. Official A2 uses 0.0005.',
@@ -126,6 +128,7 @@ const PRESET_EDITOR_SECTIONS = [
   { id: 'preset-information', label: 'Preset' },
   { id: 'preset-architecture-section', label: 'Architecture' },
   { id: 'preset-training', label: 'Training' },
+  { id: 'preset-loss', label: 'Loss & levels' },
   { id: 'preset-overrides', label: 'Overrides' }
 ]
 const PRESET_IMPORT_SECTIONS = [{ id: 'preset-import', label: 'Import JSON' }]
@@ -519,17 +522,6 @@ function buildPresetExportValue(
   })
 }
 
-function mergeImportedTechnicalFields(basePreset: TrainingPresetFile, importedPreset: TrainingPresetFile): TrainingPresetFile {
-  return normalizeTrainingPreset({
-    ...basePreset,
-    values: importedPreset.values,
-    expert: importedPreset.expert,
-    builtIn: false,
-    readOnly: false,
-    visible: true
-  })
-}
-
 function prettyJson(value: Record<string, unknown> | undefined): string {
   return value ? JSON.stringify(value, null, 2) : ''
 }
@@ -798,8 +790,14 @@ function PresetCard({
                     <span className="preset-detail-value">{formatArchitectureSize(preset.values.architectureSize)}</span>
                   </div>
                   <div className="preset-detail-row">
-                    <span className="preset-detail-label">Epochs</span>
-                    <span className="preset-detail-value">{preset.values.epochs}</span>
+                    <span className="preset-detail-label">Mode</span>
+                    <span className="preset-detail-value runtime-detail-value-wrap">{preset.stopping?.mode === 'convergence'
+                      ? `Auto convergence · ${CONVERGENCE_LABELS[preset.stopping.level]}`
+                      : preset.stopping ? 'Fixed epochs' : 'Last used'}</span>
+                  </div>
+                  <div className="preset-detail-row">
+                    <span className="preset-detail-label">{preset.stopping?.mode === 'convergence' ? 'Maximum epochs' : 'Default epochs'}</span>
+                    <span className="preset-detail-value">{preset.stopping?.mode === 'convergence' ? preset.stopping.maxEpochs : preset.values.epochs}</span>
                   </div>
                   <div className="preset-detail-row">
                     <span className="preset-detail-label">Batch</span>
@@ -1163,6 +1161,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
             <button
               type="button"
               className="btn btn-sm btn-secondary"
+              title="Edit preset fields and optional expert JSON overrides."
               aria-pressed={session.editorMode === 'manual'}
               onClick={() => handleEditorModeChange('manual')}
             >
@@ -1171,6 +1170,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
             <button
               type="button"
               className="btn btn-sm btn-secondary"
+              title="Import technical training settings from JSON while keeping the preset name, category, and description."
               aria-pressed={session.editorMode === 'import'}
               onClick={() => handleEditorModeChange('import')}
             >
@@ -1214,6 +1214,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                   </div>
                   <div className="property-control">
                     <input
+                      title={BASIC_FIELD_HELP_TEXT.name}
                       id="preset-name"
                       className="form-input"
                       value={session.preset.name}
@@ -1230,6 +1231,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                   </div>
                   <div className="property-control">
                     <select
+                      title={BASIC_FIELD_HELP_TEXT.category}
                       id="preset-category"
                       className="form-select"
                       value={session.preset.category}
@@ -1253,6 +1255,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                 </div>
                 <div className="property-control">
                   <textarea
+                    title={BASIC_FIELD_HELP_TEXT.description}
                     id="preset-description"
                     className="form-input"
                     rows={3}
@@ -1269,6 +1272,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                   </div>
                   <div className="property-control">
                     <input
+                      title="Author credited in this preset file."
                       id="preset-author-name"
                       className="form-input"
                       value={session.preset.author?.name ?? ''}
@@ -1283,6 +1287,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                   </div>
                   <div className="property-control">
                     <input
+                      title="Website or profile link included with the preset author credit."
                       id="preset-author-url"
                       className="form-input"
                       value={session.preset.author?.url ?? ''}
@@ -1302,6 +1307,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                   </div>
                   <div className="property-control">
                     <select
+                      title={BASIC_FIELD_HELP_TEXT.architectureVersion}
                       id="preset-architecture-version"
                       className="form-select"
                       value={getStringControlValue(fieldOverrides.architectureVersion, session.preset.values.architectureVersion)}
@@ -1327,6 +1333,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                   </div>
                   <div className="property-control">
                     <select
+                      title={BASIC_FIELD_HELP_TEXT.modelFamily}
                       id="preset-model-family"
                       className="form-select"
                       value={getStringControlValue(fieldOverrides.modelFamily, session.preset.values.modelFamily)}
@@ -1352,6 +1359,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                   </div>
                   <div className="property-control">
                     <select
+                      title={BASIC_FIELD_HELP_TEXT.architectureSize}
                       id="preset-architecture"
                       className="form-select"
                       value={getStringControlValue(fieldOverrides.architectureSize, session.preset.values.architectureSize)}
@@ -1373,27 +1381,16 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
               </div>
             </PropertySection>
             <PropertySection id="preset-training" title="Training">
+              <TrainingModeFields id="preset-training-mode" policy={normalizeStoppingPolicy(session.preset.stopping)}
+                onChange={stopping => updatePreset({ stopping })}
+                inherit={{ selected: !session.preset.stopping, onSelect: () => updatePreset({ stopping: undefined }) }}
+                fixedEpochs={getNumberControlValue(fieldOverrides.epochs, session.preset.values.epochs)}
+                epochInputId="preset-epochs" epochLabel="Default epochs" epochInputLabel="Default Epochs"
+                epochHelp="Epoch count used when a job trains in Fixed epochs mode. Each job can override this value."
+                epochsLocked={fieldOverrides.epochs !== null} epochOverride={renderOverrideBadge(fieldOverrides.epochs)}
+                maxEpochsHelp="Default safety limit for auto-convergence jobs using this preset. Training saves and stops at this epoch if it has not converged sooner. Jobs can override it."
+                onFixedEpochsChange={epochs => updatePresetValues({ epochs })} />
               <div className="property-grid">
-                <div className="property-row">
-                  <div className="form-label-row">
-                    <label className="form-label" htmlFor="preset-epochs">Default Epochs</label>
-                    {renderInfoButton(BASIC_FIELD_HELP_TEXT.epochs)}
-                  </div>
-                  <div className="property-control">
-                    <input
-                      id="preset-epochs"
-                      type="number"
-                      className="form-input"
-                      value={getNumberControlValue(fieldOverrides.epochs, session.preset.values.epochs)}
-                      disabled={fieldOverrides.epochs !== null}
-                      onChange={(event) => updatePresetValues({
-                        epochs: Math.max(1, parseInt(event.target.value, 10) || session.preset.values.epochs)
-                      })}
-                    />
-                    {renderOverrideBadge(fieldOverrides.epochs)}
-                  </div>
-                </div>
-
                 <div className="property-row">
                   <div className="form-label-row">
                     <label className="form-label" htmlFor="preset-batch-size">Batch Size</label>
@@ -1401,6 +1398,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                   </div>
                   <div className="property-control">
                     <input
+                      title={BASIC_FIELD_HELP_TEXT.batchSize}
                       id="preset-batch-size"
                       type="number"
                       className="form-input"
@@ -1416,11 +1414,33 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
 
                 <div className="property-row">
                   <div className="form-label-row">
+                    <label className="form-label" htmlFor="preset-ny">NY</label>
+                    {renderInfoButton(BASIC_FIELD_HELP_TEXT.ny)}
+                  </div>
+                  <div className="property-control">
+                    <input
+                      title={BASIC_FIELD_HELP_TEXT.ny}
+                      id="preset-ny"
+                      type="number"
+                      className="form-input"
+                      value={getNumberControlValue(fieldOverrides.ny, session.preset.values.ny)}
+                      disabled={fieldOverrides.ny !== null}
+                      onChange={(event) => updatePresetValues({
+                        ny: Math.max(1, parseInt(event.target.value, 10) || session.preset.values.ny)
+                      })}
+                    />
+                    {renderOverrideBadge(fieldOverrides.ny)}
+                  </div>
+                </div>
+
+                <div className="property-row">
+                  <div className="form-label-row">
                     <label className="form-label" htmlFor="preset-learning-rate">Learning Rate</label>
                     {renderInfoButton(BASIC_FIELD_HELP_TEXT.learningRate)}
                   </div>
                   <div className="property-control">
                     <input
+                      title={BASIC_FIELD_HELP_TEXT.learningRate}
                       id="preset-learning-rate"
                       type="number"
                       step="0.0001"
@@ -1442,6 +1462,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                   </div>
                   <div className="property-control">
                     <input
+                      title={BASIC_FIELD_HELP_TEXT.learningRateDecay}
                       id="preset-learning-rate-decay"
                       type="number"
                       step="0.0001"
@@ -1449,41 +1470,26 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                       value={getNumberControlValue(fieldOverrides.learningRateDecay, session.preset.values.learningRateDecay)}
                       disabled={fieldOverrides.learningRateDecay !== null}
                       onChange={(event) => updatePresetValues({
-                        learningRateDecay: parseFloat(event.target.value) || session.preset.values.learningRateDecay
+                        learningRateDecay: Number.isFinite(event.target.valueAsNumber)
+                          ? Math.min(1, Math.max(0, event.target.valueAsNumber)) : session.preset.values.learningRateDecay
                       })}
                     />
                     {renderOverrideBadge(fieldOverrides.learningRateDecay)}
                   </div>
                 </div>
-
-                <div className="property-row">
-                  <div className="form-label-row">
-                    <label className="form-label" htmlFor="preset-ny">NY</label>
-                    {renderInfoButton(BASIC_FIELD_HELP_TEXT.ny)}
-                  </div>
-                  <div className="property-control">
-                    <input
-                      id="preset-ny"
-                      type="number"
-                      className="form-input"
-                      value={getNumberControlValue(fieldOverrides.ny, session.preset.values.ny)}
-                      disabled={fieldOverrides.ny !== null}
-                      onChange={(event) => updatePresetValues({
-                        ny: Math.max(1, parseInt(event.target.value, 10) || session.preset.values.ny)
-                      })}
-                    />
-                    {renderOverrideBadge(fieldOverrides.ny)}
-                  </div>
-                </div>
-
+              </div>
+            </PropertySection>
+            <PropertySection id="preset-loss" title="Loss & levels">
+              <div className="property-grid">
                 <div className="property-row">
                   <div className="form-label-row">
                     <label className="form-label" htmlFor="preset-fit-mrstft">Fit MRSTFT</label>
                     {renderInfoButton(BASIC_FIELD_HELP_TEXT.fitMrstft)}
                   </div>
                   <div className="property-control">
-                    <label className="property-check-option">
+                    <label className="property-check-option" title={BASIC_FIELD_HELP_TEXT.fitMrstft}>
                       <input
+                        title={BASIC_FIELD_HELP_TEXT.fitMrstft}
                         id="preset-fit-mrstft"
                         type="checkbox"
                         checked={getBooleanControlValue(fieldOverrides.fitMrstft, session.preset.values.fitMrstft)}
@@ -1505,6 +1511,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                   </div>
                   <div className="property-control">
                     <input
+                      title={BASIC_FIELD_HELP_TEXT.mrstftWeight}
                       id="preset-mrstft-weight"
                       type="number"
                       step="0.0001"
@@ -1527,6 +1534,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                   </div>
                   <div className="property-control">
                     <input
+                      title={BASIC_FIELD_HELP_TEXT.weightDecay}
                       id="preset-weight-decay"
                       type="number"
                       step="0.0000001"
@@ -1548,6 +1556,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                   </div>
                   <div className="property-control">
                     <input
+                      title={BASIC_FIELD_HELP_TEXT.outputNormalizeRmsDb}
                       id="preset-output-normalize"
                       type="number"
                       step="0.1"

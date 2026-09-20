@@ -1,4 +1,6 @@
 import type { AppSettings, JobEditorSession, JobOutputRootMode } from '../../state/store'
+import { getDefaultStoppingPolicy, persistStoppingPreference } from './training-mode-preferences'
+import { normalizeStoppingPolicy, normalizeStoppingPolicyForTraining } from '../../../shared/convergence'
 import {
   DEFAULT_PRESET_ID,
   type JobLatencyMode,
@@ -164,7 +166,7 @@ function getStoredTrimmedString(key: string): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined
 }
 
-export function applyStoredReusableDefaults<T extends ReusableDefaultsJob>(job: T, settings: AppSettings | null): T {
+export function applyStoredReusableDefaults<T extends ReusableDefaultsJob>(job: T, settings: AppSettings | null, preset?: TrainingPresetFile): T {
   const inputMode = window.localStorage.getItem(LAST_INPUT_AUDIO_MODE_STORAGE_KEY)
   const customInputAudioPath = getStoredTrimmedString(LAST_CUSTOM_INPUT_AUDIO_PATH_STORAGE_KEY)
   const latencyMode = getStoredLatencyMode()
@@ -176,6 +178,8 @@ export function applyStoredReusableDefaults<T extends ReusableDefaultsJob>(job: 
 
   return {
     ...job,
+    stopping: getDefaultStoppingPolicy(preset),
+    stoppingSource: 'defaults',
     inputAudioPath: inputMode === 'custom' && customInputAudioPath ? customInputAudioPath : job.inputAudioPath,
     inputAudioIsDefault: inputMode === 'custom' && customInputAudioPath ? false : job.inputAudioIsDefault,
     trainingOverrides: {
@@ -193,6 +197,7 @@ export function applyStoredReusableDefaults<T extends ReusableDefaultsJob>(job: 
 }
 
 export function persistReusableJobDefaults(job: JobSpec, inputMode: 'default' | 'custom'): void {
+  if (job.stoppingSource !== 'defaults') persistStoppingPreference(normalizeStoppingPolicy(job.stopping))
   window.localStorage.setItem(LAST_INPUT_AUDIO_MODE_STORAGE_KEY, inputMode)
 
   if (inputMode === 'custom') {
@@ -252,7 +257,7 @@ export function serializeJobEditorSession(
 
 export function buildJobEditorSession(title: string, job: JobSpec, settings: AppSettings | null): JobEditorSession {
   const sessionContent = {
-    job,
+    job: { ...job, stopping: normalizeStoppingPolicyForTraining(job.stopping) },
     inputMode: job.inputAudioIsDefault ? 'default' as const : 'custom' as const,
     outputRootMode: getOutputRootModeForJob(job, settings)
   }
@@ -296,5 +301,5 @@ export function createNewJobDraft(options: CreateNewJobDraftOptions): JobSpec {
     newJob.trainingOverrides.epochs = fallbackPreset.values.epochs
   }
 
-  return applyStoredReusableDefaults(newJob, options.settings)
+  return applyStoredReusableDefaults(newJob, options.settings, fallbackPreset)
 }

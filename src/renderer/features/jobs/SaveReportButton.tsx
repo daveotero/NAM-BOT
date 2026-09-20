@@ -23,7 +23,7 @@ export default function SaveReportButton({ jobId, onError }: SaveReportButtonPro
     } finally { setSaving(false) }
   }
   return <>
-    <button type="button" data-no-card-toggle="true" className="btn btn-sm btn-secondary" disabled={saving} onClick={() => setOpen(true)}>
+    <button type="button" data-no-card-toggle="true" className="btn btn-sm btn-secondary" disabled={saving} title="Export this run's training statistics and ESR history as a PNG image or an offline interactive HTML report." onClick={() => setOpen(true)}>
       {saving ? 'Saving Report...' : 'Save Report'}
     </button>
     {open && createPortal(<ConfirmDialog isOpen={open} title="Save training report" message="Choose a branded PNG image or a standalone interactive HTML report. You can choose where to save it next."

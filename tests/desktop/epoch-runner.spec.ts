@@ -204,7 +204,16 @@ test('Epoch Runner complete campaign via keyboard, upgrade, score archive and re
   await page.clock.runFor(64)
   await capture(info, 'records.png')
   const presets = await page.evaluate(async () => await window.namBot.presets.list())
-  expect(presets.filter((preset) => typeof preset === 'object' && preset !== null && 'id' in preset && preset.id === 'epoch-runner-reward')).toHaveLength(1)
+  const rewards = presets.filter((preset) => typeof preset === 'object' && preset !== null && 'id' in preset && preset.id === 'epoch-runner-reward')
+  expect(rewards).toHaveLength(1)
+  expect(rewards[0]).toMatchObject({
+    name: 'Demonic Convergence',
+    stopping: { mode: 'convergence', level: 'thorough', maxEpochs: 6666 },
+    values: { architectureVersion: 'a2', modelFamily: 'PackedWaveNet' },
+    expert: { model: { net: { config: {
+      submodels: [3, 8, 12, 16, 20, 24, 28].map((channel) => ({ name: `channels_${channel}` }))
+    } } } }
+  })
   await page.keyboard.press('Escape')
   await expect(game).toHaveCount(0)
   await page.keyboard.type('epochrunner')

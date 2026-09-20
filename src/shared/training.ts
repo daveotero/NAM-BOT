@@ -1,4 +1,5 @@
 import type { TrainingExportEvidence } from './training-report'
+import { DEFAULT_CONVERGENCE_MAX_EPOCHS, isTrainingStoppingPolicy, normalizeStoppingPolicy, normalizeStoppingPolicyForTraining, type TrainingStoppingPolicy, type ConvergenceStatus } from './convergence'
 
 export type JobStatus =
   | 'draft'
@@ -131,6 +132,9 @@ export interface PackedPresetSubmodel extends JobPackedSubmodelSelection {
 }
 
 export interface JobSpec {
+  stopping?: TrainingStoppingPolicy
+  /** Resolved defaults remain a snapshot; only choosing a different preset reapplies defaults. */
+  stoppingSource?: 'defaults' | 'override'
   id: string
   name: string
   createdAt: string
@@ -185,6 +189,8 @@ export interface TrainingPresetOrigin {
 }
 
 export interface TrainingPresetFile {
+  /** When omitted, new jobs use the client's last-used training mode. */
+  stopping?: TrainingStoppingPolicy
   schemaVersion: 1
   presetKind: 'training'
   id: string
@@ -204,6 +210,7 @@ export interface TrainingPresetFile {
 }
 
 export interface JobRuntimeState {
+  convergence?: ConvergenceStatus
   jobId: string
   jobName: string
   status: JobStatus
@@ -252,11 +259,17 @@ export interface QueueControlState {
 }
 
 export function getEffectiveJobEpochs(job: JobSpec, preset: TrainingPresetFile): number {
+  if (job.stopping?.mode === 'convergence') return normalizeStoppingPolicyForTraining(job.stopping).maxEpochs ?? DEFAULT_CONVERGENCE_MAX_EPOCHS
   const trainer = preset.expert.learning?.trainer
   const override = isRecord(trainer) ? trainer.max_epochs : undefined
   return typeof override === 'number' && Number.isFinite(override)
     ? override
     : job.trainingOverrides.epochs ?? preset.values.epochs
+}
+
+export function getPlannedJobEpochLimit(job: JobSpec, preset: TrainingPresetFile): number | null {
+  const epochs = getEffectiveJobEpochs(job, preset)
+  return epochs > 0 ? epochs : null
 }
 
 export function getEffectiveJobLatency(job: JobSpec, preset: TrainingPresetFile): number {
@@ -802,7 +815,7 @@ function buildA2PackedSubmodels(channels: readonly number[]): Array<{ name: stri
   }))
 }
 
-function buildA2PackedNetConfig(channels: readonly number[] = A2_DEFAULT_PACKED_CHANNELS): Record<string, unknown> {
+export function buildA2PackedNetConfig(channels: readonly number[] = A2_DEFAULT_PACKED_CHANNELS): Record<string, unknown> {
   return {
     name: 'PackedWaveNet',
     config: {
@@ -943,6 +956,12 @@ type TrainingPresetInput = Omit<Partial<TrainingPresetFile>, 'values'> & {
   values?: Partial<TrainingPresetValues>
 }
 
+function normalizePresetStoppingPolicy(value: unknown): TrainingStoppingPolicy | undefined {
+  if (value == null) return undefined
+  if (!isTrainingStoppingPolicy(value)) throw new Error('Invalid preset training mode, threshold, or maximum epochs.')
+  return normalizeStoppingPolicyForTraining(value)
+}
+
 export function createTrainingPreset(partial?: TrainingPresetInput): TrainingPresetFile {
   const now = new Date().toISOString()
   const values = {
@@ -963,6 +982,7 @@ export function createTrainingPreset(partial?: TrainingPresetInput): TrainingPre
 
   return {
     schemaVersion: 1,
+    stopping: normalizePresetStoppingPolicy(partial?.stopping),
     presetKind: 'training',
     id: partial?.id ?? slugifyPresetName(partial?.name ?? now),
     name: partial?.name ?? 'Custom Preset',
@@ -1022,6 +1042,7 @@ export function normalizeTrainingPreset(value: unknown): TrainingPresetFile {
   const origin = normalizeTrainingPresetOrigin(partial.origin)
 
   return createTrainingPreset({
+    stopping: normalizePresetStoppingPolicy(partial.stopping),
     id: asString(partial.id, slugifyPresetName(asString(partial.name, 'custom-preset'))),
     name: asString(partial.name, 'Custom Preset'),
     description: asString(partial.description, ''),
@@ -1154,6 +1175,8 @@ export function normalizeJobSpec(value: unknown): JobSpec {
     batchId: asOptionalTrimmedString(value.batchId),
     batchSourceName: asOptionalTrimmedString(value.batchSourceName),
     presetId,
+    stopping: normalizeStoppingPolicy(value.stopping),
+    stoppingSource: value.stoppingSource === 'defaults' ? 'defaults' : 'override',
     appendPresetToModelFileName: typeof value.appendPresetToModelFileName === 'boolean'
       ? value.appendPresetToModelFileName
       : false,
@@ -1328,6 +1351,7 @@ export function buildBuiltInPresets(): TrainingPresetFile[] {
       builtIn: true,
       readOnly: true,
       visible: true,
+      stopping: { mode: 'convergence', level: 'balanced', maxEpochs: DEFAULT_CONVERGENCE_MAX_EPOCHS },
       values: {
         ...DEFAULT_TRAINING_PRESET_VALUES,
         architectureVersion: 'a2',
@@ -1344,6 +1368,7 @@ export function buildBuiltInPresets(): TrainingPresetFile[] {
       builtIn: true,
       readOnly: true,
       visible: true,
+      stopping: { mode: 'convergence', level: 'balanced', maxEpochs: DEFAULT_CONVERGENCE_MAX_EPOCHS },
       values: {
         ...DEFAULT_TRAINING_PRESET_VALUES,
         architectureVersion: 'a2',
@@ -1365,6 +1390,7 @@ export function buildBuiltInPresets(): TrainingPresetFile[] {
       builtIn: true,
       readOnly: true,
       visible: true,
+      stopping: { mode: 'convergence', level: 'thorough', maxEpochs: DEFAULT_CONVERGENCE_MAX_EPOCHS },
       values: {
         ...DEFAULT_TRAINING_PRESET_VALUES,
         architectureVersion: 'a2',

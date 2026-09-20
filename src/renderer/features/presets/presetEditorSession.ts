@@ -9,6 +9,18 @@ function prettyJson(value: Record<string, unknown> | undefined): string {
   return value ? JSON.stringify(value, null, 2) : ''
 }
 
+export function mergeImportedTechnicalFields(basePreset: TrainingPresetFile, importedPreset: TrainingPresetFile): TrainingPresetFile {
+  return normalizeTrainingPreset({
+    ...basePreset,
+    values: importedPreset.values,
+    expert: importedPreset.expert,
+    stopping: importedPreset.stopping ?? basePreset.stopping,
+    builtIn: false,
+    readOnly: false,
+    visible: true
+  })
+}
+
 export function buildNewPresetDraft(settings: AppSettings | null): TrainingPresetFile {
   return createTrainingPreset({
     id: `preset-${Date.now()}`,

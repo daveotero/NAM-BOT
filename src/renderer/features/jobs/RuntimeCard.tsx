@@ -1,4 +1,5 @@
 import SaveReportButton from './SaveReportButton'
+import ConvergencePanel from './ConvergencePanel'
 import { useLayoutEffect, useRef, useState, type UIEvent } from 'react'
 import {
   JobPackedSubmodelCheckpointSummary,
@@ -244,6 +245,7 @@ export default function RuntimeCard({
   const statusSentence = getStatusSentence(runtime)
   const stopAction = getStopActionState(runtime, nowMs)
   const progressPercent = runtime.status === 'running' || runtime.status === 'stopping' ? getProgressPercent(runtime) : null
+  const convergenceMode = (runtime.convergence?.policy ?? runtime.frozenJob.stopping)?.mode === 'convergence'
   const hasTerminalToggle = displayState !== 'Queued'
   const isFinishedDisplay = displayState === 'Successful' || displayState === 'Error'
   const isSuccessfulDisplay = displayState === 'Successful'
@@ -325,7 +327,7 @@ export default function RuntimeCard({
                 <span style={{ width: `${progressPercent}%` }} />
               </div>
               <div className="training-progress-meta">
-                <span>{`${Math.round(progressPercent)}% complete`}</span>
+                <span>{`${Math.round(progressPercent)}% ${convergenceMode ? 'of safety limit' : 'complete'}`}</span>
               </div>
             </div>
           )}
@@ -347,7 +349,7 @@ export default function RuntimeCard({
               {displayState === 'Queued' && onUnqueue && (
                 <button
                   className="btn btn-sm btn-secondary"
-                  onClick={() => void runAction(() => onUnqueue(runtime.jobId))}
+                  title="Return this waiting job to drafts so it can be edited." onClick={() => void runAction(() => onUnqueue(runtime.jobId))}
                 >
                   Unqueue
                 </button>
@@ -407,7 +409,7 @@ export default function RuntimeCard({
               {isFinishedDisplay && <SaveReportButton jobId={runtime.jobId} onError={setActionError} />}
 
               {isFinishedDisplay && onClearFinished && (
-                <button className="btn btn-sm btn-secondary" onClick={() => void runAction(() => onClearFinished(runtime.jobId))}>
+                <button className="btn btn-sm btn-secondary" title="Remove this run from the Jobs list. Saved files and lifetime training statistics are kept." onClick={() => void runAction(() => onClearFinished(runtime.jobId))}>
                   Clear
                 </button>
               )}
@@ -458,6 +460,7 @@ export default function RuntimeCard({
                   <span className="runtime-detail-label">Epochs</span>
                   <span className="runtime-detail-value">{getPlannedEpochsLabel(runtime)}</span>
                 </div>
+                <ConvergencePanel runtime={runtime} />
                 <div className="runtime-detail-fact">
                   <span className="runtime-detail-label">Checkpoints</span>
                   <span className="runtime-detail-value">{runtime.checkpointSummary?.checkpointCount ?? 0}</span>

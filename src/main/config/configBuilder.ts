@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import log from 'electron-log/main'
+import { normalizeStoppingPolicyForTraining } from '../../shared/convergence'
 import {
   JobSpec,
   JobPackedSubmodelSelection,
@@ -254,6 +255,10 @@ export function resolveJobConfigs(
     ? deepMerge(buildBaseLearningConfig(job, preset), preset.expert.learning)
     : buildBaseLearningConfig(job, preset)
 
+  if (job.stopping?.mode === 'convergence' && isRecord(learningConfig.trainer)) {
+    learningConfig.trainer.max_epochs = normalizeStoppingPolicyForTraining(job.stopping).maxEpochs
+  }
+
   return { dataConfig, modelConfig, learningConfig }
 }
 
@@ -273,6 +278,7 @@ export function buildJobConfigs(
   writeFileSync(dataConfigPath, JSON.stringify(dataConfig, null, 2), 'utf-8')
   writeFileSync(modelConfigPath, JSON.stringify(modelConfig, null, 2), 'utf-8')
   writeFileSync(learningConfigPath, JSON.stringify(learningConfig, null, 2), 'utf-8')
+  writeFileSync(join(workspaceDir, 'stopping-policy.json'), JSON.stringify(normalizeStoppingPolicyForTraining(job.stopping)), 'utf-8')
 
   log.info('Configs written:', { dataConfigPath, modelConfigPath, learningConfigPath })
 
@@ -298,7 +304,7 @@ export function validateJobSpec(job: JobSpec): { valid: boolean; errors: string[
     errors.push('Output root directory is required')
   }
 
-  if ((job.trainingOverrides.epochs ?? 0) < 1) {
+  if (job.stopping?.mode !== 'convergence' && (job.trainingOverrides.epochs ?? 0) < 1) {
     errors.push('Epochs must be at least 1')
   }
 

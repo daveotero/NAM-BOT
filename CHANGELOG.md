@@ -9,13 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Automatic stopping at Fast, Balanced, or Obsessive convergence, with remembered safety limits starting at 2,000 epochs, progress against the limit, fixed stopping rules for each run, and convergence feedback during fixed-epoch runs.
+- Remembered training-mode defaults and convergence details in saved training reports.
+- Preset defaults for training mode, convergence threshold, and maximum epochs, with per-job overrides and portable import/export.
 - Optional branded PNG training summaries and interactive, offline HTML reports alongside saved models, snapshots, and extra copies, plus manual report export from finished runs.
 - Readable training dates and times on finished runs and in reports.
 - A setting to enable or disable desktop training notifications.
 
 ### Changed
 
+- Built-in A2 presets now use auto convergence: Balanced for the standard and Heavy 12 packs, and Obsessive for Ultra 20, each with a 2,000-epoch safety limit.
+- Organized the preset editor to match job controls, with Auto convergence first and a dedicated Loss & levels section.
+- Finished convergence runs show the completed epoch count beside their stopping threshold.
+- Gave the after-hours switchboard a more ambitious signal path.
 - Standardized typography, controls, diagnostic summaries, and training cards across the app, including narrow windows and higher zoom levels.
+- Added explanatory tooltips to important settings, training options, preset controls, and model-output choices.
 - Simplified individual checkbox options while retaining grouped panels for packed submodels.
 - Shared the animated NAM-BOT logo with HTML reports and added a monochrome horns cursor on logo hover.
 - Simplified About's legal notice while retaining the full license in packaged builds.
@@ -25,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Presets now accept zero learning-rate decay.
 - Snapshot filenames now honor the run's preset and ESR naming options and use local timestamps precise to the second.
 - Long batch filenames and paths wrap and expose their full values on hover.
 - Snapshot reports retain the metrics and history captured with the saved weights, even as training advances.

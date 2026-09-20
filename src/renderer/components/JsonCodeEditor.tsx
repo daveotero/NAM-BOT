@@ -90,7 +90,7 @@ export default function JsonCodeEditor({
             type="button"
             className={`btn btn-sm ${canFormat ? 'btn-secondary' : 'btn-secondary'}`}
             disabled={!canFormat}
-            onClick={onFormat}
+            title="Format valid JSON with readable indentation without changing its values." onClick={onFormat}
           >
             Format JSON
           </button>

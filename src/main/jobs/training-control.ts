@@ -16,12 +16,31 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-export async function requestTrainingControl(
+const pendingControls = new Map<string, Promise<unknown>>()
+
+export function requestTrainingControl(
   workspace: string,
   action: 'export' | 'finish',
   isActive: () => boolean,
   timeoutMs = 180_000
 ): Promise<TrainingControlResult> {
+  const previous = pendingControls.get(workspace)
+  const next = previous ? previous.catch(() => undefined).then(() => performTrainingControl(workspace, action, isActive, timeoutMs))
+    : performTrainingControl(workspace, action, isActive, timeoutMs)
+  pendingControls.set(workspace, next)
+  void next.finally(() => {
+    if (pendingControls.get(workspace) === next) pendingControls.delete(workspace)
+  }).catch(() => undefined)
+  return next
+}
+
+async function performTrainingControl(
+  workspace: string,
+  action: 'export' | 'finish',
+  isActive: () => boolean,
+  timeoutMs: number
+): Promise<TrainingControlResult> {
+  if (!isActive()) throw new Error('Training ended before this command could be sent.')
   const id = uuidv4()
   const directory = join(workspace, 'training-controls')
   if (!existsSync(join(directory, 'ready.json'))) {

@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
-import { A1_STANDARD_PRESET_ID, A2_HEAVY_12_PRESET_ID, DEFAULT_PRESET_ID, createTrainingPreset, defaultJobSpec, getBuiltInPreset, type JobRuntimeState } from '../../src/shared/training'
+import { A1_STANDARD_PRESET_ID, A2_HEAVY_12_PRESET_ID, DEFAULT_PRESET_ID, createTrainingPreset, defaultJobSpec, getBuiltInPreset, normalizeTrainingPreset, type JobRuntimeState } from '../../src/shared/training'
+import { CONVERGENCE_LEVELS } from '../../src/shared/convergence'
 
 let app: ElectronApplication
 let page: Page
@@ -392,7 +393,8 @@ test('Jobs toolbar saves drafts and creates batches without losing editor action
 
 test('saved default presets apply to dropped audio and new batches while templates keep their recipe', async ({}, info) => {
   const builtIn = getBuiltInPreset(A2_HEAVY_12_PRESET_ID)
-  const preferred = createTrainingPreset({ ...builtIn, id: 'drop-default', name: 'Drop default', builtIn: false, readOnly: false, values: { ...builtIn.values, epochs: 37 } })
+  const preferred = createTrainingPreset({ ...builtIn, id: 'drop-default', name: 'Drop default', builtIn: false, readOnly: false,
+    stopping: { mode: 'fixed', level: 'balanced', maxEpochs: null }, values: { ...builtIn.values, epochs: 37 } })
   await page.evaluate(async (preset) => { await window.namBot.presets.save(preset) }, preferred)
   await chooseMenu(await settingsMenu(), 'Settings')
   await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Application', exact: true }).click()
@@ -575,6 +577,143 @@ test('shared typography and card styling stay consistent across workspaces', asy
     await expect.poll(() => page.locator('.workspace-content > .layout-main').evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
     await captureRenderer(info, `style-${view.toLowerCase().replaceAll(' ', '-')}-zoom.png`)
   }
+  expect(errors).toEqual([])
+})
+
+test('convergence feedback stays read-only on Jobs and Dashboard at normal and narrow widths', async ({}, info) => {
+  const now = new Date().toISOString()
+  const runtime: JobRuntimeState = {
+    jobId: 'convergence-display', jobName: 'Packed model convergence', status: 'running', pid: 1234,
+    frozenJob: { ...defaultJobSpec, id: 'convergence-display', createdAt: now, updatedAt: now },
+    frozenPreset: getBuiltInPreset(DEFAULT_PRESET_ID), currentEpoch: 645, plannedEpochs: 666, startedAt: now, userMessages: [],
+    terminalProgress: { currentEpoch: 645, totalEpochs: 666, percent: 97 },
+    convergence: { version: 1, policy: { mode: 'fixed', level: 'balanced', maxEpochs: null }, originalEpochLimit: 666,
+      epoch: 645, validatedEpochs: 645, phase: 'monitoring', achievedLevel: 'balanced', message: null, completionReason: null, changes: [],
+      levels: CONVERGENCE_LEVELS.map(level => ({ level, confirmations: level === 'thorough' ? 0 : 5,
+        qualified: level !== 'thorough', firstReachedEpoch: level === 'fast' ? 417 : level === 'balanced' ? 645 : null, waitingModels: [] })) }
+  }
+  const auto: JobRuntimeState = structuredClone(runtime)
+  auto.jobId = 'convergence-auto'
+  auto.jobName = 'Auto convergence run'
+  auto.frozenJob.id = auto.jobId
+  auto.frozenJob.stopping = { mode: 'convergence', level: 'thorough', maxEpochs: 2000 }
+  auto.plannedEpochs = 2000
+  auto.terminalProgress = { currentEpoch: 645, totalEpochs: 2000, percent: 32.25 }
+  if (!auto.convergence) throw new Error('Missing convergence fixture')
+  auto.convergence.policy = auto.frozenJob.stopping
+  auto.convergence.originalEpochLimit = null
+  await app.evaluate(({ BrowserWindow, ipcMain }, current) => {
+    ipcMain.removeHandler('jobs:listQueue')
+    ipcMain.handle('jobs:listQueue', () => current)
+    BrowserWindow.getAllWindows()[0].webContents.send('queue:updated', current)
+  }, [runtime, auto])
+  expect(await page.evaluate(() => 'updateStoppingPolicy' in window.namBot.jobs)).toBe(false)
+  for (const view of ['Jobs', 'Dashboard']) {
+    await chooseMenu('Navigate', view)
+    for (const run of [runtime, auto]) {
+      const card = page.locator('.queue-card').filter({ has: page.getByRole('heading', { name: run.jobName, exact: true }) })
+      const panel = card.getByRole('region', { name: 'Convergence status', exact: true })
+      await expect(panel).toHaveCount(0)
+      await card.getByRole('button', { name: 'Show Details', exact: true }).click()
+      await expect(panel).toContainText('Balanced · epoch 645')
+      await expect(panel.getByRole('button')).toHaveCount(0)
+      await expect(panel.getByRole('spinbutton')).toHaveCount(0)
+      await expect(card.getByRole('button', { name: 'Stop', exact: true })).toBeVisible()
+      if (run === runtime) {
+        await expect(panel).toContainText('Fixed epochs')
+        await expect(panel).toContainText('Monitoring only')
+      } else {
+        await expect(panel).toContainText('Auto convergence · Obsessive')
+        await expect(card.locator('.training-progress-group')).toBeVisible()
+        await expect(card.locator('.training-progress-meta')).toHaveText('32% of safety limit')
+      }
+    }
+    const panels = page.getByRole('region', { name: 'Convergence status', exact: true })
+    for (const [width, height, zoom] of [[1400, 950, 1], [1000, 700, 1], [1000, 700, 1.5]]) {
+      await app.evaluate(({ BrowserWindow }, size) => {
+        const window = BrowserWindow.getAllWindows()[0]
+        window.setSize(size.width, size.height)
+        window.webContents.setZoomFactor(size.zoom)
+      }, { width, height, zoom })
+      await page.locator('.runtime-overview-column').first().scrollIntoViewIfNeeded()
+      await assertSafeArea()
+      for (const panel of await panels.all()) {
+        await expect.poll(() => panel.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
+      }
+      await expect.poll(() => page.locator('.workspace-content > .layout-main').evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
+      await captureRenderer(info, `convergence-${view.toLowerCase()}-${width}-${zoom}.png`)
+      await page.locator('.queue-card').filter({ has: page.getByRole('heading', { name: auto.jobName, exact: true }) })
+        .locator('.queue-card-status-row').scrollIntoViewIfNeeded()
+      await captureRenderer(info, `convergence-${view.toLowerCase()}-headline-${width}-${zoom}.png`)
+    }
+    // Restore zoom for Electron pointer coordinates.
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1))
+    for (const run of [runtime, auto]) {
+      const card = page.locator('.queue-card').filter({ has: page.getByRole('heading', { name: run.jobName, exact: true }) })
+      await card.getByRole('button', { name: 'Hide Details', exact: true }).click()
+    }
+    await expect(panels).toHaveCount(0)
+    await captureRenderer(info, `convergence-${view.toLowerCase()}-collapsed.png`)
+  }
+  expect(errors).toEqual([])
+})
+
+test('convergence job mode is remembered and survives draft saving', async ({}, info) => {
+  await chooseMenu('File', 'New Job')
+  const output = join(dataPath, 'Convergence capture.wav')
+  await writeFile(output, Buffer.alloc(44))
+  await page.locator('#output-audio-path').fill(output)
+  await page.getByRole('region', { name: 'Name & audio', exact: true }).getByRole('button', { name: 'Use Output Filename' }).click()
+  await page.getByRole('navigation', { name: 'Job editor sections' }).getByRole('button', { name: 'Training', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Auto convergence', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('group', { name: 'Training mode', exact: true }).getByRole('button')).toHaveText(['Auto convergence', 'Fixed epochs'])
+  await page.getByRole('button', { name: 'Fixed epochs', exact: true }).click()
+  await page.locator('#epochs').fill('777')
+  await page.getByRole('button', { name: 'Auto convergence', exact: true }).click()
+  await expect(page.locator('#epochs')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Fixed epochs', exact: true })).toHaveText('Fixed epochs')
+  await page.getByRole('button', { name: 'Obsessive', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Obsessive', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await page.getByRole('button', { name: 'Fast', exact: true }).focus()
+  await page.keyboard.press('Space')
+  await expect(page.getByRole('button', { name: 'Fast', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await page.getByRole('button', { name: 'Fixed epochs', exact: true }).click()
+  await expect(page.locator('#epochs')).toBeEnabled()
+  await expect(page.locator('#epochs')).toHaveValue('777')
+  await page.getByRole('button', { name: 'Auto convergence', exact: true }).click()
+  const settings = page.getByRole('region', { name: 'Training mode settings', exact: true })
+  await expect(settings.getByRole('checkbox')).toHaveCount(0)
+  await expect(settings.getByRole('group', { name: 'Training mode', exact: true })).toBeVisible()
+  await expect(page.locator('#job-training-cap')).toBeVisible()
+  await expect(page.locator('#job-training-cap')).toHaveValue('2000')
+  await expect(page.locator('#job-training-cap')).toHaveAttribute('required', '')
+  await page.locator('#job-training-cap').fill('3000')
+  await page.locator('#job-training-cap').fill('')
+  await page.locator('#job-training-cap').blur()
+  await expect(page.locator('#job-training-cap')).toHaveValue('3000')
+  await page.getByRole('button', { name: 'Fixed epochs', exact: true }).click()
+  await page.getByRole('button', { name: 'Auto convergence', exact: true }).click()
+  await expect(page.locator('#job-training-cap')).toHaveValue('3000')
+  await settings.scrollIntoViewIfNeeded()
+  await captureRenderer(info, 'convergence-job-editor.png')
+  await page.locator('.workspace-toolbar').getByRole('button', { name: 'Save Job', exact: true }).click()
+  await page.locator('.draft-card').getByRole('button', { name: 'Edit', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Auto convergence', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('button', { name: 'Fixed epochs', exact: true })).toHaveText('Fixed epochs')
+  await expect(page.locator('#job-training-cap')).toHaveValue('3000')
+  await chooseMenu('File', 'New Job')
+  await expect(page.getByRole('button', { name: 'Auto convergence', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  // Built-in A2 rules take precedence; presets with Last used restore the saved choice.
+  await expect(page.getByRole('button', { name: 'Balanced', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator('#job-training-cap')).toHaveValue('2000')
+  await page.locator('#preset-select').selectOption(A1_STANDARD_PRESET_ID)
+  await expect(page.getByRole('button', { name: 'Fast', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator('#job-training-cap')).toHaveValue('3000')
+  await app.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows()[0]; window.setSize(1000, 700); window.webContents.setZoomFactor(1.5) })
+  await page.getByRole('navigation', { name: 'Job editor sections' }).getByRole('button', { name: 'Training', exact: true }).click()
+  await settings.scrollIntoViewIfNeeded()
+  await captureRenderer(info, 'convergence-job-editor-zoom.png')
+  await expect.poll(() => page.locator('.job-editor-workspace').evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
   expect(errors).toEqual([])
 })
 
@@ -804,6 +943,7 @@ test('job properties align inputs, preview filenames, and preserve edits through
   await expect(preview).toHaveText('6534 Pedals - Standard WaveNet.nam')
   await page.getByLabel('Append final ESR', { exact: true }).check()
   await expect(preview).toHaveText('6534 Pedals - Standard WaveNet - ESR [pending].nam')
+  await page.getByRole('button', { name: 'Fixed epochs', exact: true }).click()
   await page.locator('#epochs').fill('42')
   await page.getByRole('group', { name: 'Latency mode' }).getByRole('button', { name: 'Manual', exact: true }).click()
   await page.locator('#latency-samples').fill('128')
@@ -996,6 +1136,95 @@ test('preset property sections preserve overrides, import mode, and edits', asyn
   await captureRenderer(info, 'preset-training-small.png')
   await toolbar.getByRole('button', { name: 'Save Preset', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Property sheet preset', exact: true })).toBeVisible()
+  expect(errors).toEqual([])
+})
+
+test('preset stopping defaults survive sharing and allow stable job overrides', async ({}, info) => {
+  await chooseMenu('File', 'New Preset')
+  const toolbar = page.locator('.workspace-toolbar')
+  await page.locator('#preset-name').fill('Auto studio recipe')
+  const sections = page.getByRole('navigation', { name: 'Preset editor sections' })
+  await sections.getByRole('button', { name: 'Training', exact: true }).click()
+  const mode = page.getByRole('region', { name: 'Training mode settings', exact: true })
+  await expect(mode.getByRole('group', { name: 'Training mode', exact: true }).getByRole('button'))
+    .toHaveText(['Auto convergence', 'Fixed epochs', 'Last used'])
+  await expect(mode.getByRole('button', { name: 'Last used', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await mode.getByRole('button', { name: 'Auto convergence', exact: true }).click()
+  await mode.getByRole('button', { name: 'Obsessive', exact: true }).click()
+  await page.locator('#preset-training-mode-cap').fill('3200')
+  await mode.getByRole('button', { name: 'Fixed epochs', exact: true }).click()
+  await page.locator('#preset-epochs').fill('321')
+  await mode.getByRole('button', { name: 'Auto convergence', exact: true }).click()
+  await expect(page.locator('#preset-training-mode-cap')).toHaveValue('3200')
+  await page.locator('#preset-learning-rate-decay').fill('0')
+  await expect(page.locator('#preset-learning-rate-decay')).toHaveValue('0')
+  await mode.scrollIntoViewIfNeeded()
+  await captureRenderer(info, 'preset-convergence.png')
+  for (const zoom of [1, 1.5]) {
+    await app.evaluate(({ BrowserWindow }, factor) => {
+      const window = BrowserWindow.getAllWindows()[0]
+      window.setSize(1000, 700)
+      window.webContents.setZoomFactor(factor)
+    }, zoom)
+    await mode.scrollIntoViewIfNeeded()
+    await expect.poll(() => page.locator('.property-workspace').evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
+    await captureRenderer(info, `preset-convergence-${zoom}.png`)
+  }
+  await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0]
+    window.webContents.setZoomFactor(1)
+    window.setSize(1400, 950)
+  })
+  await sections.getByRole('button', { name: 'Loss & levels', exact: true }).click()
+  await captureRenderer(info, 'preset-loss.png')
+  await toolbar.getByRole('button', { name: 'Save Preset', exact: true }).click()
+  const saved = (await page.evaluate(() => window.namBot.presets.list())).map(normalizeTrainingPreset).find(preset => preset.name === 'Auto studio recipe')
+  if (!saved) throw new Error('Missing saved preset')
+  expect(saved.stopping).toEqual({ mode: 'convergence', level: 'thorough', maxEpochs: 3200 })
+  expect(saved.values.learningRateDecay).toBe(0)
+  const presetCard = page.locator('.preset-library-row').filter({ has: page.getByRole('heading', { name: saved.name, exact: true }) })
+  await presetCard.getByRole('button', { name: 'Show More', exact: true }).click()
+  await expect(presetCard).toContainText('Auto convergence · Obsessive')
+  await expect(presetCard).toContainText('3200')
+  await presetCard.locator('.preset-card-details').scrollIntoViewIfNeeded()
+  await captureRenderer(info, 'preset-convergence-library.png')
+  const exportPath = join(dataPath, 'auto-studio.nam-bot-preset.json')
+  await app.evaluate(({ dialog }, filePath) => {
+    dialog.showSaveDialog = async () => ({ canceled: false, filePath })
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [filePath] })
+  }, exportPath)
+  await page.evaluate(preset => window.namBot.presets.exportPreset(preset), saved)
+  expect(JSON.parse(await readFile(exportPath, 'utf8')).stopping).toEqual(saved.stopping)
+  const imported = await page.evaluate(() => window.namBot.presets.importPreset())
+  expect(normalizeTrainingPreset(imported).stopping).toEqual(saved.stopping)
+  await page.evaluate(async preset => {
+    const settings = await window.namBot.settings.get()
+    if (!settings || typeof settings !== 'object') throw new Error('Missing settings')
+    await window.namBot.settings.save({ ...settings, defaultPresetId: preset.id })
+  }, saved)
+  await page.reload()
+  await chooseMenu('File', 'New Job')
+  await expect(page.locator('#preset-select')).toHaveValue(saved.id)
+  await expect(page.locator('#job-training-cap')).toHaveValue('3200')
+  await expect(page.getByRole('button', { name: 'Obsessive', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await page.getByRole('button', { name: 'Fixed epochs', exact: true }).click()
+  await page.locator('#epochs').fill('555')
+  await page.locator('#preset-select').selectOption(DEFAULT_PRESET_ID)
+  await expect(page.locator('#epochs')).toHaveValue('555')
+  await page.locator('#preset-select').selectOption(saved.id)
+  await expect(page.locator('#epochs')).toHaveValue('555')
+  await page.getByRole('button', { name: 'Use preset', exact: true }).click()
+  await expect(page.locator('#job-training-cap')).toHaveValue('3200')
+  const output = join(dataPath, 'Preset capture.wav')
+  await writeFile(output, Buffer.alloc(44))
+  await page.locator('#output-audio-path').fill(output)
+  await page.getByRole('region', { name: 'Name & audio', exact: true }).getByRole('button', { name: 'Use Output Filename' }).click()
+  await toolbar.getByRole('button', { name: 'Save Job', exact: true }).click()
+  await page.evaluate(preset => window.namBot.presets.save({ ...preset, stopping: { mode: 'fixed', level: 'balanced', maxEpochs: null } }), saved)
+  await page.reload()
+  await page.locator('.draft-card').getByRole('button', { name: 'Edit', exact: true }).click()
+  await expect(page.locator('#job-training-cap')).toHaveValue('3200')
+  await expect(page.getByRole('button', { name: 'Obsessive', exact: true })).toHaveAttribute('aria-pressed', 'true')
   expect(errors).toEqual([])
 })
 

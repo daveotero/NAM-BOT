@@ -56,6 +56,52 @@ import { QueueManager } from './queueManager'
 import { createTrainingPreset } from '../../shared/training'
 import { deleteTrainingPreset, saveTrainingPreset } from '../persistence/presetStore'
 import type { RunHooks } from '../backend/adapter'
+import { CONVERGENCE_LEVELS, type ConvergenceStatus } from '../../shared/convergence'
+
+function convergenceStatus(originalEpochLimit: number | null = 200): ConvergenceStatus {
+  return { version: 1, policy: { mode: originalEpochLimit == null ? 'convergence' : 'fixed', level: 'balanced', maxEpochs: null },
+    originalEpochLimit, epoch: 20, validatedEpochs: 20, phase: 'monitoring', achievedLevel: null, message: null,
+    completionReason: null, changes: [], levels: CONVERGENCE_LEVELS.map(level => ({ level, confirmations: 0,
+      qualified: false, firstReachedEpoch: null, waitingModels: [] })) }
+}
+
+
+it('finalizes converged output and reports as success before advancing the queue', async () => {
+  const manager = createQueueManager()
+  manager.setKnownNamVersion(defaultSettings, '0.13.0')
+  const first = buildJobSpec({ saveTrainingHtml: true, stopping: { mode: 'convergence', level: 'fast', maxEpochs: null } })
+  manager.addToQueue(first)
+  expect(manager.getQueue()[0].frozenJob.stopping?.maxEpochs).toBe(2000)
+  expect(manager.getQueue()[0].plannedEpochs).toBe(2000)
+  manager.addToQueue(buildJobSpec({ id: 'after-convergence' }))
+  let launched = 0
+  runNamFullMock.mockImplementation(async (_settings, args, hooks) => {
+    if (!args.cwd) throw new Error('Missing workspace')
+    launched++
+    if (launched === 2) {
+      expect(manager.getQueue()[0].status).toBe('succeeded')
+      expect(writeTrainingReportMock).toHaveBeenCalled()
+      hooks.onStarted(1235)
+      hooks.onExit(1)
+    } else {
+      mkdirSync(args.outputRootDir, { recursive: true })
+      writeNamModel(join(args.outputRootDir, 'model.nam'))
+      mkdirSync(join(args.cwd, 'training-controls'))
+      const status: ConvergenceStatus = { ...convergenceStatus(null),
+        policy: { mode: 'convergence', level: 'fast', maxEpochs: 2000 }, phase: 'finished', completionReason: 'convergence', epoch: 104 }
+      writeFileSync(join(args.cwd, 'training-controls', 'convergence.json'), JSON.stringify(status))
+      hooks.onStarted(1234)
+      hooks.onExit(0)
+    }
+    return { cancel: vi.fn(), forceKill: vi.fn(async () => true), forceKillSync: vi.fn() }
+  })
+  await manager.startQueue()
+  expect(launched).toBe(2)
+  expect(manager.getQueue()[0].userMessages.at(-1)).toContain('Auto-stopped · Fast')
+  expect(manager.getQueue()[0].currentEpoch).toBe(104)
+  expect(existsSync(manager.getQueue()[0].publishedModelPath ?? '')).toBe(true)
+  expect(createQueueManager().getQueue()[0].convergence?.completionReason).toBe('convergence')
+})
 
 function buildJobSpec(overrides: Partial<JobSpec> = {}): JobSpec {
   const base: JobSpec = {
