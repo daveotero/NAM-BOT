@@ -10,7 +10,6 @@ import RuntimeCard from '../jobs/RuntimeCard'
 import { isActiveRuntime } from '../jobs/job-helpers'
 import { useTerminalLogs } from '../../hooks/useTerminalLogs'
 import TrainingStatistics from './TrainingStatistics'
-import WorkingIndicator from '../../components/WorkingIndicator'
 import DiagnosticSummaryCard, { type DiagnosticStatus, type DiagnosticSummary } from '../../components/DiagnosticSummaryCard'
 
 interface DashboardProps {
@@ -309,7 +308,7 @@ export default function Dashboard({ onNavigate }: DashboardProps): JSX.Element {
         {trainingJobs.length > 0 && (
           <div className="console-panel live-training-panel">
             <div className="console-panel-heading">
-              <h3 style={{ color: 'var(--neon-gold)' }}>Active Training<WorkingIndicator /></h3>
+              <h3 style={{ color: 'var(--neon-gold)' }}>Active Training</h3>
             </div>
             <div className="job-list">
               {trainingJobs.map(job => (

@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Simplified individual checkbox options while retaining grouped panels for packed submodels.
 - Shared the animated NAM-BOT logo with HTML reports and added a monochrome horns cursor on logo hover.
 - Simplified About's legal notice while retaining the full license in packaged builds.
+- Removed the duplicate activity indicator from the dashboard's Active Training heading.
 
 ### Fixed
 
