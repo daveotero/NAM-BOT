@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { defaultSettings } from '../../../main/types'
+import { getStoredStoppingPreference, persistStoppingPreference, LAST_TRAINING_MODE_KEY } from './training-mode-preferences'
 
 import {
   A1_STANDARD_PRESET_ID,
@@ -39,6 +40,19 @@ afterEach(() => {
 })
 
 describe('createNewJobDraft', () => {
+  it('remembers the last selected training mode and level for the next new job', () => {
+    stubLocalStorage()
+    const preset = createTrainingPreset({ values: { epochs: 37 } })
+    const stopping = { mode: 'convergence', level: 'thorough', maxEpochs: 2000 } as const
+    persistStoppingPreference(stopping)
+    expect(createNewJobDraft({ settings: defaultSettings, presets: [preset] }).stopping).toEqual(stopping)
+    persistStoppingPreference({ mode: 'fixed', level: 'thorough', maxEpochs: null })
+    const next = createNewJobDraft({ settings: defaultSettings, presets: [preset] })
+    expect(next.stopping?.mode).toBe('fixed')
+    expect(next.trainingOverrides.epochs).toBe(37)
+    stubLocalStorage({ [LAST_TRAINING_MODE_KEY]: '{invalid' })
+    expect(getStoredStoppingPreference()).toEqual({ mode: 'fixed', level: 'balanced', maxEpochs: null })
+  })
   it('uses the saved default preset and its epochs ahead of the built-in and last-used presets', () => {
     stubLocalStorage({ [LAST_USED_PRESET_STORAGE_KEY]: A1_STANDARD_PRESET_ID })
     const preferred = createTrainingPreset({ id: 'studio-preset', name: 'Studio preset', values: { epochs: 37 } })

@@ -1,4 +1,6 @@
 import type { AppSettings, JobEditorSession, JobOutputRootMode } from '../../state/store'
+import { getStoredStoppingPreference, persistStoppingPreference } from './training-mode-preferences'
+import { normalizeStoppingPolicy } from '../../../shared/convergence'
 import {
   DEFAULT_PRESET_ID,
   type JobLatencyMode,
@@ -176,6 +178,7 @@ export function applyStoredReusableDefaults<T extends ReusableDefaultsJob>(job: 
 
   return {
     ...job,
+    stopping: getStoredStoppingPreference(),
     inputAudioPath: inputMode === 'custom' && customInputAudioPath ? customInputAudioPath : job.inputAudioPath,
     inputAudioIsDefault: inputMode === 'custom' && customInputAudioPath ? false : job.inputAudioIsDefault,
     trainingOverrides: {
@@ -193,6 +196,7 @@ export function applyStoredReusableDefaults<T extends ReusableDefaultsJob>(job: 
 }
 
 export function persistReusableJobDefaults(job: JobSpec, inputMode: 'default' | 'custom'): void {
+  persistStoppingPreference(normalizeStoppingPolicy(job.stopping))
   window.localStorage.setItem(LAST_INPUT_AUDIO_MODE_STORAGE_KEY, inputMode)
 
   if (inputMode === 'custom') {

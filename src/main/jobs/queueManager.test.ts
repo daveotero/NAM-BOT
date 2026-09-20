@@ -56,6 +56,90 @@ import { QueueManager } from './queueManager'
 import { createTrainingPreset } from '../../shared/training'
 import { deleteTrainingPreset, saveTrainingPreset } from '../persistence/presetStore'
 import type { RunHooks } from '../backend/adapter'
+import { CONVERGENCE_LEVELS, type ConvergenceStatus } from '../../shared/convergence'
+
+function convergenceStatus(originalEpochLimit: number | null = 200): ConvergenceStatus {
+  return { version: 1, policy: { mode: originalEpochLimit == null ? 'convergence' : 'fixed', level: 'balanced', maxEpochs: null },
+    originalEpochLimit, epoch: 20, validatedEpochs: 20, phase: 'monitoring', achievedLevel: null, message: null,
+    completionReason: null, changes: [], levels: CONVERGENCE_LEVELS.map(level => ({ level, confirmations: 0,
+      qualified: false, firstReachedEpoch: null, waitingModels: [] })) }
+}
+
+it('acknowledges live policies, preserves the frozen recipe, and refuses fixed mode for convergence-start runs', async () => {
+  const manager = createQueueManager()
+  manager.setKnownNamVersion(defaultSettings, '0.13.0')
+  const job = buildJobSpec()
+  manager.addToQueue(job)
+  let exit: (code: number) => void = () => undefined
+  runNamFullMock.mockImplementation(async (_settings, args, hooks) => {
+    if (!args.cwd) throw new Error('Missing workspace')
+    mkdirSync(args.outputRootDir, { recursive: true })
+    mkdirSync(join(args.cwd, 'training-controls'))
+    writeFileSync(join(args.cwd, 'training-controls', 'convergence.json'), JSON.stringify(convergenceStatus()))
+    exit = hooks.onExit
+    hooks.onStarted(1234)
+    return { cancel: vi.fn(), forceKill: vi.fn(async () => true), forceKillSync: vi.fn() }
+  })
+  const running = manager.startQueue()
+  await vi.waitFor(() => expect(manager.getQueue()[0].convergence).toBeDefined())
+  const runtime = manager.getQueue()[0]
+  const initial = JSON.stringify(runtime.frozenJob)
+  requestTrainingControlMock.mockImplementation(async (workspace, _action, _active, _timeout, policy) => {
+    if (!policy) throw new Error('Missing policy')
+    const status = { ...convergenceStatus(), policy }
+    writeFileSync(join(workspace, 'training-controls', 'convergence.json'), JSON.stringify(status))
+    return { epoch: 20, modelPath: '', convergence: status }
+  })
+  await manager.updateStoppingPolicy(job.id, { mode: 'convergence', level: 'fast', maxEpochs: null })
+  expect(runtime.plannedEpochs).toBeNull()
+  expect(JSON.stringify(runtime.frozenJob)).toBe(initial)
+  await manager.updateStoppingPolicy(job.id, { mode: 'fixed', level: 'fast', maxEpochs: null })
+  expect(runtime.plannedEpochs).toBe(200)
+  runtime.convergence = convergenceStatus(null)
+  await expect(manager.updateStoppingPolicy(job.id, { mode: 'fixed', level: 'fast', maxEpochs: null })).rejects.toThrow('started in convergence mode')
+  runtime.convergence = convergenceStatus()
+  requestTrainingControlMock.mockRejectedValueOnce(new Error('Trainer rejected change'))
+  await expect(manager.updateStoppingPolicy(job.id, { mode: 'convergence', level: 'fast', maxEpochs: null })).rejects.toThrow('Trainer rejected')
+  expect(runtime.convergence.policy.mode).toBe('fixed')
+  expect(runtime.stoppingPolicyPending).toBe(false)
+  exit(1)
+  await running
+})
+
+it('finalizes converged output and reports as success before advancing the queue', async () => {
+  const manager = createQueueManager()
+  manager.setKnownNamVersion(defaultSettings, '0.13.0')
+  const first = buildJobSpec({ saveTrainingHtml: true, stopping: { mode: 'convergence', level: 'fast', maxEpochs: null } })
+  manager.addToQueue(first)
+  manager.addToQueue(buildJobSpec({ id: 'after-convergence' }))
+  let launched = 0
+  runNamFullMock.mockImplementation(async (_settings, args, hooks) => {
+    if (!args.cwd) throw new Error('Missing workspace')
+    launched++
+    if (launched === 2) {
+      expect(manager.getQueue()[0].status).toBe('succeeded')
+      expect(writeTrainingReportMock).toHaveBeenCalled()
+      hooks.onStarted(1235)
+      hooks.onExit(1)
+    } else {
+      mkdirSync(args.outputRootDir, { recursive: true })
+      writeNamModel(join(args.outputRootDir, 'model.nam'))
+      mkdirSync(join(args.cwd, 'training-controls'))
+      const status: ConvergenceStatus = { ...convergenceStatus(null),
+        policy: { mode: 'convergence', level: 'fast', maxEpochs: null }, phase: 'finished', completionReason: 'convergence', epoch: 104 }
+      writeFileSync(join(args.cwd, 'training-controls', 'convergence.json'), JSON.stringify(status))
+      hooks.onStarted(1234)
+      hooks.onExit(0)
+    }
+    return { cancel: vi.fn(), forceKill: vi.fn(async () => true), forceKillSync: vi.fn() }
+  })
+  await manager.startQueue()
+  expect(launched).toBe(2)
+  expect(manager.getQueue()[0].userMessages.at(-1)).toContain('Auto-stopped · Fast')
+  expect(manager.getQueue()[0].currentEpoch).toBe(104)
+  expect(existsSync(manager.getQueue()[0].publishedModelPath ?? '')).toBe(true)
+  expect(createQueueManager().getQueue()[0].convergence?.completionReason).toBe('convergence')
+})
 
 function buildJobSpec(overrides: Partial<JobSpec> = {}): JobSpec {
   const base: JobSpec = {

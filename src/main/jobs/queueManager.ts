@@ -60,8 +60,9 @@ import { selectOutputRunDirectory } from './runDirectoryResolver'
 import { TRAINING_METRICS_FILENAME } from '../backend/training-metrics-script'
 import { EsrHistoryReader, normalizeEsrHistory } from './esr-history'
 import { buildBackendSettingsKey } from '../../shared/backend-settings'
-import { getEffectiveJobEpochs, getEffectiveJobLatency, normalizeTrainingPreset, type QueueControlState } from '../../shared/training'
+import { getPlannedJobEpochLimit, getEffectiveJobLatency, normalizeTrainingPreset, type QueueControlState } from '../../shared/training'
 import { requestTrainingControl } from './training-control'
+import { convergenceCompletionLabel, isTrainingStoppingPolicy, normalizeConvergenceStatus, type TrainingStoppingPolicy, type ConvergenceStatus } from '../../shared/convergence'
 import { TrainingStatisticsStore } from '../persistence/trainingStatisticsStore'
 import type { TrainingStatistics } from '../../shared/training-statistics'
 import { buildModelFilename, sanitizeFilenameStem } from '../../shared/model-filename'
@@ -100,6 +101,12 @@ function isAbortError(error: unknown): boolean {
 
 function getRuntimeModelFilePath(runtime: JobRuntimeState): string | null {
   return runtime.checkpointSummary?.modelFilePath ?? null
+}
+
+function getSuccessfulCompletionMessage(runtime: JobRuntimeState): string {
+  if (runtime.completionWarnings?.length) return 'Training completed with warnings. Review the run details.'
+  if (runtime.convergence?.completionReason) return `${convergenceCompletionLabel(runtime.convergence)}. Best validated model saved.`
+  return runtime.finishedEarly ? 'Training finished early. Best validated model saved.' : 'Training completed successfully.'
 }
 
 interface KnownNamVersion {
@@ -897,6 +904,8 @@ function normalizeRuntimeState(value: unknown): JobRuntimeState | null {
       : undefined,
     latencyAlignment: normalizeLatencyAlignment(candidate.latencyAlignment),
     esrHistory: normalizeEsrHistory(candidate.esrHistory),
+    convergence: normalizeConvergenceStatus(candidate.convergence),
+    stoppingPolicyPending: false,
     trainingControlReady: false,
     modelExportPending: false,
     finishedEarly: candidate.finishedEarly === true,
@@ -1281,7 +1290,7 @@ export class QueueManager extends EventEmitter {
       if (!runtime.frozenPreset && QUEUED_JOB_STATUSES.includes(runtime.status)) {
         try {
           runtime.frozenPreset = structuredClone(getTrainingPresetById(runtime.frozenJob.presetId))
-          runtime.plannedEpochs = getEffectiveJobEpochs(runtime.frozenJob, runtime.frozenPreset)
+          runtime.plannedEpochs = getPlannedJobEpochLimit(runtime.frozenJob, runtime.frozenPreset)
         } catch (error) {
           runtime.status = 'failed'
           runtime.finishedAt = new Date().toISOString()
@@ -1348,6 +1357,25 @@ export class QueueManager extends EventEmitter {
     }
 
     let changed = this.refreshEsrHistory(runtime)
+    if (runtime.workspaceDirectory) {
+      const convergencePath = join(runtime.workspaceDirectory, 'training-controls', 'convergence.json')
+      if (existsSync(convergencePath)) {
+        try {
+          const status = normalizeConvergenceStatus(JSON.parse(readFileSync(convergencePath, 'utf8')))
+          if (status && JSON.stringify(status) !== JSON.stringify(runtime.convergence)) {
+            runtime.convergence = status
+            runtime.currentEpoch = Math.max(runtime.currentEpoch ?? 0, status.epoch)
+            runtime.plannedEpochs = status.policy.mode === 'fixed' ? status.originalEpochLimit : status.policy.maxEpochs
+            if (runtime.terminalProgress) {
+              runtime.terminalProgress.totalEpochs = runtime.plannedEpochs
+              if (runtime.plannedEpochs == null) runtime.terminalProgress.percent = null
+            }
+            if (status.completionReason === 'convergence') runtime.finishedEarly = true
+            changed = true
+          }
+        } catch (error) { log.warn('Could not read convergence status:', error) }
+      }
+    }
     if (!runtime.trainingControlReady && runtime.workspaceDirectory
       && existsSync(join(runtime.workspaceDirectory, 'training-controls', 'ready.json'))) {
       runtime.trainingControlReady = true
@@ -1495,7 +1523,7 @@ export class QueueManager extends EventEmitter {
     trainer.accelerator = acceleratorRequested
     trainer.devices ??= 1
     learningConfig.trainer = trainer
-    runtime.plannedEpochs = trainer.max_epochs ?? null
+    runtime.plannedEpochs = typeof trainer.max_epochs === 'number' && trainer.max_epochs > 0 ? trainer.max_epochs : null
     runtime.terminalProgress = { ...runtime.terminalProgress, totalEpochs: runtime.plannedEpochs }
 
     if (acceleratorRequested !== 'gpu' && acceleratorRequested !== 'cuda') {
@@ -1578,15 +1606,15 @@ export class QueueManager extends EventEmitter {
     const parsedEpochProgress = parseEpochProgressLine(trimmed, runtime.plannedEpochs)
     if (parsedEpochProgress) {
       progress.currentEpoch = parsedEpochProgress.currentEpoch
-      progress.totalEpochs = parsedEpochProgress.totalEpochs
+      const policy = runtime.convergence?.policy ?? runtime.frozenJob.stopping
+      progress.totalEpochs = policy?.mode === 'convergence' && policy.maxEpochs == null ? null : parsedEpochProgress.totalEpochs
       progress.currentBatch = parsedEpochProgress.currentBatch
       progress.totalBatches = parsedEpochProgress.totalBatches
       progress.percent = computeOverallProgressPercent(progress)
 
       if (runtime.currentEpoch !== parsedEpochProgress.currentEpoch) {
-        runtime.currentEpoch = runtime.plannedEpochs == null
-          ? parsedEpochProgress.currentEpoch
-          : Math.min(runtime.plannedEpochs, parsedEpochProgress.currentEpoch)
+        // A restored fixed target can be below the epochs already completed.
+        runtime.currentEpoch = parsedEpochProgress.currentEpoch
       }
 
       const structuredProgressLine = buildStructuredProgressLine(progress)
@@ -1810,7 +1838,7 @@ export class QueueManager extends EventEmitter {
 
   private createQueuedRuntime(jobSpec: JobSpec, presetSnapshot?: TrainingPresetFile): JobRuntimeState {
     const frozenPreset = structuredClone(presetSnapshot ?? getTrainingPresetById(jobSpec.presetId))
-    const plannedEpochs = getEffectiveJobEpochs(jobSpec, frozenPreset)
+    const plannedEpochs = getPlannedJobEpochLimit(jobSpec, frozenPreset)
     return {
       jobId: jobSpec.id,
       jobName: jobSpec.name,
@@ -1994,7 +2022,7 @@ export class QueueManager extends EventEmitter {
 
         const jobSpec = cloneJobSpec(runtime.frozenJob)
         runtime.jobName = jobSpec.name
-        runtime.plannedEpochs = runtime.frozenPreset ? getEffectiveJobEpochs(jobSpec, runtime.frozenPreset) : null
+        runtime.plannedEpochs = runtime.frozenPreset ? getPlannedJobEpochLimit(jobSpec, runtime.frozenPreset) : null
         runtime.outputRootDir = jobSpec.outputRootDir
         this.currentJob = runtime
         let result: RunJobResult
@@ -2065,6 +2093,8 @@ export class QueueManager extends EventEmitter {
     runtime.latencyAlignment = createInitialLatencyAlignment(jobSpec, runtime.frozenPreset)
     runtime.checkpointSummary = undefined
     runtime.esrHistory = []
+    runtime.convergence = undefined
+    runtime.stoppingPolicyPending = false
     runtime.trainingControlReady = false
     runtime.modelExportPending = false
     runtime.modelExports = []
@@ -2338,9 +2368,7 @@ export class QueueManager extends EventEmitter {
           await finalizeSuccessfulRun()
           runtime.status = 'succeeded'
           runtime.finishedAt ??= new Date().toISOString()
-          this.appendUserMessage(runtime, runtime.completionWarnings?.length
-            ? 'Training completed with warnings. Review the run details.'
-            : runtime.finishedEarly ? 'Training finished early. Best validated model saved.' : 'Training completed successfully.')
+          this.appendUserMessage(runtime, getSuccessfulCompletionMessage(runtime))
           this.emitJobUpdate(runtime)
           if (runSettings.autoOpenResultsFolder && runtime.resolvedRunDirectory) {
             void shell.openPath(runtime.resolvedRunDirectory).catch((error: unknown) => log.warn('Could not open results:', error))
@@ -2457,6 +2485,38 @@ export class QueueManager extends EventEmitter {
     this.stopOutputPolling()
     this.refreshEsrHistory(this.currentJob)
     this.emitJobUpdate(this.currentJob)
+  }
+
+  async updateStoppingPolicy(jobId: string, policy: TrainingStoppingPolicy): Promise<ConvergenceStatus> {
+    if (!isTrainingStoppingPolicy(policy)) throw new Error('Invalid training stopping policy.')
+    const runtime = this.currentJob
+    if (!runtime || runtime.jobId !== jobId || runtime.status !== 'running' || !runtime.workspaceDirectory) {
+      throw new Error('This job is no longer training.')
+    }
+    if (!runtime.convergence || runtime.convergence.completionReason) throw new Error('Live mode changes are unavailable for this run.')
+    if (runtime.modelExportPending) throw new Error('Wait for the current model export before changing training mode.')
+    if (policy.mode === 'fixed' && runtime.convergence.originalEpochLimit == null) {
+      throw new Error('This run started in convergence mode and has no fixed epoch target.')
+    }
+    if (runtime.stoppingPolicyPending) throw new Error('A training mode change is already in progress.')
+    runtime.stoppingPolicyPending = true
+    this.emitJobUpdate(runtime)
+    try {
+      const result = await requestTrainingControl(runtime.workspaceDirectory, 'set_stopping_policy',
+        () => this.currentJob === runtime && runtime.status === 'running' && runtime.pid != null, 180_000, policy)
+      if (!result.convergence) throw new Error('Missing training mode acknowledgment.')
+      // Re-read authoritative status: training may have advanced beyond the acknowledgment.
+      runtime.convergence = result.convergence
+      runtime.plannedEpochs = policy.mode === 'fixed' ? result.convergence.originalEpochLimit : policy.maxEpochs
+      this.refreshTrainingArtifacts(runtime)
+      this.appendUserMessage(runtime, policy.mode === 'convergence'
+        ? `Auto-stop enabled: ${policy.level}${policy.maxEpochs == null ? ', no epoch limit' : `, safety cap ${policy.maxEpochs}`}.`
+        : `Fixed epoch target restored: ${result.convergence.originalEpochLimit}.`)
+      return runtime.convergence
+    } finally {
+      runtime.stoppingPolicyPending = false
+      this.emitJobUpdate(runtime)
+    }
   }
 
   async exportTrainingModel(jobId: string, destination: string, finishAfterExport = false): Promise<string> {

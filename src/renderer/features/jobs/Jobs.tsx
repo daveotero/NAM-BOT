@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useState, useRef } from 'react'
+import { normalizeStoppingPolicy } from '../../../shared/convergence'
+import TrainingModeFields from './TrainingModeFields'
+import { persistStoppingPreference } from './training-mode-preferences'
 import {
   DndContext,
   closestCenter,
@@ -1760,7 +1763,13 @@ function JobEditor({
                 )}
               </div>
             </div>
-            <div className="property-row">
+            <div className="training-mode-fields">
+              <TrainingModeFields id="job-training" policy={normalizeStoppingPolicy(editedJob.stopping)} onChange={stopping => {
+                persistStoppingPreference(stopping)
+                onSessionChange({ ...session, job: { ...editedJob, stopping } })
+              }} />
+            </div>
+            {editedJob.stopping?.mode !== 'convergence' && <div className="property-row">
               <label className="form-label" htmlFor="epochs">Epochs</label>
               <div className="property-control">
                 <input
@@ -1787,6 +1796,7 @@ function JobEditor({
                 )}
               </div>
             </div>
+            }
             <div className="property-row">
               <label className="form-label" htmlFor="latency-samples">Latency (samples)</label>
               <div className="property-control">

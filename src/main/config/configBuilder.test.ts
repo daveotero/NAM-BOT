@@ -13,9 +13,21 @@ import {
   getBuiltInPreset,
   type JobSpec
 } from '../types/jobs'
-import { buildJobConfigs, validateJobSpec } from './configBuilder'
+import { buildJobConfigs, validateJobSpec, resolveJobConfigs } from './configBuilder'
 
 const tempDirs: string[] = []
+
+it('replaces only the epoch limit in convergence mode, including expert epoch overrides', () => {
+  const preset = createTrainingPreset({ expert: { learning: { trainer: { max_epochs: 77, precision: '32-true' } } } })
+  const fixed = buildJobSpec()
+  const original = resolveJobConfigs(fixed, preset)
+  const auto = resolveJobConfigs({ ...fixed, stopping: { mode: 'convergence', level: 'fast', maxEpochs: null } }, preset)
+  expect(auto.learningConfig.trainer).toMatchObject({ max_epochs: -1, precision: '32-true' })
+  expect(auto.modelConfig).toEqual(original.modelConfig)
+  expect(preset.expert.learning?.trainer).toEqual({ max_epochs: 77, precision: '32-true' })
+  const capped = resolveJobConfigs({ ...fixed, stopping: { mode: 'convergence', level: 'balanced', maxEpochs: 250 } }, preset)
+  expect(capped.learningConfig.trainer).toMatchObject({ max_epochs: 250 })
+})
 
 function createTempDir(): string {
   const dir = mkdtempSync(join(tmpdir(), 'nam-bot-config-'))

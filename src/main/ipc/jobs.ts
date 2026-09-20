@@ -7,6 +7,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { AUDIO_EXTENSIONS } from '../../shared/audio'
 import { buildModelFilename, buildSnapshotFilename } from '../../shared/model-filename'
 import type { QueueControlState } from '../../shared/training'
+import { isTrainingStoppingPolicy } from '../../shared/convergence'
 import { getQueueManager } from '../jobs/queueManager'
 import { loadSettings } from '../persistence/settingsStore'
 import { JobRuntimeState, JobSpec, defaultJobSpec, normalizeJobSpec } from '../types/jobs'
@@ -529,6 +530,16 @@ export function setupJobIpcHandlers(): void {
       return await queueManager.saveReport(jobId, format, destination)
     } catch (error) {
       log.error('Failed to save training report:', error)
+      throw error
+    }
+  })
+
+  ipcMain.handle('jobs:updateStoppingPolicy', async (_event, jobId: unknown, policy: unknown) => {
+    try {
+      if (typeof jobId !== 'string' || !isTrainingStoppingPolicy(policy)) throw new Error('Invalid training mode request.')
+      return await queueManager.updateStoppingPolicy(jobId, policy)
+    } catch (error) {
+      log.error('Failed to update training mode:', error)
       throw error
     }
   })

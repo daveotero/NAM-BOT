@@ -1,4 +1,5 @@
 import { formatPresetArchitectureTag, getEffectiveJobEpochs, getEffectiveJobLatency, type JobRuntimeState, type JobEsrEpoch } from './training'
+import { convergenceCompletionLabel, CONVERGENCE_LABELS, CONVERGENCE_RULES, type ConvergenceStatus } from './convergence'
 
 export type TrainingReportFormat = 'png' | 'html'
 
@@ -12,6 +13,7 @@ export interface ReportMetric {
 
 /** Captured inside the trainer, at the same boundary as the exported weights. */
 export interface TrainingExportEvidence {
+  readonly convergence?: ConvergenceStatus
   readonly capturedAt: string
   readonly history: JobEsrEpoch[]
   readonly metrics: ReportMetric[]
@@ -24,6 +26,7 @@ export interface ReportFact {
 
 /** A detached, allowlisted snapshot: no runtime paths, logs, notes or raw config. */
 export interface TrainingReportData {
+  readonly convergence?: ConvergenceStatus
   readonly schemaVersion: 1
   readonly appVersion: string
   readonly jobName: string
@@ -68,6 +71,14 @@ export function buildTrainingReportData(
   options: { appVersion: string; modelPath: string | null; evidence?: TrainingExportEvidence; now?: string; snapshot?: boolean }
 ): TrainingReportData {
   const preset = runtime.frozenPreset
+  const convergence = structuredClone(options.evidence?.convergence ?? (options.snapshot ? undefined : runtime.convergence))
+  // Monitoring exceptions can contain private workspace paths. Reports expose
+  // the failure state, while detailed diagnostics remain in the local log.
+  if (convergence?.message) convergence.message = 'Convergence monitoring was unavailable at this point.'
+  const stopping = convergence?.policy ?? runtime.frozenJob.stopping
+  const planned = convergence ? (convergence.policy.mode === 'fixed' ? convergence.originalEpochLimit : convergence.policy.maxEpochs)
+    : runtime.plannedEpochs ?? (preset ? getEffectiveJobEpochs(runtime.frozenJob, preset) : null)
+  const plannedLabel = stopping?.mode === 'convergence' && stopping.maxEpochs === null ? 'Until convergence' : display(planned)
   const generatedAt = options.evidence?.capturedAt ?? options.now ?? new Date().toISOString()
   const history = structuredClone(options.evidence?.history ?? runtime.esrHistory ?? [])
   const packed = runtime.checkpointSummary?.packedSubmodels
@@ -105,17 +116,25 @@ export function buildTrainingReportData(
     { label: 'Expert overrides', value: Object.keys(preset.expert).length ? 'Applied; values shown are preset defaults' : 'None' }
   ] : []
   return {
+    ...(convergence ? { convergence } : {}),
     schemaVersion: 1, appVersion: options.appVersion, jobName: runtime.jobName,
     modelName: metadata.name?.trim() || runtime.jobName,
     modelFilename: options.modelPath ? reportBasename(options.modelPath) : null,
     status: options.snapshot ? 'Training snapshot' : runtime.status === 'succeeded'
-      ? runtime.finishedEarly ? 'Finished early' : 'Completed' : runtime.status === 'canceled' ? 'Stopped' : runtime.status === 'failed' ? 'Failed' : 'Training snapshot',
+      ? convergence?.completionReason ? convergenceCompletionLabel(convergence) : runtime.finishedEarly ? 'Finished early' : 'Completed' : runtime.status === 'canceled' ? 'Stopped' : runtime.status === 'failed' ? 'Failed' : 'Training snapshot',
     generatedAt, startedAt: runtime.startedAt ?? null, finishedAt, savedModel: options.modelPath !== null,
     facts: [
       { label: 'Preset', value: preset?.name ?? 'Unavailable' },
       { label: 'Architecture', value: preset ? formatPresetArchitectureTag(preset) : 'Unavailable' },
       { label: 'Duration', value: duration },
-      { label: 'Epochs · completed / planned', value: `${display(completedEpochs)} / ${display(runtime.plannedEpochs ?? (preset ? getEffectiveJobEpochs(runtime.frozenJob, preset) : null))}` },
+      { label: 'Epochs · completed / planned', value: `${display(completedEpochs)} / ${plannedLabel}` },
+      ...(convergence ? [
+        { label: 'Training mode', value: stopping?.mode === 'convergence' ? `Until convergence · ${CONVERGENCE_LABELS[convergence.policy.level]}` : 'Fixed epochs' },
+        { label: 'Convergence reached', value: convergence.achievedLevel ? CONVERGENCE_LABELS[convergence.achievedLevel] : 'Not reached' },
+        { label: 'Convergence rules', value: convergence.version === 1
+          ? `v1 · ${CONVERGENCE_RULES[convergence.policy.level].window} validations · below ${CONVERGENCE_RULES[convergence.policy.level].tolerance * 100}% improvement · 5 confirmations`
+          : `v${convergence.version}` }
+      ] : []),
       { label: 'Device', value: display(runtime.deviceSummary?.deviceName ?? runtime.deviceSummary?.acceleratorUsed) },
       { label: 'Latency', value: runtime.frozenJob.trainingOverrides.latencyMode === 'auto' ? 'Auto-align' : 'Manual' },
       { label: 'Delay (samples)', value: display(runtime.latencyAlignment?.delaySamples ?? (runtime.frozenJob.trainingOverrides.latencyMode === 'manual'

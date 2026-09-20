@@ -1,5 +1,6 @@
 // Run the installed nam-full entry point with metrics and user-requested controls.
 // The installed package and existing checkpoint callbacks stay untouched.
+import { buildConvergenceScript } from './convergence-script'
 export const TRAINING_METRICS_FILENAME = 'esr-history.jsonl'
 
 export function buildTrainingMetricsScript(): string {
@@ -14,6 +15,7 @@ from datetime import datetime, timezone
 from importlib.metadata import distribution
 from pathlib import Path
 
+${buildConvergenceScript()}
 
 def install_esr_callback():
     from nam.train import full
@@ -26,6 +28,9 @@ def install_esr_callback():
     history_path = Path(__file__).with_name("esr-history.jsonl")
     original_create_callbacks = full._create_callbacks
     control_dir = Path(__file__).with_name("training-controls")
+    policy_path = Path(__file__).with_name("stopping-policy.json")
+    policy = json.loads(policy_path.read_text(encoding="utf-8")) if policy_path.exists() else {"mode": "fixed", "level": "balanced", "maxEpochs": None}
+    expected_models = {index: model.get("name", "Model " + str(index + 1)) for index, model in enumerate(submodels)} if packed else {None: "Model"}
 
     def write_result(path, value):
         temporary = path.with_suffix(".tmp")
@@ -36,22 +41,86 @@ def install_esr_callback():
         def __init__(self):
             self.disabled = False
             self.last_control_check = 0.0
+            self.monitor = None
+            self.pending_record = None
+            self.last_completed_epoch = 0
+            self.finishing = False
+
+        def publish_convergence(self):
+            if self.monitor is not None:
+                write_result(control_dir / "convergence.json", self.monitor.status())
 
         def on_fit_start(self, trainer, pl_module):
+            original_limit = trainer.max_epochs if trainer.max_epochs is not None and trainer.max_epochs > 0 else None
+            self.monitor = ConvergenceMonitor(expected_models, policy, original_limit)
             if trainer.is_global_zero:
                 try:
                     control_dir.mkdir(exist_ok=True)
-                    write_result(control_dir / "ready.json", {"ready": True})
+                    self.publish_convergence()
+                    write_result(control_dir / "ready.json", {"ready": True, "stoppingPolicy": CONVERGENCE_VERSION})
                 except Exception as error:
                     print("NAM-BOT: live export controls unavailable: " + str(error), flush=True)
+                    if policy["mode"] == "convergence":
+                        raise RuntimeError("Cannot start convergence mode without its monitoring controls") from error
 
         def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
             self.handle_command(trainer, pl_module)
+            self.sync_live_limits(trainer)
+
+        def sync_live_limits(self, trainer):
+            if trainer.world_size > 1:
+                trainer.fit_loop.max_epochs, trainer.should_stop = trainer.strategy.broadcast(
+                    (trainer.fit_loop.max_epochs, trainer.should_stop), src=0)
+
+        def on_train_epoch_end(self, trainer, pl_module):
+            self.last_completed_epoch = int(trainer.current_epoch) + 1
+            self.handle_command(trainer, pl_module, force=True)
+            self.sync_live_limits(trainer)
+            wants_stop = False
+            if trainer.is_global_zero and self.monitor is not None:
+                try:
+                    record = self.pending_record
+                    self.pending_record = None
+                    if record is not None and record["epoch"] == self.last_completed_epoch:
+                        wants_stop = self.monitor.observe(record["epoch"], record["models"])
+                    if wants_stop:
+                        callback = next((item for item in trainer.callbacks if hasattr(item, "checkpoint_paths")), None)
+                        paths = callback.checkpoint_paths if packed and callback is not None else [trainer.checkpoint_callback.best_model_path]
+                        wants_stop = bool(paths) and all(paths) and (not packed or len(paths) == len(submodels))
+                        wants_stop = wants_stop and self.last_completed_epoch >= (trainer.min_epochs or 0) and trainer.global_step >= (trainer.min_steps or 0)
+                        if wants_stop:
+                            self.monitor.finish("convergence")
+                    self.publish_convergence()
+                except Exception as error:
+                    if wants_stop:
+                        self.monitor.reason = None
+                    wants_stop = False
+                    self.monitor.unavailable("Convergence monitoring unavailable: " + str(error))
+                    print("NAM-BOT: " + self.monitor.message, flush=True)
+                    try:
+                        self.publish_convergence()
+                    except Exception:
+                        pass
+            # All ranks participate, even though only rank zero records ESR and policy.
+            if trainer.strategy.reduce_boolean_decision(wants_stop, all=False):
+                trainer.should_stop = True
 
         def on_train_end(self, trainer, pl_module):
+            self.finishing = True
             self.handle_command(trainer, pl_module, force=True)
             if not trainer.is_global_zero:
                 return
+            if self.monitor is not None:
+                self.monitor.epoch = max(self.monitor.epoch, self.last_completed_epoch)
+                if self.monitor.reason is None:
+                    limit = self.monitor.limit()
+                    reason = ("epoch_limit" if self.monitor.policy["mode"] == "fixed" else "safety_cap") if limit is not None and self.last_completed_epoch >= limit else "trainer"
+                    self.monitor.finish(reason)
+                self.monitor.phase = "finished"
+                try:
+                    self.publish_convergence()
+                except Exception as error:
+                    print("NAM-BOT: final convergence status unavailable: " + str(error), flush=True)
             try:
                 callback = next((item for item in trainer.callbacks if hasattr(item, "checkpoint_paths")), None)
                 selected = callback.checkpoint_paths if packed and callback is not None else [trainer.checkpoint_callback.best_model_path]
@@ -86,7 +155,28 @@ def install_esr_callback():
                 if request.get("expiresAt", 0) < time.time():
                     raise RuntimeError("The training command expired. Please try again.")
                 action = request.get("action")
+                if action == "set_stopping_policy":
+                    if self.monitor is None or trainer.should_stop or self.finishing:
+                        raise RuntimeError("Training is already finishing or does not support live mode changes")
+                    previous_monitor = deepcopy(self.monitor)
+                    previous_limit = trainer.fit_loop.max_epochs
+                    try:
+                        self.monitor.set_policy(request.get("policy"), int(trainer.current_epoch) + 1)
+                        limit = self.monitor.limit()
+                        trainer.fit_loop.max_epochs = -1 if limit is None else limit
+                        self.publish_convergence()
+                        write_result(response_path, {"ok": True, "epoch": int(trainer.current_epoch) + 1,
+                            "convergence": self.monitor.status()})
+                    except Exception:
+                        self.monitor = previous_monitor
+                        trainer.fit_loop.max_epochs = previous_limit
+                        self.publish_convergence()
+                        raise
+                    return
                 if action == "finish":
+                    if self.monitor is not None:
+                        self.monitor.finish("manual")
+                        self.publish_convergence()
                     trainer.should_stop = True
                     write_result(response_path, {"ok": True, "epoch": int(trainer.current_epoch) + 1})
                     return
@@ -168,7 +258,8 @@ def install_esr_callback():
                 metrics.append({"submodelIndex": index if packed else None,
                     "submodelName": submodels[index].get("name") if packed else None,
                     "epoch": epoch, "esr": esr})
-            return {"capturedAt": datetime.now(timezone.utc).isoformat(), "history": history, "metrics": metrics}
+            return {"capturedAt": datetime.now(timezone.utc).isoformat(), "history": history, "metrics": metrics,
+                "convergence": self.monitor.status() if self.monitor is not None else None}
 
         def on_validation_end(self, trainer, pl_module):
             if self.disabled or trainer.sanity_checking or not trainer.is_global_zero:
@@ -189,15 +280,23 @@ def install_esr_callback():
                     value = float(tensor.detach().cpu().item()) if hasattr(tensor, "detach") else float(tensor)
                     if math.isfinite(value) and value >= 0:
                         models.append({"submodelIndex": index, "submodelName": name, "esr": value})
-                if not models:
-                    return
                 models.sort(key=lambda model: model["submodelIndex"] or 0)
                 record = {"epoch": int(trainer.current_epoch) + 1,
                           "step": int(trainer.global_step), "models": models}
+                self.pending_record = record
+                if not models:
+                    return
                 with history_path.open("a", encoding="utf-8") as output:
                     output.write(json.dumps(record, allow_nan=False) + "\n")
             except Exception as error:
                 self.disabled = True
+                self.pending_record = None
+                if self.monitor is not None:
+                    self.monitor.unavailable("Validation ESR unavailable: " + str(error))
+                    try:
+                        self.publish_convergence()
+                    except Exception:
+                        pass
                 print("NAM-BOT: ESR history unavailable: " + str(error), flush=True)
 
     def create_callbacks(*args, **kwargs):
@@ -211,6 +310,9 @@ def main():
         install_esr_callback()
     except Exception as error:
         print("NAM-BOT: ESR history unavailable: " + str(error), flush=True)
+        policy_path = Path(__file__).with_name("stopping-policy.json")
+        if policy_path.exists() and json.loads(policy_path.read_text(encoding="utf-8")).get("mode") == "convergence":
+            raise RuntimeError("Cannot start convergence mode without ESR monitoring") from error
     entry = next(entry for entry in distribution("neural-amp-modeler").entry_points
                  if entry.group == "console_scripts" and entry.name == "nam-full")
     sys.argv[0] = "nam-full"

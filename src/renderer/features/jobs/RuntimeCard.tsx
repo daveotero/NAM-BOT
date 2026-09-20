@@ -1,4 +1,5 @@
 import SaveReportButton from './SaveReportButton'
+import ConvergencePanel from './ConvergencePanel'
 import { useLayoutEffect, useRef, useState, type UIEvent } from 'react'
 import {
   JobPackedSubmodelCheckpointSummary,
@@ -426,6 +427,7 @@ export default function RuntimeCard({
         </div>
       </div>
 
+      <ConvergencePanel runtime={runtime} onError={setActionError} />
       {actionError && <p role="alert" className="operation-error">{actionError}</p>}
       {(runtime.completionWarnings?.length ?? 0) > 0 && (
         <div role="status" className="completion-warnings" data-no-card-toggle="true">

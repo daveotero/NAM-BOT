@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createTrainingPreset, defaultJobSpec, normalizeJobSpec, type JobRuntimeState } from './training'
 import { buildTrainingReportData, type TrainingExportEvidence } from './training-report'
+import { CONVERGENCE_LEVELS, type ConvergenceStatus } from './convergence'
 
 function runtime(): JobRuntimeState {
   return {
@@ -51,6 +52,24 @@ describe('training report snapshots', () => {
     expect(report.savedModel).toBe(false)
     expect(report.history).toEqual([])
     expect(report.metrics.every(metric => metric.esr === null && metric.epoch === null)).toBe(true)
+  })
+
+  it('keeps snapshot stopping policy separate from later live changes and completion', () => {
+    const current = runtime()
+    const convergence: ConvergenceStatus = {
+      version: 1, policy: { mode: 'fixed', level: 'balanced', maxEpochs: null }, originalEpochLimit: 100,
+      epoch: 3, validatedEpochs: 3, phase: 'unavailable', achievedLevel: null, completionReason: null, message: 'Cannot write C:/PRIVATE_CAPTURE_FOLDER/status.json', changes: [],
+      levels: CONVERGENCE_LEVELS.map(level => ({ level, confirmations: 0, qualified: false, firstReachedEpoch: null, waitingModels: [] }))
+    }
+    const evidence: TrainingExportEvidence = { capturedAt: '2026-09-19T10:02:00Z', history: current.esrHistory!, metrics: [], convergence }
+    current.convergence = { ...structuredClone(convergence), policy: { mode: 'convergence', level: 'fast', maxEpochs: null }, completionReason: 'convergence' }
+    const report = buildTrainingReportData(current, { appVersion: 'test', modelPath: '/exports/snapshot.nam', evidence, snapshot: true })
+    convergence.policy.level = 'thorough'
+    expect(report.convergence?.policy).toEqual({ mode: 'fixed', level: 'balanced', maxEpochs: null })
+    expect(report.facts).toContainEqual({ label: 'Training mode', value: 'Fixed epochs' })
+    expect(report.convergence?.completionReason).toBeNull()
+    expect(JSON.stringify(report)).not.toContain('PRIVATE_CAPTURE_FOLDER')
+    expect(buildTrainingReportData(current, { appVersion: 'test', modelPath: '/exports/model.nam' }).status).toBe('Auto-stopped · Fast')
   })
 
   it('normalizes independent report options without opting legacy jobs in', () => {

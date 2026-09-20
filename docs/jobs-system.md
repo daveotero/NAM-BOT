@@ -17,6 +17,32 @@ Jobs are intentionally separate from presets.
 - jobs define one specific training run
 - queue items freeze both the job and its complete preset at enqueue time so later edits do not mutate an already queued run
 
+## Training mode and convergence
+
+**Fixed epochs** trains to the selected epoch target. **Until convergence** stops when every exported model shows sufficiently little recent validation ESR improvement. The last selected mode, level, and optional safety cap become the defaults for the next new job, including jobs created from added audio files. Existing drafts, templates, and queued recipes retain their own settings. Live changes apply to the active run, leaving its original frozen recipe available for inspection and reuse.
+
+Choose **Fast** for earlier stopping, **Balanced** for a middle ground, or **Thorough** for longer observation of smaller improvements. The optional safety cap is a maximum total epoch count. With no cap, the preset's epoch limit is replaced by convergence and the card shows the current epoch without an overall percentage or estimated finish time. Optimizer and learning-rate settings are unchanged.
+
+Every newly started run observes all three levels, even in fixed mode. The training card on Jobs and Dashboard shows the highest level reached and its first qualifying epoch. That is historical evidence of a plateau; training can continue improving afterward. Hovering a level indicates whether it currently qualifies. Fixed mode only observes and never stops because a convergence level was reached.
+
+The card's **Training mode** control can switch a fixed-start run to convergence, removing its old epoch limit unless a safety cap is supplied. It can switch back to the original fixed target while the run is still active. If that target has already passed, restoring it finishes at the next safe boundary. A run that started in convergence mode cannot switch to fixed epochs; it can still change level or safety cap, save a snapshot, or use the existing stop controls. Changes take effect after the trainer acknowledges them. Runs launched by an older trainer wrapper do not gain live mode controls retroactively.
+
+The detector uses full-precision ESR, not rounded display values. These version-1 rules are identical on every installation:
+
+| Level | Minimum validated epochs | Observation window | Relative improvement tolerance |
+| --- | ---: | ---: | ---: |
+| Fast | 100 | 50 | 2% |
+| Balanced | 150 | 75 | 1% |
+| Thorough | 300 | 150 | 0.25% |
+
+For each model, compare best-so-far ESR before and after the window, and the median ESR in its older and newer halves. Both improvements must be below the level's tolerance for five consecutive observations, across all exported models. Increasing ESR counts as no improvement because exports use the best validated checkpoints. These tolerances are recent-progress thresholds, not bounds on future improvements or perceived sound quality. Thorough does not guarantee that further gains are impossible.
+
+The detector counts one final validation observation per completed training epoch, excludes sanity checks and duplicates, and requires a fresh complete window after invalid or incomplete measurements. When validation runs less frequently, observation windows take more training epochs. Enabling or changing auto-stop uses already collected history but requires five fresh qualifying results after the epoch in which the change was applied.
+
+An automatic stop completes through NAM's normal export process: save the best checkpoints, apply naming/metadata and extra-copy choices, generate selected reports, and advance the queue. Completion distinguishes convergence from a safety cap or fixed target. Reports capture the mode, detector version, policy changes, attainment, and stopping reason alongside export-time metrics. Monitoring errors remain visible; they do not count as convergence. Training can still end through a configured cap or manual controls.
+
+Thresholds do not learn from local training history and cannot be tuned per client. Future changes require an explicit versioned development change. Initial replay coverage uses anonymous ESR-only histories from two runs of the same A2 preset; it does not establish universal timing or accuracy across captures, architectures, or learning-rate schedules.
+
 ## Goals
 
 - Keep everyday job creation simple for users who just want to point at files and run training.
@@ -394,7 +420,7 @@ Export and Save & stop require a new run started with the control-capable wrappe
 
 The wrapper handles workspace-local requests under `training-controls/` on the training thread, avoiding checkpoint read/write races. Export commands load a separate CPU model and copy its existing normalization export hooks. Once a complete model is returned, the main process adds user metadata and attribution from the run's frozen preset, then atomically saves the requested file. Editing or deleting the library preset cannot change snapshot attribution or prevent export. Snapshot paths are tracked in `modelExports` and excluded from final-model discovery so a snapshot cannot falsely make an incomplete run appear successful.
 
-Automatic convergence-based stopping remains future work. These manual controls provide the export and clean-finish mechanisms; a future policy still needs agreed minimum epochs, improvement thresholds, patience, and treatment of multiple submodels.
+Automatic stopping uses the same clean-finish and export mechanisms. See [training mode and convergence](#training-mode-and-convergence) for thresholds, live switching, and handling of multiple submodels.
 
 ### Runtime Fields
 

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Automatic stopping at Fast, Balanced, or Thorough convergence, with optional epoch caps, live training-mode controls, and convergence feedback during fixed-epoch runs.
+- Remembered training-mode defaults and convergence details in saved training reports.
 - Optional branded PNG training summaries and interactive, offline HTML reports alongside saved models, snapshots, and extra copies, plus manual report export from finished runs.
 - Readable training dates and times on finished runs and in reports.
 - A setting to enable or disable desktop training notifications.

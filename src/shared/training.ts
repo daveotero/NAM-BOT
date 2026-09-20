@@ -1,4 +1,5 @@
 import type { TrainingExportEvidence } from './training-report'
+import { normalizeStoppingPolicy, type TrainingStoppingPolicy, type ConvergenceStatus } from './convergence'
 
 export type JobStatus =
   | 'draft'
@@ -131,6 +132,7 @@ export interface PackedPresetSubmodel extends JobPackedSubmodelSelection {
 }
 
 export interface JobSpec {
+  stopping?: TrainingStoppingPolicy
   id: string
   name: string
   createdAt: string
@@ -204,6 +206,8 @@ export interface TrainingPresetFile {
 }
 
 export interface JobRuntimeState {
+  convergence?: ConvergenceStatus
+  stoppingPolicyPending?: boolean
   jobId: string
   jobName: string
   status: JobStatus
@@ -252,11 +256,17 @@ export interface QueueControlState {
 }
 
 export function getEffectiveJobEpochs(job: JobSpec, preset: TrainingPresetFile): number {
+  if (job.stopping?.mode === 'convergence') return job.stopping.maxEpochs ?? -1
   const trainer = preset.expert.learning?.trainer
   const override = isRecord(trainer) ? trainer.max_epochs : undefined
   return typeof override === 'number' && Number.isFinite(override)
     ? override
     : job.trainingOverrides.epochs ?? preset.values.epochs
+}
+
+export function getPlannedJobEpochLimit(job: JobSpec, preset: TrainingPresetFile): number | null {
+  const epochs = getEffectiveJobEpochs(job, preset)
+  return epochs > 0 ? epochs : null
 }
 
 export function getEffectiveJobLatency(job: JobSpec, preset: TrainingPresetFile): number {
@@ -1154,6 +1164,7 @@ export function normalizeJobSpec(value: unknown): JobSpec {
     batchId: asOptionalTrimmedString(value.batchId),
     batchSourceName: asOptionalTrimmedString(value.batchSourceName),
     presetId,
+    stopping: normalizeStoppingPolicy(value.stopping),
     appendPresetToModelFileName: typeof value.appendPresetToModelFileName === 'boolean'
       ? value.appendPresetToModelFileName
       : false,

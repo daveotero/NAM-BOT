@@ -60,6 +60,20 @@ trainer.callback_metrics = {"ESR": float("nan"), "val_loss": 9}
 single.on_validation_end(trainer, None)
 trainer.callback_metrics = {"ESR": 0.0}
 single.on_validation_end(trainer, None)
+# A history failure must not leave a usable pending observation or erase the
+# visible monitoring error at the next epoch boundary.
+trainer.max_epochs = 10
+single.on_fit_start(trainer, None)
+original_open = Path.open
+def failing_open(target, *args, **kwargs):
+    if target == path:
+        raise OSError("Simulated history write failure")
+    return original_open(target, *args, **kwargs)
+Path.open = failing_open
+single.on_validation_end(trainer, None)
+Path.open = original_open
+assert single.pending_record is None
+assert single.disabled and single.monitor.phase == "unavailable"
 `, scriptPath, configPath], { encoding: 'utf-8' })
       expect(result.stderr).toBe('')
       expect(result.status).toBe(0)

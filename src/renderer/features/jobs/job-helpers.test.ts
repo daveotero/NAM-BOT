@@ -10,8 +10,18 @@ import {
   getStopActionState,
   getPrimaryPackedSubmodel
 } from './job-helpers'
+import { getProgressPercent, getProgressHeadline, getPlannedEpochsLabel } from './job-helpers'
 
 const nowMs = Date.parse('2026-05-11T12:00:00.000Z')
+
+it('does not show a stale epoch target or overall percentage for uncapped convergence', () => {
+  const current = buildRuntime({ currentEpoch: 700, plannedEpochs: null,
+    frozenJob: { ...buildFrozenJob(), stopping: { mode: 'convergence', level: 'fast', maxEpochs: null } },
+    terminalProgress: { currentEpoch: 700, totalEpochs: 666, percent: 99 } })
+  expect(getProgressPercent(current)).toBeNull()
+  expect(getProgressHeadline(current)).toBe('Epoch 700 · until convergence')
+  expect(getPlannedEpochsLabel(current)).toBe('Until convergence')
+})
 
 function buildFrozenJob(): JobSpec {
   return {

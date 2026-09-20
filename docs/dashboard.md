@@ -78,6 +78,10 @@ At narrower widths or higher zoom levels, the shared diagnostic cards wrap into 
 
 The Dashboard should stay lightweight. Detailed troubleshooting, command copy blocks, raw check matrices, and AI troubleshooting exports belong on the Diagnostics screen.
 
+### Training mode
+
+Active training cards use the same convergence status and live training-mode controls as Jobs. Fixed-epoch runs show the highest convergence level reached without stopping. Runs using **Until convergence** show their selected level and optional cap; uncapped runs omit the overall completion percentage. See [training mode and convergence](jobs-system.md#training-mode-and-convergence) for switching rules and the shared detector thresholds.
+
 ### Training reports
 
 Recent completed runs show their completion date and time in the user's local timezone and date format.

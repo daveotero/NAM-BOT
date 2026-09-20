@@ -5,6 +5,13 @@ import {
   JobStopMode
 } from '../../state/types'
 
+import { convergenceCompletionLabel } from '../../../shared/convergence'
+
+export function isUncappedConvergence(runtime: JobRuntimeState): boolean {
+  const policy = runtime.convergence?.policy ?? runtime.frozenJob.stopping
+  return policy?.mode === 'convergence' && policy.maxEpochs === null
+}
+
 export type ActiveRuntimeStatus = 'preparing' | 'running' | 'stopping' | 'finalizing'
 export const ACTIVE_RUNTIME_STATUSES: ActiveRuntimeStatus[] = ['preparing', 'running', 'stopping', 'finalizing']
 export const FORCE_STOP_DELAY_MS = 10_000
@@ -211,6 +218,7 @@ export function getDetailedDeviceLabel(runtime: JobRuntimeState): string {
 }
 
 export function getProgressPercent(runtime: JobRuntimeState): number | null {
+  if (isUncappedConvergence(runtime)) return runtime.status === 'succeeded' ? 100 : null
   const batchPercent = runtime.terminalProgress?.percent
   if (typeof batchPercent === 'number' && Number.isFinite(batchPercent)) {
     return Math.min(100, Math.max(0, batchPercent))
@@ -225,12 +233,17 @@ export function getProgressPercent(runtime: JobRuntimeState): number | null {
 }
 
 export function getProgressHeadline(runtime: JobRuntimeState): string {
+  if (runtime.convergence?.completionReason === 'convergence' && isActiveRuntime(runtime.status)) return 'Convergence reached. Saving best validated model...'
   if (runtime.status === 'finalizing') return 'Finalizing model and metadata...'
   if (runtime.status === 'stopping') {
     return runtime.stopMode === 'force' ? 'Force stopping...' : 'Stopping...'
   }
 
   const progress = runtime.terminalProgress
+  if (isUncappedConvergence(runtime)) {
+    const epoch = progress?.currentEpoch ?? runtime.currentEpoch
+    return epoch ? `Epoch ${epoch} · until convergence${progress?.currentBatch && progress.totalBatches ? ` · batch ${progress.currentBatch}/${progress.totalBatches}` : ''}` : 'Preparing convergence training'
+  }
   if (progress?.currentEpoch && progress?.totalEpochs && progress.currentBatch && progress.totalBatches) {
     return `Epoch ${progress.currentEpoch} of ${progress.totalEpochs} - batch ${progress.currentBatch}/${progress.totalBatches}`
   }
@@ -288,6 +301,8 @@ export function getTotalRuntimeLabel(runtime: JobRuntimeState): string | null {
 }
 
 export function getPlannedEpochsLabel(runtime: JobRuntimeState): string {
+  const policy = runtime.convergence?.policy ?? runtime.frozenJob.stopping
+  if (policy?.mode === 'convergence') return policy.maxEpochs == null ? 'Until convergence' : `Until convergence · cap ${policy.maxEpochs}`
   const plannedEpochs = runtime.plannedEpochs ?? runtime.frozenJob.trainingOverrides.epochs ?? null
   if (plannedEpochs == null || !Number.isFinite(plannedEpochs) || plannedEpochs <= 0) {
     return 'Unknown'
@@ -420,6 +435,7 @@ export function getCollapsedSummaryItems(
 }
 
 export function getStatusSentence(runtime: JobRuntimeState): string {
+  if (runtime.convergence?.completionReason === 'convergence' && isActiveRuntime(runtime.status)) return 'Convergence reached. Saving best validated model...'
   if (runtime.finishedEarly && runtime.status === 'stopping') return 'Model saved. Finishing training...'
   if (runtime.status === 'queued') {
     if (runtime.errorCategory === 'a2_diagnostics_pending') {
@@ -439,6 +455,7 @@ export function getStatusSentence(runtime: JobRuntimeState): string {
 
   if (runtime.status === 'succeeded') {
     if (runtime.completionWarnings?.length) return 'Completed with warnings — review details'
+    if (runtime.convergence?.completionReason) return `${convergenceCompletionLabel(runtime.convergence)} · model saved`
     return runtime.finishedEarly ? 'Finished early · model saved' : 'Training complete'
   }
 
