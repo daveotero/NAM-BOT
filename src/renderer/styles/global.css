@@ -1217,7 +1217,8 @@ input[type="number"] {
   white-space: nowrap;
 }
 
-.runtime-detail-value-wrap {
+.runtime-detail-value-wrap,
+.preset-detail-value.runtime-detail-value-wrap {
   white-space: normal;
   overflow-wrap: anywhere;
 }

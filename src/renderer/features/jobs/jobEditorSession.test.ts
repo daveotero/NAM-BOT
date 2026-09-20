@@ -18,6 +18,7 @@ import {
   applyStoredReusableDefaults,
   buildJobEditorSession,
   serializeJobEditorSession,
+  persistReusableJobDefaults,
   createNewJobDraft
 } from './jobEditorSession'
 
@@ -40,6 +41,27 @@ afterEach(() => {
 })
 
 describe('createNewJobDraft', () => {
+  it('starts with Balanced auto convergence unless a preset or saved user choice overrides it', () => {
+    stubLocalStorage()
+    const preset = createTrainingPreset()
+    const options = { settings: null, presets: [preset] }
+    expect(createNewJobDraft(options)).toMatchObject({
+      stopping: { mode: 'convergence', level: 'balanced', maxEpochs: 2000 }, stoppingSource: 'defaults'
+    })
+    persistStoppingPreference({ mode: 'fixed', level: 'fast', maxEpochs: null })
+    expect(createNewJobDraft(options).stopping?.mode).toBe('fixed')
+    preset.stopping = { mode: 'convergence', level: 'thorough', maxEpochs: 3200 }
+    const fromPreset = createNewJobDraft(options)
+    expect(fromPreset.stopping).toEqual(preset.stopping)
+    expect(fromPreset.stopping).not.toBe(preset.stopping)
+    persistReusableJobDefaults(fromPreset, 'default')
+    expect(getStoredStoppingPreference().mode).toBe('fixed')
+    const custom = { ...fromPreset, stoppingSource: 'override' as const,
+      stopping: { mode: 'convergence', level: 'fast', maxEpochs: 2300 } as const }
+    persistReusableJobDefaults(custom, 'default')
+    expect(getStoredStoppingPreference()).toEqual(custom.stopping)
+    expect(applyStoredReusableDefaults(defaultJobSpec, null, preset).stopping).toEqual(preset.stopping)
+  })
   it('defaults the safety limit to 2000 and remembers a custom value through fixed mode and reloads', () => {
     const storage = stubLocalStorage()
     expect(getStoredConvergenceMaxEpochs()).toBe(2000)
@@ -65,7 +87,7 @@ describe('createNewJobDraft', () => {
     expect(next.stopping?.mode).toBe('fixed')
     expect(next.trainingOverrides.epochs).toBe(37)
     stubLocalStorage({ [LAST_TRAINING_MODE_KEY]: '{invalid' })
-    expect(getStoredStoppingPreference()).toEqual({ mode: 'fixed', level: 'balanced', maxEpochs: null })
+    expect(getStoredStoppingPreference()).toEqual({ mode: 'convergence', level: 'balanced', maxEpochs: 2000 })
   })
   it('uses the saved default preset and its epochs ahead of the built-in and last-used presets', () => {
     stubLocalStorage({ [LAST_USED_PRESET_STORAGE_KEY]: A1_STANDARD_PRESET_ID })

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useRef } from 'react'
 import { normalizeStoppingPolicyForTraining } from '../../../shared/convergence'
 import TrainingModeFields from './TrainingModeFields'
-import { persistStoppingPreference } from './training-mode-preferences'
+import { getDefaultStoppingPolicy, getStoredConvergenceMaxEpochs, persistStoppingPreference } from './training-mode-preferences'
 import {
   DndContext,
   closestCenter,
@@ -588,7 +588,7 @@ export default function Jobs() {
           ...defaultJobSpec.metadata,
           name: outputStem
         }
-      }, settings)
+      }, settings, fallbackPreset)
       const newJob = await window.namBot.jobs.createDraft(draftInput) as JobSpec
       createdJobs.push(newJob)
     }
@@ -1738,7 +1738,8 @@ function JobEditor({
                       return
                     }
                     const currentEpochs = editedJob.trainingOverrides.epochs
-                    const shouldUseNextPresetEpochs = currentEpochs == null || currentEpochs === selectedPreset?.values.epochs
+                    const shouldUseNextPresetEpochs = editedJob.stoppingSource === 'defaults'
+                      && (currentEpochs == null || currentEpochs === selectedPreset?.values.epochs)
                     const nextTrainingOverrides = withPackedSubmodelSelection({
                       ...editedJob.trainingOverrides,
                       epochs: shouldUseNextPresetEpochs ? nextPreset.values.epochs : currentEpochs
@@ -1748,6 +1749,7 @@ function JobEditor({
                       job: {
                         ...editedJob,
                         presetId: nextPreset.id,
+                        stopping: editedJob.stoppingSource === 'defaults' ? getDefaultStoppingPolicy(nextPreset) : editedJob.stopping,
                         trainingOverrides: nextTrainingOverrides
                       }
                     })
@@ -1857,9 +1859,16 @@ function JobEditor({
             <div className="training-mode-fields">
               <TrainingModeFields id="job-training" policy={normalizeStoppingPolicyForTraining(editedJob.stopping)} onChange={stopping => {
                 persistStoppingPreference(stopping)
-                onSessionChange({ ...session, job: { ...editedJob, stopping } })
+                onSessionChange({ ...session, job: { ...editedJob, stopping, stoppingSource: 'override' } })
               }} fixedEpochs={displayedEpochs} epochInputId="epochs" epochsLocked={epochsLocked}
-                onFixedEpochsChange={epochs => onSessionChange({ ...session, job: { ...editedJob,
+                defaultMaxEpochs={getStoredConvergenceMaxEpochs()}
+                defaultAction={editedJob.stoppingSource !== 'defaults' && selectedPreset?.stopping ? {
+                  label: 'Use preset', title: 'Restore the selected preset\'s training mode, threshold, safety limit, and fixed epoch default for this job.',
+                  onClick: () => onSessionChange({ ...session, job: { ...editedJob,
+                    stopping: getDefaultStoppingPolicy(selectedPreset), stoppingSource: 'defaults',
+                    trainingOverrides: { ...editedJob.trainingOverrides, epochs: selectedPreset.values.epochs } } })
+                } : undefined}
+                onFixedEpochsChange={epochs => onSessionChange({ ...session, job: { ...editedJob, stoppingSource: 'override',
                   trainingOverrides: { ...editedJob.trainingOverrides, epochs } } })} />
             </div>
           </section>

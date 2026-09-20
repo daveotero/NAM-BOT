@@ -9,6 +9,7 @@ NAM-BOT presets are the source of truth for training configuration. A preset def
 - the user-facing library metadata for a training recipe
 - the basic NAM training values exposed in the preset editor
 - any expert JSON override blocks layered on top of the generated NAM config files
+- optional training-mode, convergence-threshold, and safety-limit defaults
 - optional sharing metadata for preset creators
 
 Jobs do not own the full training recipe. Jobs only point at a preset and optionally override a small set of run-time values such as epochs and manual/auto latency behavior.
@@ -30,6 +31,7 @@ The presets page defaults to a library view rather than showing the editor at al
 
 - User presets appear before built-in presets.
 - Some special user-owned presets may be surfaced a little differently from normal library entries.
+- After-hours recipes support the same packed-model and convergence settings as other presets. Updates to bundled recipes leave previously saved user copies intact.
 - Each preset is shown as a compact library row with summary information and the same inline expanded details.
 - Each preset card shows an architecture tag: `A2`, `A1`, or `CUSTOM`.
 - Preset lists and job dropdowns sort A2 presets before A1 presets, with custom architecture recipes after those groups.
@@ -59,11 +61,22 @@ The manual editor exposes friendly fields for the most common NAM training choic
 - library metadata such as name, category, description, creator name, and creator link
 - creator names retain spaces while typing; surrounding whitespace is normalized when saving
 - NAM architecture version, model family, and architecture choice
-- training defaults such as epochs, batch size, learning rate, learning-rate decay, `ny`, MRSTFT loss, weight decay, and A2 output normalization
+- training mode, fixed epoch defaults, convergence threshold and maximum epochs, batch size, learning rate, learning-rate decay, and `ny`
+- loss and level settings: MRSTFT loss, weight decay, and A2 output normalization
 
-The editor shows a `Save Preset` button at both the top and bottom of the form.
+The editor shows a `Save Preset` button in the fixed workspace command bar.
 
-The top Save and Cancel actions, plus Manual Editor / Import JSON mode controls, remain in the fixed workspace command bar while the editor scrolls. The manual editor shares the Jobs/Settings property-sheet layout: **Preset**, **Architecture**, **Training**, and **Overrides** section buttons smoothly scroll to focused headings, with a muted gray active state. Reduced-motion preferences use immediate scrolling. Labels and controls align in consistent rows; training values use paired rows on wide windows and one column in narrow workspaces. All existing fields, override hints, JSON formatting, copy actions, and validation behavior remain available. Import JSON keeps its separate mode and discard guard, and applying an import still preserves the preset's name, category, description, and author.
+The top Save and Cancel actions, plus Manual Editor / Import JSON mode controls, remain in the fixed workspace command bar while the editor scrolls. The manual editor shares the Jobs/Settings property-sheet layout: **Preset**, **Architecture**, **Training**, **Loss & levels**, and **Overrides** section buttons smoothly scroll to focused headings, with a muted gray active state. Reduced-motion preferences use immediate scrolling. Training starts with the same bordered mode controls used by the job editor. Other training and loss values use paired rows on wide windows and one column in narrow workspaces. All existing fields, override hints, JSON formatting, copy actions, and validation behavior remain available. Import JSON keeps its separate mode and discard guard, and applying an import still preserves the preset's name, category, description, and author.
+
+### Training-mode defaults
+
+The selectors are **Auto convergence**, **Fixed epochs**, and **Last used**, in that order. Auto convergence stores a Fast, Balanced, or Obsessive threshold and a required maximum epoch count. Fixed epochs stores an explicit fixed-mode preference and uses the preset's default epochs. Last used leaves the optional policy unset, so new jobs use the user's last selected mode, threshold, and safety limit. With no saved selection, new jobs use Balanced auto convergence with a 2,000-epoch limit. Existing user presets stay unset for compatibility; the bundled A2 presets explicitly select auto convergence.
+
+An explicit preset policy takes precedence over remembered job preferences. Each job receives a copy when it is created, including dropped audio and new batches. Changing the job's mode, threshold, limit, or fixed epoch count makes it a job override, retained when switching presets. **Use preset** restores the selected preset's stopping policy and fixed epoch default. Applying a preset alone does not overwrite the remembered user preference.
+
+Saved drafts, templates, and queued runs retain their resolved stopping rules when a preset is later edited. Active runs keep their frozen policy. Preset duplication, file import/export, and JSON copying preserve the optional policy. Importing a raw NAM config retains the editor's policy; importing a full preset with an explicit policy replaces it. Invalid policies are rejected instead of silently changing training mode.
+
+Latency, audio paths, file naming, report generation, and packed-tier selection remain per-job settings. These depend on the capture or export destination rather than the reusable model recipe.
 
 - Save buttons stay neutral when the editor is clean.
 - Save buttons turn green only when the preset has unsaved changes and the current editor state is valid to save.
@@ -106,6 +119,11 @@ Presets use the `TrainingPresetFile` schema.
 
 ```ts
 interface TrainingPresetFile {
+  stopping?: {
+    mode: 'fixed' | 'convergence'
+    level: 'fast' | 'balanced' | 'thorough' // displayed as Obsessive
+    maxEpochs: number | null // positive integer for convergence; null for fixed
+  }
   schemaVersion: 1
   presetKind: 'training'
   id: string
@@ -154,6 +172,7 @@ interface TrainingPresetFile {
 - `presetKind` distinguishes training presets from any future preset families.
 - `author` is share-facing metadata for the person, company, or profile behind the preset.
 - `origin` identifies the app and version that created or exported the preset file.
+- `stopping` is optional within schema version 1. Its absence selects Last used. Auto-convergence policies require a safety limit; a legacy null limit becomes 2,000 epochs when loading a preset.
 
 ## Example Export
 
@@ -208,13 +227,13 @@ The manual editor fields map to the generated NAM config files.
 - `Architecture`
   - selects Packed for A2, or one of the A1 architecture templates for WaveNet/LSTM
 - `Default Epochs`
-  - maps to trainer max epochs unless a job override replaces it
+  - maps to trainer max epochs in fixed mode unless a job or expert override replaces it; auto mode uses its maximum-epochs safety limit instead
 - `Batch Size`
   - maps to the training dataloader batch size
 - `Learning Rate`
   - maps to optimizer learning rate
 - `LR Decay`
-  - maps to the learning-rate scheduler gamma value
+  - maps to scheduler gamma as `1 - decay`; zero keeps the learning rate constant
 - `NY`
   - maps to the training window length in `data.json`
 - `Fit MRSTFT`
@@ -352,11 +371,11 @@ Current built-in defaults are aligned with official NAM A2 local training:
 - weight decay: `0.000000317`
 - output normalization: `-18 dB RMS`
 
-The default selected preset remains `A2 Packed WaveNet` (`a2-packed-wavenet`). It trains the official two-tier A2 packed model with `channels_3` Lite and `channels_8` Full submodels and defaults to `200` epochs.
+The default selected preset remains `A2 Packed WaveNet` (`a2-packed-wavenet`). It trains the official two-tier A2 packed model with `channels_3` Lite and `channels_8` Full submodels and defaults to **Balanced auto convergence** with a **2,000-epoch safety limit**. Its fixed-mode epoch default remains `200`.
 
-`A2 Packed WaveNet Heavy 12` (`a2-packed-wavenet-heavy-12`) is also bundled as a built-in quality preset. It keeps the official A2 Lite and Full submodels, adds a third `channels_12` Heavy submodel as the highest-quality tier, and defaults to `400` epochs for the larger packed training run.
+`A2 Packed WaveNet Heavy 12` (`a2-packed-wavenet-heavy-12`) is also bundled as a built-in quality preset. It keeps the official A2 Lite and Full submodels, adds a third `channels_12` Heavy submodel as the highest-quality tier, and defaults to **Balanced auto convergence** with a **2,000-epoch safety limit**. Its fixed-mode epoch default remains `400`.
 
-`A2 Packed WaveNet Ultra 20` (`a2-packed-wavenet-ultra-20`) is bundled for maximum-quality local experiments. It adds `channels_16` Ultra and `channels_20` Mammoth tiers above Heavy and defaults to `666` epochs.
+`A2 Packed WaveNet Ultra 20` (`a2-packed-wavenet-ultra-20`) is bundled for maximum-quality local experiments. It adds `channels_16` Ultra and `channels_20` Mammoth tiers above Heavy and defaults to **Obsessive auto convergence** with a **2,000-epoch safety limit**. Its fixed-mode epoch default remains `666`.
 
 Packed submodel identity comes from each `model.net.config.submodels[]` entry's `name` plus its array index. NAM-BOT displays those names in Presets and uses them for per-job packed-submodel selection when a pack has three or more tiers.
 
@@ -384,6 +403,5 @@ Likely future additions to the preset system:
 - release notes or changelog metadata for shared presets
 - additional model families or architectures
 - richer preset discovery or filtering
-- job editor parity for some preset-editing UX protections
 
 The schema should continue to prefer optional nested objects over many flat top-level fields so it can evolve without becoming brittle.

@@ -3,6 +3,8 @@ import ConfirmDialog from '../../components/ConfirmDialog'
 import WorkspaceToolbar from '../../components/WorkspaceToolbar'
 import PropertySheet, { PropertySection } from '../../components/PropertySheet'
 import JsonCodeEditor, { type JsonEditorError } from '../../components/JsonCodeEditor'
+import TrainingModeFields from '../jobs/TrainingModeFields'
+import { CONVERGENCE_LABELS, normalizeStoppingPolicy } from '../../../shared/convergence'
 import { type AppSettings, type PresetEditorSession, useAppStore } from '../../state/store'
 import {
   DEFAULT_PRESET_ID,
@@ -24,7 +26,7 @@ import {
 } from '../../state/types'
 import { handleCardToggleKeyDown, shouldIgnoreCardToggle } from '../../utils/card-toggle'
 import { isEpochRunnerRewardPreset } from '../about/aboutRewardPreset'
-import { buildNewPresetDraft, buildPresetEditorSession } from './presetEditorSession'
+import { buildNewPresetDraft, buildPresetEditorSession, mergeImportedTechnicalFields } from './presetEditorSession'
 
 const PRESET_CATEGORY_OPTIONS: Array<{ value: PresetCategory; label: string }> = [
   { value: 'quality', label: 'Quality' },
@@ -126,6 +128,7 @@ const PRESET_EDITOR_SECTIONS = [
   { id: 'preset-information', label: 'Preset' },
   { id: 'preset-architecture-section', label: 'Architecture' },
   { id: 'preset-training', label: 'Training' },
+  { id: 'preset-loss', label: 'Loss & levels' },
   { id: 'preset-overrides', label: 'Overrides' }
 ]
 const PRESET_IMPORT_SECTIONS = [{ id: 'preset-import', label: 'Import JSON' }]
@@ -519,17 +522,6 @@ function buildPresetExportValue(
   })
 }
 
-function mergeImportedTechnicalFields(basePreset: TrainingPresetFile, importedPreset: TrainingPresetFile): TrainingPresetFile {
-  return normalizeTrainingPreset({
-    ...basePreset,
-    values: importedPreset.values,
-    expert: importedPreset.expert,
-    builtIn: false,
-    readOnly: false,
-    visible: true
-  })
-}
-
 function prettyJson(value: Record<string, unknown> | undefined): string {
   return value ? JSON.stringify(value, null, 2) : ''
 }
@@ -798,8 +790,14 @@ function PresetCard({
                     <span className="preset-detail-value">{formatArchitectureSize(preset.values.architectureSize)}</span>
                   </div>
                   <div className="preset-detail-row">
-                    <span className="preset-detail-label">Epochs</span>
-                    <span className="preset-detail-value">{preset.values.epochs}</span>
+                    <span className="preset-detail-label">Mode</span>
+                    <span className="preset-detail-value runtime-detail-value-wrap">{preset.stopping?.mode === 'convergence'
+                      ? `Auto convergence · ${CONVERGENCE_LABELS[preset.stopping.level]}`
+                      : preset.stopping ? 'Fixed epochs' : 'Last used'}</span>
+                  </div>
+                  <div className="preset-detail-row">
+                    <span className="preset-detail-label">{preset.stopping?.mode === 'convergence' ? 'Maximum epochs' : 'Default epochs'}</span>
+                    <span className="preset-detail-value">{preset.stopping?.mode === 'convergence' ? preset.stopping.maxEpochs : preset.values.epochs}</span>
                   </div>
                   <div className="preset-detail-row">
                     <span className="preset-detail-label">Batch</span>
@@ -1383,28 +1381,16 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
               </div>
             </PropertySection>
             <PropertySection id="preset-training" title="Training">
+              <TrainingModeFields id="preset-training-mode" policy={normalizeStoppingPolicy(session.preset.stopping)}
+                onChange={stopping => updatePreset({ stopping })}
+                inherit={{ selected: !session.preset.stopping, onSelect: () => updatePreset({ stopping: undefined }) }}
+                fixedEpochs={getNumberControlValue(fieldOverrides.epochs, session.preset.values.epochs)}
+                epochInputId="preset-epochs" epochLabel="Default epochs" epochInputLabel="Default Epochs"
+                epochHelp="Epoch count used when a job trains in Fixed epochs mode. Each job can override this value."
+                epochsLocked={fieldOverrides.epochs !== null} epochOverride={renderOverrideBadge(fieldOverrides.epochs)}
+                maxEpochsHelp="Default safety limit for auto-convergence jobs using this preset. Training saves and stops at this epoch if it has not converged sooner. Jobs can override it."
+                onFixedEpochsChange={epochs => updatePresetValues({ epochs })} />
               <div className="property-grid">
-                <div className="property-row">
-                  <div className="form-label-row">
-                    <label className="form-label" htmlFor="preset-epochs">Default Epochs</label>
-                    {renderInfoButton(BASIC_FIELD_HELP_TEXT.epochs)}
-                  </div>
-                  <div className="property-control">
-                    <input
-                      title={BASIC_FIELD_HELP_TEXT.epochs}
-                      id="preset-epochs"
-                      type="number"
-                      className="form-input"
-                      value={getNumberControlValue(fieldOverrides.epochs, session.preset.values.epochs)}
-                      disabled={fieldOverrides.epochs !== null}
-                      onChange={(event) => updatePresetValues({
-                        epochs: Math.max(1, parseInt(event.target.value, 10) || session.preset.values.epochs)
-                      })}
-                    />
-                    {renderOverrideBadge(fieldOverrides.epochs)}
-                  </div>
-                </div>
-
                 <div className="property-row">
                   <div className="form-label-row">
                     <label className="form-label" htmlFor="preset-batch-size">Batch Size</label>
@@ -1423,6 +1409,27 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                       })}
                     />
                     {renderOverrideBadge(fieldOverrides.batchSize)}
+                  </div>
+                </div>
+
+                <div className="property-row">
+                  <div className="form-label-row">
+                    <label className="form-label" htmlFor="preset-ny">NY</label>
+                    {renderInfoButton(BASIC_FIELD_HELP_TEXT.ny)}
+                  </div>
+                  <div className="property-control">
+                    <input
+                      title={BASIC_FIELD_HELP_TEXT.ny}
+                      id="preset-ny"
+                      type="number"
+                      className="form-input"
+                      value={getNumberControlValue(fieldOverrides.ny, session.preset.values.ny)}
+                      disabled={fieldOverrides.ny !== null}
+                      onChange={(event) => updatePresetValues({
+                        ny: Math.max(1, parseInt(event.target.value, 10) || session.preset.values.ny)
+                      })}
+                    />
+                    {renderOverrideBadge(fieldOverrides.ny)}
                   </div>
                 </div>
 
@@ -1463,34 +1470,17 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                       value={getNumberControlValue(fieldOverrides.learningRateDecay, session.preset.values.learningRateDecay)}
                       disabled={fieldOverrides.learningRateDecay !== null}
                       onChange={(event) => updatePresetValues({
-                        learningRateDecay: parseFloat(event.target.value) || session.preset.values.learningRateDecay
+                        learningRateDecay: Number.isFinite(event.target.valueAsNumber)
+                          ? Math.min(1, Math.max(0, event.target.valueAsNumber)) : session.preset.values.learningRateDecay
                       })}
                     />
                     {renderOverrideBadge(fieldOverrides.learningRateDecay)}
                   </div>
                 </div>
-
-                <div className="property-row">
-                  <div className="form-label-row">
-                    <label className="form-label" htmlFor="preset-ny">NY</label>
-                    {renderInfoButton(BASIC_FIELD_HELP_TEXT.ny)}
-                  </div>
-                  <div className="property-control">
-                    <input
-                      title={BASIC_FIELD_HELP_TEXT.ny}
-                      id="preset-ny"
-                      type="number"
-                      className="form-input"
-                      value={getNumberControlValue(fieldOverrides.ny, session.preset.values.ny)}
-                      disabled={fieldOverrides.ny !== null}
-                      onChange={(event) => updatePresetValues({
-                        ny: Math.max(1, parseInt(event.target.value, 10) || session.preset.values.ny)
-                      })}
-                    />
-                    {renderOverrideBadge(fieldOverrides.ny)}
-                  </div>
-                </div>
-
+              </div>
+            </PropertySection>
+            <PropertySection id="preset-loss" title="Loss & levels">
+              <div className="property-grid">
                 <div className="property-row">
                   <div className="form-label-row">
                     <label className="form-label" htmlFor="preset-fit-mrstft">Fit MRSTFT</label>

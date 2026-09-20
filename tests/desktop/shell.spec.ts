@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
-import { A1_STANDARD_PRESET_ID, A2_HEAVY_12_PRESET_ID, DEFAULT_PRESET_ID, createTrainingPreset, defaultJobSpec, getBuiltInPreset, type JobRuntimeState } from '../../src/shared/training'
+import { A1_STANDARD_PRESET_ID, A2_HEAVY_12_PRESET_ID, DEFAULT_PRESET_ID, createTrainingPreset, defaultJobSpec, getBuiltInPreset, normalizeTrainingPreset, type JobRuntimeState } from '../../src/shared/training'
 import { CONVERGENCE_LEVELS } from '../../src/shared/convergence'
 
 let app: ElectronApplication
@@ -393,7 +393,8 @@ test('Jobs toolbar saves drafts and creates batches without losing editor action
 
 test('saved default presets apply to dropped audio and new batches while templates keep their recipe', async ({}, info) => {
   const builtIn = getBuiltInPreset(A2_HEAVY_12_PRESET_ID)
-  const preferred = createTrainingPreset({ ...builtIn, id: 'drop-default', name: 'Drop default', builtIn: false, readOnly: false, values: { ...builtIn.values, epochs: 37 } })
+  const preferred = createTrainingPreset({ ...builtIn, id: 'drop-default', name: 'Drop default', builtIn: false, readOnly: false,
+    stopping: { mode: 'fixed', level: 'balanced', maxEpochs: null }, values: { ...builtIn.values, epochs: 37 } })
   await page.evaluate(async (preset) => { await window.namBot.presets.save(preset) }, preferred)
   await chooseMenu(await settingsMenu(), 'Settings')
   await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Application', exact: true }).click()
@@ -664,6 +665,9 @@ test('convergence job mode is remembered and survives draft saving', async ({}, 
   await page.locator('#output-audio-path').fill(output)
   await page.getByRole('region', { name: 'Name & audio', exact: true }).getByRole('button', { name: 'Use Output Filename' }).click()
   await page.getByRole('navigation', { name: 'Job editor sections' }).getByRole('button', { name: 'Training', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Auto convergence', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('group', { name: 'Training mode', exact: true }).getByRole('button')).toHaveText(['Auto convergence', 'Fixed epochs'])
+  await page.getByRole('button', { name: 'Fixed epochs', exact: true }).click()
   await page.locator('#epochs').fill('777')
   await page.getByRole('button', { name: 'Auto convergence', exact: true }).click()
   await expect(page.locator('#epochs')).toHaveCount(0)
@@ -699,6 +703,10 @@ test('convergence job mode is remembered and survives draft saving', async ({}, 
   await expect(page.locator('#job-training-cap')).toHaveValue('3000')
   await chooseMenu('File', 'New Job')
   await expect(page.getByRole('button', { name: 'Auto convergence', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  // Built-in A2 rules take precedence; presets with Last used restore the saved choice.
+  await expect(page.getByRole('button', { name: 'Balanced', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator('#job-training-cap')).toHaveValue('2000')
+  await page.locator('#preset-select').selectOption(A1_STANDARD_PRESET_ID)
   await expect(page.getByRole('button', { name: 'Fast', exact: true })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.locator('#job-training-cap')).toHaveValue('3000')
   await app.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows()[0]; window.setSize(1000, 700); window.webContents.setZoomFactor(1.5) })
@@ -935,6 +943,7 @@ test('job properties align inputs, preview filenames, and preserve edits through
   await expect(preview).toHaveText('6534 Pedals - Standard WaveNet.nam')
   await page.getByLabel('Append final ESR', { exact: true }).check()
   await expect(preview).toHaveText('6534 Pedals - Standard WaveNet - ESR [pending].nam')
+  await page.getByRole('button', { name: 'Fixed epochs', exact: true }).click()
   await page.locator('#epochs').fill('42')
   await page.getByRole('group', { name: 'Latency mode' }).getByRole('button', { name: 'Manual', exact: true }).click()
   await page.locator('#latency-samples').fill('128')
@@ -1127,6 +1136,95 @@ test('preset property sections preserve overrides, import mode, and edits', asyn
   await captureRenderer(info, 'preset-training-small.png')
   await toolbar.getByRole('button', { name: 'Save Preset', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Property sheet preset', exact: true })).toBeVisible()
+  expect(errors).toEqual([])
+})
+
+test('preset stopping defaults survive sharing and allow stable job overrides', async ({}, info) => {
+  await chooseMenu('File', 'New Preset')
+  const toolbar = page.locator('.workspace-toolbar')
+  await page.locator('#preset-name').fill('Auto studio recipe')
+  const sections = page.getByRole('navigation', { name: 'Preset editor sections' })
+  await sections.getByRole('button', { name: 'Training', exact: true }).click()
+  const mode = page.getByRole('region', { name: 'Training mode settings', exact: true })
+  await expect(mode.getByRole('group', { name: 'Training mode', exact: true }).getByRole('button'))
+    .toHaveText(['Auto convergence', 'Fixed epochs', 'Last used'])
+  await expect(mode.getByRole('button', { name: 'Last used', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await mode.getByRole('button', { name: 'Auto convergence', exact: true }).click()
+  await mode.getByRole('button', { name: 'Obsessive', exact: true }).click()
+  await page.locator('#preset-training-mode-cap').fill('3200')
+  await mode.getByRole('button', { name: 'Fixed epochs', exact: true }).click()
+  await page.locator('#preset-epochs').fill('321')
+  await mode.getByRole('button', { name: 'Auto convergence', exact: true }).click()
+  await expect(page.locator('#preset-training-mode-cap')).toHaveValue('3200')
+  await page.locator('#preset-learning-rate-decay').fill('0')
+  await expect(page.locator('#preset-learning-rate-decay')).toHaveValue('0')
+  await mode.scrollIntoViewIfNeeded()
+  await captureRenderer(info, 'preset-convergence.png')
+  for (const zoom of [1, 1.5]) {
+    await app.evaluate(({ BrowserWindow }, factor) => {
+      const window = BrowserWindow.getAllWindows()[0]
+      window.setSize(1000, 700)
+      window.webContents.setZoomFactor(factor)
+    }, zoom)
+    await mode.scrollIntoViewIfNeeded()
+    await expect.poll(() => page.locator('.property-workspace').evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
+    await captureRenderer(info, `preset-convergence-${zoom}.png`)
+  }
+  await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0]
+    window.webContents.setZoomFactor(1)
+    window.setSize(1400, 950)
+  })
+  await sections.getByRole('button', { name: 'Loss & levels', exact: true }).click()
+  await captureRenderer(info, 'preset-loss.png')
+  await toolbar.getByRole('button', { name: 'Save Preset', exact: true }).click()
+  const saved = (await page.evaluate(() => window.namBot.presets.list())).map(normalizeTrainingPreset).find(preset => preset.name === 'Auto studio recipe')
+  if (!saved) throw new Error('Missing saved preset')
+  expect(saved.stopping).toEqual({ mode: 'convergence', level: 'thorough', maxEpochs: 3200 })
+  expect(saved.values.learningRateDecay).toBe(0)
+  const presetCard = page.locator('.preset-library-row').filter({ has: page.getByRole('heading', { name: saved.name, exact: true }) })
+  await presetCard.getByRole('button', { name: 'Show More', exact: true }).click()
+  await expect(presetCard).toContainText('Auto convergence · Obsessive')
+  await expect(presetCard).toContainText('3200')
+  await presetCard.locator('.preset-card-details').scrollIntoViewIfNeeded()
+  await captureRenderer(info, 'preset-convergence-library.png')
+  const exportPath = join(dataPath, 'auto-studio.nam-bot-preset.json')
+  await app.evaluate(({ dialog }, filePath) => {
+    dialog.showSaveDialog = async () => ({ canceled: false, filePath })
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [filePath] })
+  }, exportPath)
+  await page.evaluate(preset => window.namBot.presets.exportPreset(preset), saved)
+  expect(JSON.parse(await readFile(exportPath, 'utf8')).stopping).toEqual(saved.stopping)
+  const imported = await page.evaluate(() => window.namBot.presets.importPreset())
+  expect(normalizeTrainingPreset(imported).stopping).toEqual(saved.stopping)
+  await page.evaluate(async preset => {
+    const settings = await window.namBot.settings.get()
+    if (!settings || typeof settings !== 'object') throw new Error('Missing settings')
+    await window.namBot.settings.save({ ...settings, defaultPresetId: preset.id })
+  }, saved)
+  await page.reload()
+  await chooseMenu('File', 'New Job')
+  await expect(page.locator('#preset-select')).toHaveValue(saved.id)
+  await expect(page.locator('#job-training-cap')).toHaveValue('3200')
+  await expect(page.getByRole('button', { name: 'Obsessive', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await page.getByRole('button', { name: 'Fixed epochs', exact: true }).click()
+  await page.locator('#epochs').fill('555')
+  await page.locator('#preset-select').selectOption(DEFAULT_PRESET_ID)
+  await expect(page.locator('#epochs')).toHaveValue('555')
+  await page.locator('#preset-select').selectOption(saved.id)
+  await expect(page.locator('#epochs')).toHaveValue('555')
+  await page.getByRole('button', { name: 'Use preset', exact: true }).click()
+  await expect(page.locator('#job-training-cap')).toHaveValue('3200')
+  const output = join(dataPath, 'Preset capture.wav')
+  await writeFile(output, Buffer.alloc(44))
+  await page.locator('#output-audio-path').fill(output)
+  await page.getByRole('region', { name: 'Name & audio', exact: true }).getByRole('button', { name: 'Use Output Filename' }).click()
+  await toolbar.getByRole('button', { name: 'Save Job', exact: true }).click()
+  await page.evaluate(preset => window.namBot.presets.save({ ...preset, stopping: { mode: 'fixed', level: 'balanced', maxEpochs: null } }), saved)
+  await page.reload()
+  await page.locator('.draft-card').getByRole('button', { name: 'Edit', exact: true }).click()
+  await expect(page.locator('#job-training-cap')).toHaveValue('3200')
+  await expect(page.getByRole('button', { name: 'Obsessive', exact: true })).toHaveAttribute('aria-pressed', 'true')
   expect(errors).toEqual([])
 })
 

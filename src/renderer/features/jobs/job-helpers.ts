@@ -469,6 +469,9 @@ export function getStatusSentence(runtime: JobRuntimeState): string {
 
   if (runtime.status === 'succeeded') {
     if (runtime.completionWarnings?.length) return 'Completed with warnings — review details'
+    if (runtime.convergence?.completionReason === 'convergence' && runtime.convergence.epoch > 0) {
+      return `Auto-stopped at epoch ${runtime.convergence.epoch} · ${CONVERGENCE_LABELS[runtime.convergence.policy.level]} · model saved`
+    }
     if (runtime.convergence?.completionReason) return `${convergenceCompletionLabel(runtime.convergence)} · model saved`
     return runtime.finishedEarly ? 'Finished early · model saved' : 'Training complete'
   }

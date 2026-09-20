@@ -19,6 +19,10 @@ Jobs are intentionally separate from presets.
 
 ## Training mode and convergence
 
+Mode selectors show **Auto convergence** first and **Fixed epochs** second. New jobs resolve defaults from the selected preset's optional stopping policy, then the last explicitly selected job settings. With neither available, they start with **Balanced auto convergence** and **2,000 maximum epochs**. Existing drafts and run history keep their original mode. The preset editor offers **Last used** to leave its stopping policy unset.
+
+Changing a job's mode, threshold, limit, or fixed epoch count creates a per-job override. Switching presets retains that override; **Use preset** restores the selected preset's stopping settings and fixed epoch default. Choosing a preset alone does not change remembered user preferences. Preset policies are copied into new jobs rather than followed live, so later preset edits do not alter saved drafts, templates, or queued runs.
+
 **Fixed epochs** trains to the selected epoch target. **Auto convergence** stops when every exported model shows sufficiently little recent validation ESR improvement, or when its required safety limit is reached. The last selected mode, level, and safety limit become the defaults for the next new job, including jobs created from added audio files. The safety limit starts at **2,000 epochs** and remembers the user's last value even after switching to fixed mode. Existing drafts, templates, and queued recipes retain their own settings; older uncapped recipes receive the 2,000-epoch limit when prepared for a new run. The mode, threshold, and epoch limit are fixed for the entire run.
 
 Choose **Fast** for earlier stopping, **Balanced** for a middle ground, or **Obsessive** for longer observation of smaller improvements. The safety limit is a maximum total epoch count and replaces the preset's epoch target in auto mode. The card's progress bar shows the percentage of that limit used; convergence can finish the run earlier. Optimizer and learning-rate settings are unchanged. Historical uncapped run records retain their original settings.
@@ -28,6 +32,8 @@ The job editor orders Training settings as **Preset**, **Packed models** when av
 Every newly started run observes all three levels, even in fixed mode. The training card on Jobs and Dashboard shows the highest level reached and its first qualifying epoch. That is historical evidence of a plateau; training can continue improving afterward. Hovering a level indicates whether it currently qualifies. Fixed mode only observes and never stops because a convergence level was reached.
 
 Auto-convergence runs include their selected threshold in the epoch headline, for example **Epoch 645 of 2000 (Auto convergence · Balanced)**. Every control in the editor's Training section has an explanatory tooltip, including preset and packed-model choices, latency modes and delay, both training modes, convergence thresholds, and epoch limits. Hovering Fast, Balanced, or Obsessive explains its stopping tradeoff. The auto-alignment explanation appears as a tooltip on **Auto-align** rather than below the latency controls.
+
+Successful convergence stops show the actual completed epoch in the card's status line, for example **Auto-stopped at epoch 413 · Fast · model saved**. This uses the trainer's final completed-epoch count, rather than the safety limit or the best checkpoint's epoch.
 
 The card's existing **Show Details** section groups the read-only mode and convergence status in the bordered Preset box alongside latency, epochs, checkpoints, and device information. Collapsed cards use no extra space for these details. Choose the mode, threshold, and limit before queueing the job; active runs cannot change those rules. **Save Snapshot** and the existing stop controls remain available.
 
