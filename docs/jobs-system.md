@@ -1,210 +1,258 @@
-# Jobs System
+# Jobs
 
-UI presentation follows the shared [UI style guide](ui-style-guide.md), including typography, controls, and responsive review requirements.
+A job pairs a training signal with the recording of that signal through your gear. You choose a [preset](presets-system.md), decide when training should stop, and tell NAM-BOT where to save the model.
 
-## Overview
+Use the [Setup guide](setup-guide.md) to connect your NAM environment first. This guide covers creating jobs, running batches, reading results, and recovering work after an interruption.
 
-NAM-BOT jobs are the runnable training units of the app. A job combines:
+## Train a capture
 
-- a preset reference for the base NAM training recipe
-- the paired input and output audio file paths used for the capture
-- a small set of run-specific overrides such as epochs and latency
-- optional NAM metadata that can be written back into the finished model
+1. Open **Jobs** and select **New Job**.
+2. Give the job a name. This also becomes the beginning of the exported `.nam` filename.
+3. Under **Input Audio**, choose the original signal you played through the gear. Use **Default** only when the capture was recorded with the bundled `v3_0_0.wav` signal. **Output Audio** is your recorded, re-amped signal.
+4. Choose a preset and review **Training**. The initial default is A2 Standard with Balanced auto convergence and a 2,000-epoch limit.
+5. Review **Model output**. Choose an output folder, filename options, and any reports you want saved with the model. Add model metadata if you want it embedded in the `.nam` file.
+6. Select **Save Job**. The job appears in Drafts. Select its **Queue** button when you are ready to train.
+7. When training succeeds, select **Open Folder** on the finished card to find the model. **Show Details** gives you ESR results, the training history, and links to individual files.
 
-Jobs are intentionally separate from presets.
+Queueing can start training immediately when the queue is idle and ready. Save a draft when you want to review the setup first.
 
-- presets define reusable training recipes
-- jobs define one specific training run
-- queue items freeze both the job and its complete preset at enqueue time so later edits do not mutate an already queued run
+## Drafts, queue, training, and finished runs
+
+The strip below the Jobs toolbar counts each section. Select a section to scroll to it.
+
+| Section | What you can do |
+| --- | --- |
+| Drafts | Edit, Queue, Copy, Create Batch, or Delete saved jobs. |
+| Queue | Reorder waiting jobs, return them to Drafts with Unqueue, or use one as a batch template. |
+| Training | Read progress, expand details or logs, save a snapshot, or stop the active run. |
+| Finished | Open successful results, inspect logs and metrics, save a report, create a draft, use a run as a template, or clear its history entry. |
+
+Jobs run one at a time. The **lowest visible queued job runs next**. Drafts follow the same order: **Queue All** submits them from bottom to top. Drag drafts or waiting queue entries to change their order. Preparing or active runs cannot be reordered.
+
+**Queue All** skips drafts missing a name, audio paths, or output folder and reports how many it skipped. It checks the selected drafts' training requirements before adding them, so an incompatible A2 preset does not leave half a batch queued. **Unqueue All** returns waiting jobs to editable drafts.
+
+**Search jobs** matches job and model names, batch labels, preset names, and audio paths. Search ignores case and surrounding spaces. Counts show the matching entries, while queue position numbers keep their original meaning. Clear search to re-enable drag ordering, Queue All, Unqueue All, and Clear Finished; individual job actions remain available. Creating, copying, or saving jobs clears search so the new drafts are visible.
+
+### What queueing freezes
+
+Queueing saves a complete copy of the job and its preset, including expert JSON, naming options, reports, metadata, and stopping rules. Later edits or deletion of the library preset cannot change that queued run, its displayed preset name, or its exports. The original draft leaves Drafts after the queued copy is saved.
+
+An editable draft still references a library preset. **Unqueue**, **Create Draft**, and runtime templates restore the saved job choices and preset ID; they do not restore the old preset into the library. If that preset has changed, the next queue operation uses its current recipe. If it is missing, choose a replacement explicitly. Duplicate a preset before experimenting when you want both recipes available.
+
+Backend settings are captured when preparation starts. Changes to [Settings](settings.md) during preparation or training apply to later runs.
+
+## Audio and latency
+
+You can type or paste audio paths, or use **Browse**. NAM-BOT accepts WAV, MP3, FLAC, AIFF, and AIF files in its pickers and drag-and-drop workflow; decoding depends on your NAM environment.
+
+**Default** input uses the bundled NAM V3 signal. **Save Default to Disk** exports a copy for making captures. **Custom** lets you select another original training signal. A custom file can still be a recognized NAM signal, such as V2, but the custom data split differs from the bundled V3 split. See [custom input splits](#custom-input-splits) before using a signal with its own validation layout.
+
+The first new job uses **Auto-align**. NAM-BOT asks NAM's standard-input analyzer to measure the delay before training. This works with recognized signals containing the expected timing marks, including NAM V2 and V3. If the analyzer cannot determine a delay, the job fails during preparation with an explanation.
+
+For an unrecognized or custom signal, select **Manual** and enter the known delay in samples. A value of `0` applies no latency correction. After a run starts, Show Details displays the latency mode and actual delay used. Logs include the alignment result and any warnings.
+
+If the preset fixes `data.common.delay` through an expert override, the latency controls are locked and auto-alignment is skipped. Edit or customize the preset to change that value.
 
 ## Training mode and convergence
 
-Mode selectors show **Auto convergence** first and **Fixed epochs** second. New jobs resolve defaults from the selected preset's optional stopping policy, then the last explicitly selected job settings. With neither available, they start with **Balanced auto convergence** and **2,000 maximum epochs**. Existing drafts and run history keep their original mode. The preset editor offers **Last used** to leave its stopping policy unset.
+An epoch is one pass through the training material. Validation ESR, or error-to-signal ratio, measures how closely the model matches the held-out recording; lower values mean a closer numerical fit.
 
-Changing a job's mode, threshold, limit, or fixed epoch count creates a per-job override. Switching presets retains that override; **Use preset** restores the selected preset's stopping settings and fixed epoch default. Choosing a preset alone does not change remembered user preferences. Preset policies are copied into new jobs rather than followed live, so later preset edits do not alter saved drafts, templates, or queued runs.
+| Mode | When the run finishes |
+| --- | --- |
+| Auto convergence | Every exported model meets the chosen convergence threshold, or the required Maximum epochs limit is reached. |
+| Fixed epochs | Training reaches the chosen epoch count. Convergence is still monitored, but does not stop the run. |
 
-**Fixed epochs** trains to the selected epoch target. **Auto convergence** stops when every exported model shows sufficiently little recent validation ESR improvement, or when its required safety limit is reached. The last selected mode, level, and safety limit become the defaults for the next new job, including jobs created from added audio files. The safety limit starts at **2,000 epochs** and remembers the user's last value even after switching to fixed mode. Existing drafts, templates, and queued recipes retain their own settings; older uncapped recipes receive the 2,000-epoch limit when prepared for a new run. The mode, threshold, and epoch limit are fixed for the entire run.
+Choose **Fast** for an earlier stop with more potential improvement left, **Balanced** for a longer observation period, or **Obsessive** to wait for smaller gains over a longer period. These settings judge recent ESR improvement. They do not guarantee a particular sound or that further training could never help.
 
-Choose **Fast** for earlier stopping, **Balanced** for a middle ground, or **Obsessive** for longer observation of smaller improvements. The safety limit is a maximum total epoch count and replaces the preset's epoch target in auto mode. The card's progress bar shows the percentage of that limit used; convergence can finish the run earlier. Optimizer and learning-rate settings are unchanged. Historical uncapped run records retain their original settings.
+Auto convergence requires a positive **Maximum epochs** value. This replaces the preset's fixed epoch target for that run. The progress bar shows how much of the safety limit has been used, so a run can finish successfully before it reaches 100%. Invalid or empty edits restore the last valid limit when you leave the field.
 
-The job editor orders Training settings as **Preset**, **Packed models** when available, **Latency**, and **Training mode**. Packed models and Training mode share a bordered controls panel with the field label outside the box. Training mode groups the mode buttons with either **Epochs**, or **Threshold** (Fast, Balanced, Obsessive) followed by **Maximum epochs**. The buttons keep the same labels when switching modes; the fixed epoch count is remembered and restored when Fixed epochs is selected. Maximum epochs is always visible and required in auto mode. An empty or invalid edit restores the last valid value when leaving the field. The Obsessive display name retains the existing highest-level thresholds and saved-setting compatibility.
+The **Convergence** value shows where convergence monitoring stands: gathering validation history, recent ESR improvement against the selected threshold, or confirmation progress such as `Below threshold · confirming 3/5`. The percentage is the largest relative best-ESR improvement or median trend across all exported models in the observation window. It is not a percent-complete estimate and can rise when training finds new gains. Hover the value for the window, stopping criteria, and previously reached levels. Older runs without numeric monitoring data show a text status. An automatic stop reports the actual completed epoch, such as `Auto-stopped at epoch 413 · Fast · model saved`.
 
-Every newly started run observes all three levels, even in fixed mode. The training card on Jobs and Dashboard shows the highest level reached and its first qualifying epoch. That is historical evidence of a plateau; training can continue improving afterward. Hovering a level indicates whether it currently qualifies. Fixed mode only observes and never stops because a convergence level was reached.
+The mode, threshold, and limit are fixed once the job is queued. Automatic completion uses the normal model export, metadata, naming, report, and queue-advance process. Monitoring errors remain visible and never count as convergence; the configured limit and manual stop controls still apply.
 
-Auto-convergence runs include their selected threshold in the epoch headline, for example **Epoch 645 of 2000 (Auto convergence · Balanced)**. Every control in the editor's Training section has an explanatory tooltip, including preset and packed-model choices, latency modes and delay, both training modes, convergence thresholds, and epoch limits. Hovering Fast, Balanced, or Obsessive explains its stopping tradeoff. The auto-alignment explanation appears as a tooltip on **Auto-align** rather than below the latency controls.
+### Which defaults win
 
-Successful convergence stops show the actual completed epoch in the card's status line, for example **Auto-stopped at epoch 413 · Fast · model saved**. This uses the trainer's final completed-epoch count, rather than the safety limit or the best checkpoint's epoch.
+1. A new job uses **Settings > Application > Default preset**. If that selection is unavailable, NAM-BOT tries A2 Standard, then the last-used visible preset, then the first visible preset.
+2. An explicit stopping policy in that preset supplies the mode, threshold, and limit. A preset set to **Last used** uses your remembered job choices. With no remembered choice, the fallback is Balanced auto convergence with 2,000 maximum epochs.
+3. Changing the job's mode, threshold, limit, or fixed epoch count creates a job override. Switching presets keeps that override. **Use preset** restores the selected preset's stopping defaults and fixed epoch count.
 
-The card's existing **Show Details** section groups the read-only mode and convergence status in the bordered Preset box alongside latency, epochs, checkpoints, and device information. Collapsed cards use no extra space for these details. Choose the mode, threshold, and limit before queueing the job; active runs cannot change those rules. **Save Snapshot** and the existing stop controls remain available.
+Choosing a preset alone does not change your remembered stopping preferences. Explicit mode, threshold, and limit changes do; the maximum is remembered even after switching to fixed mode. Fixed epoch counts come from the preset or the particular job. Saved drafts and templates keep their resolved stopping rules when a library preset is edited.
 
-The detector uses full-precision ESR, not rounded display values. These version-1 rules are identical on every installation:
+Expert `trainer.max_epochs` overrides lock the fixed epoch field. In auto mode, the job's Maximum epochs remains the effective safety limit. Older uncapped auto-convergence recipes receive a 2,000-epoch limit when prepared for a new run; historical records keep the original policy.
 
-| Level | Minimum validated epochs | Observation window | Relative improvement tolerance |
-| --- | ---: | ---: | ---: |
-| Fast | 100 | 50 | 2% |
-| Balanced | 150 | 75 | 1% |
-| Obsessive | 300 | 150 | 0.25% |
+### Choose packed model tiers
 
-For each model, compare best-so-far ESR before and after the window, and the median ESR in its older and newer halves. Both improvements must be below the level's tolerance for five consecutive observations, across all exported models. Increasing ESR counts as no improvement because exports use the best validated checkpoints. These tolerances are recent-progress thresholds, not bounds on future improvements or perceived sound quality. Obsessive does not guarantee that further gains are impossible.
+A Packed WaveNet model contains several submodels in one export. For presets with three or more tiers, **Packed models** lists the tiers available to this job. All start selected, and at least one must remain selected.
 
-The detector counts one final validation observation per completed training epoch, excludes sanity checks and duplicates, and requires a fresh complete window after invalid or incomplete measurements. When validation runs less frequently, observation windows take more training epochs.
+For example, Ultra 20 includes Lite, Full, Heavy, Ultra, and Mammoth. You can train a subset without making another preset. Changing presets resets the checklist to the new preset's full set. Auto convergence checks every selected model. See the [preset comparison](presets-system.md#choose-a-preset) for bundled and larger custom packs.
 
-An automatic stop completes through NAM's normal export process: save the best checkpoints, apply naming/metadata and extra-copy choices, generate selected reports, and advance the queue. Completion distinguishes convergence from a safety cap or fixed target. Reports capture the mode, detector version, starting policy, attainment, and stopping reason alongside export-time metrics. Monitoring errors remain visible; they do not count as convergence. Training can still end through a configured cap or manual controls.
+## Output folders, filenames, and metadata
 
-Thresholds do not learn from local training history and cannot be tuned per client. Future changes require an explicit versioned development change. Initial replay coverage uses anonymous ESR-only histories from two runs of the same A2 preset; it does not establish universal timing or accuracy across captures, architectures, or learning-rate schedules.
+### Choose a model destination
 
-## Goals
+| Output folder option | Destination |
+| --- | --- |
+| Settings Default | The Default Model Output Root configured in Settings. This option is unavailable when that setting is empty. |
+| Output audio folder | The folder containing this job's captured output audio. For a batch, each capture uses its own folder. |
+| Custom Folder | A separate folder chosen for this job. The last saved custom folder can be reused. |
 
-- Keep everyday job creation simple for users who just want to point at files and run training.
-- Support batch-oriented workflows through drafts, queueing, drag-and-drop creation, and retry.
-- Preserve enough run context to inspect output folders, logs, progress, and final artifacts.
-- Keep editable drafts separate from frozen queue items so the queue stays predictable.
+Without a remembered folder preference, a new job uses Settings Default if configured, otherwise the output audio folder. NAM normally creates a timestamped run folder within the chosen output root. The model stays in that subfolder alongside checkpoints, training logs, and selected reports.
 
-## User Experience
+For example, with **Output audio folder** selected and **Extra copy** enabled:
 
-### Jobs Page
+```text
+Capture folder/
+  Capture.wav
+  Capture.nam                 <- extra copy directly beside the WAV
+  Capture.training.html       <- companion report, if enabled
+  <timestamped run folder>/
+    Capture.nam               <- original model
+    Capture.training.html     <- companion report, if enabled
+    ... checkpoints and training logs ...
+```
 
-The Jobs screen is split into a few major states:
+Without Extra copy, the model and reports remain in the run subfolder. This is why the two options are useful together, even when the selected output root is the WAV's folder.
 
-- an editor for creating or editing one job
-- a drafts list for saved-but-not-yet-queued jobs
-- a queue section for waiting jobs
-- a training section for active runs
-- a finished section for completed, failed, and stopped runs
+The **workspace** is separate. NAM-BOT puts generated configs, control files, and the workspace terminal log under the Workspace Root from Settings, or its application-data fallback. Changing the model output folder does not move the workspace. In Show Details, **Output folder** and **Workspace** open the respective locations; **File > Open Workspace Folder** opens the workspace root.
 
-The fixed workspace command bar contains `Add audio files` and `New Job`. A compact strip counts Drafts, Queue, Training, and Finished; selecting a nonempty section scrolls to it. Drafts and runtime entries use compact rows with their existing actions and expanded details. Draft and queue drag ordering is unchanged.
+### Name the exported model
 
-The strip always includes `Search jobs`, even when there are no jobs. Search ignores case and surrounding whitespace and matches job/model names, batch labels, preset names, and input/output audio paths. Runtime preset names come from their frozen recipe. Counts reflect matching jobs; a no-results state and `Clear search` make recovery explicit. Filtering never changes queue order or its position labels. While a search is active, drag reordering and the global Queue All, Unqueue All, and Clear Finished actions are disabled; individual job actions remain available. Saving, copying, or importing drafts, or saving a batch, clears search so the new entries are visible.
+The filename begins with the job name. **Append preset name** and **Append final ESR** add optional suffixes in that order:
 
-`Add audio files` stays available when jobs already exist. Selecting one output file creates a draft; selecting multiple files opens the batch editor. Dropping files onto the Jobs workspace follows the same path.
+```text
+Job Name.nam
+Job Name - Preset Name.nam
+Job Name - Preset Name - ESR 0.0123.nam
+```
 
-Single-job and batch editors use the same fixed command bar for Save/Create Batch and Cancel, so these controls remain visible while fields scroll. Existing bottom form actions, validation, unsaved-change confirmations, and all audio, training, filename, and metadata fields remain available. At narrow widths, labels and controls stack.
+The preview applies filename sanitization and updates as you edit. It shows `ESR [pending]` until a result exists. Batch previews use each capture's name, not the shared batch label.
 
-When the page is empty, it invites the user to either:
+**Copy finished model and reports beside output WAV** adds a copy of the final model directly beside the capture, while keeping the normal model in the run's output subfolder. Selected reports accompany the copy; checkpoints and logs stay in the subfolder. If the extra-copy destination already contains that filename, NAM-BOT adds a numeric suffix. This option applies to final completion; a manually saved snapshot uses the destination you choose in its save dialog.
 
-- click `New Job`
-- drag output audio files onto the page to create drafts quickly
+### Add model metadata
 
-### Draft Jobs
+**Model Name** is the name embedded inside the `.nam` file and is independent of the filename. **Use Output Filename** beside Job Name or Model Name copies the capture's filename without its extension into that field.
 
-Draft jobs are editable saved jobs that have not been frozen into the queue yet.
+Metadata also includes Modeled By, gear make/model/type, tone type, and send/return levels in dBu. NAM-BOT adds the training date, validated ESR, and run attribution when exporting. A packed model records individual submodel ESR values as well as the primary ESR.
 
-- `New Job` opens an in-memory editor session first.
-- Saving a new job creates a backend draft through `jobs:createDraft`.
-- Saving an existing draft updates it through `jobs:saveDraft`.
-- Draft cards expose `Edit`, `Queue`, `Copy`, and `Delete`.
-- Draft, queue, training, and finished cards show the selected preset's architecture tag: `A2`, `A1`, or `CUSTOM`.
-- Draft cards also expose `Create Batch`, which uses that draft as a template for multiple output audio files.
-- Draft cards can be reordered by drag-and-drop. The lowest visible draft is the first draft used by `Queue All`.
-- `Queue All` enqueues every valid draft from bottom to top and skips drafts missing required fields.
-- While a draft is being queued, its Queue button changes to `Queueing...` and draft actions are disabled to prevent duplicate enqueue clicks.
-- Draft delete confirmation includes a `Don't show this again` option that bypasses future draft-delete confirmations on that device.
-- New jobs use **Settings → Application → Default preset** (initially A2 Packed WaveNet) and inherit that preset's epoch count. They remember the last-used output root mode, the last-used exported-model naming preferences, and a small set of low-risk reusable capture fields.
+## Branded training reports
 
-Drafts are where users can iterate safely before they commit a run to the queue.
+Under **Model output > Training reports**, enable either or both of:
 
-### Create Batch From A Draft Template
+- **Save training image (PNG)** for a shareable statistics card and ESR graph.
+- **Save interactive report (HTML)** for a single offline file with the graph, training recipe summary, metadata, timestamps, and checkpoint details.
 
-`Create Batch` opens a batch editor after output audio files are selected, then creates one new editable draft per selected output audio file when saved.
+Both options start off and remember your last choices. Copies, templates, batches, and queued runs preserve the job's report settings.
 
-The selected output filenames and full paths wrap rather than being clipped, with hover tooltips for their complete values. At narrow widths, each path moves below its filename.
+Selected reports accompany normal completion, **Save Snapshot**, and **Save & stop**. A final model's extra copy beside the capture also gets companion reports. Reports use the saved model's filename stem with `.training.png` or `.training.html`; automatic exports add a numeric suffix when a companion file already exists. A report failure shows a warning while leaving the saved model usable.
 
-- the selected draft is the explicit template source
-- queued and finished runtime cards can also be used as the explicit template source through `Create Batch` / `Use as Template`
-- shared template fields can be reviewed and edited once before the generated drafts are created
-- job name and NAM model name are regenerated from each output filename without its extension
-- if the batch editor's shared metadata model name is left blank, each generated model uses its output filename; if a shared metadata model name is typed, every generated draft uses that value
-- the template draft, generated drafts, and their later training/finished cards show a `Batch: <template name>` badge for traceability
-- generated drafts are still normal drafts and can be edited independently before queueing
-- all generated drafts are created through one idempotent `jobs:createDraftBatch` operation, so double submission or retry after an interrupted response does not create a partial or duplicate batch
+**Saved model ESR** describes the checkpoints actually exported. It can differ from the last measured ESR on the graph, and the best checkpoint for each packed submodel may come from a different epoch. Snapshot statistics are captured when the snapshot is exported, so later training does not rewrite them.
 
-Shared fields copied from the template include:
+The PNG is 1,000 pixels wide with height determined by its contents. HTML embeds its fonts, styles, scripts, and recorded data and works offline. Its chart supports the same inspection controls as the app. Dates use the viewer's local timezone. Reports record the starting stopping policy, convergence attainment, and finish reason where available. They omit terminal logs, local folder paths, private job notes, and raw config JSON; model identity and metadata remain part of the report.
 
-- selected preset
-- input audio mode and path
-- training overrides such as epochs and latency
-- final model filename options
-- NAM metadata such as modeled by, gear type, gear make, gear model, tone type, send level, and return level
-- notes
+Finished Jobs cards also have **Save Report**. Choose PNG or HTML and a destination; this does not change future job defaults. Failed, stopped, and older runs can report whatever evidence remains. If a saved snapshot is available, its captured evidence can be used. Otherwise checkpoint values are labeled **Best recorded ESR**, and missing measurements remain unavailable. Saved report links appear in the card's Artifacts section. Dashboard does not offer this manual export action.
 
-File-specific fields regenerated for each selected output file include:
+## Watch training
 
-- job name
-- NAM metadata model name
-- output audio path
-- output root directory when the template follows the training output file folder
+Collapsed cards show progress, the primary ESR, elapsed time, and state-specific information. NAM-BOT does not display a remaining-time estimate. **Show Details** opens training facts, the ESR comparison, history, and available artifacts.
 
-The batch badge is display-only. It does not create a locked group, and editing one generated draft does not update the others.
+For packed models, the largest exported tier supplies the headline ESR, filename ESR suffix, and primary training metadata when packed metrics are available. The comparison lists each tier separately. The aggregate sum of packed ESR values is not used as the headline.
 
-### Drag And Drop Draft Creation
+### Read the ESR chart
 
-The Jobs page supports dragging output audio files directly onto the main panel.
+The chart shows measured validation results, including temporary regressions. The summary of best checkpoints answers a different question: which measurements were best so far.
 
-- native pickers, batch selection, and drag-and-drop all accept `.wav`, `.mp3`, `.flac`, `.aiff`, and `.aif`; decoding still depends on the selected NAM environment (NAM 0.13 uses wavio with a librosa fallback)
-- dropping or selecting one output file creates one draft directly
-- dropping or selecting multiple output files opens the batch editor before any drafts are created
-- the draft name defaults to the output filename without extension
-- the NAM model name defaults to the output filename without extension
-- the output root defaults to the dropped file's directory
-- the input audio defaults to the bundled NAM training signal when available
-- the preset and epoch count come from **Settings → Application → Default preset**, for both single-file drafts and fresh batches; an unavailable selection falls back to A2 Packed WaveNet, then the last-used visible preset or the first visible preset
+- **All**, **100 epochs**, and **30 epochs** change the visible window. Recent windows follow training; the full history is retained.
+- Hover to inspect an epoch. Click or tap to pin it, and select **Return to latest** to follow new results again.
+- With the chart focused, use arrow keys for adjacent recorded epochs, Home for the first visible epoch, and End or Escape to return to latest.
+- Select a model in the legend to hide or show its curve.
 
-This is intended to speed up common “I already have my re-amped captures on disk” workflows.
+The vertical scale is logarithmic with decimal ESR labels. A true zero appears at the bottom with its exact value and an explanatory note. Early runs leave room for future epochs instead of stretching a single point across the plot. Empty space is not a measurement.
 
-### Job Editor
+Results appear after validation, normally once per epoch. If validation runs several times in one epoch, the last observation represents that epoch; epochs without validation have no point. History survives with finished, failed, and stopped runs. A new training attempt starts a new history, and older runs without recorded history show an empty state.
 
-The editor is used when:
+### Follow logs and open artifacts
 
-- creating a new job
-- editing an existing draft
+**Show Logs** follows new terminal output, including the final lines after a run ends. Scroll up to pause following; return to the bottom to resume. **Auto-scroll paused** describes the log view, not a paused trainer. Hiding and reopening logs retains the scroll position while the card stays mounted. The pane also supports keyboard scrolling.
 
-The editor includes:
+Artifacts include the workspace, output folder, terminal/run logs, model, latest exported snapshot, and reports when available. Folder links open the folder. File links reveal the file in its folder; hover to see its full path.
 
-- job name
-- input audio source
-- output audio path
-- output root directory mode
-- final model filename options
-- preset selection
-- training overrides for epochs and latency
-- NAM metadata fields for the final `.nam` artifact
+Finished cards show completion time in your local timezone; hover for the start time. A run only succeeds after NAM-BOT finds the final model and finishes result processing. **Completed with warnings** means a model was produced but an operation such as metadata, naming, copying, or reporting needs attention. Check the card and logs for the specific warning.
 
-The job editor uses a continuous property sheet organized into **Name & audio**, **Training**, **Model output**, and **Metadata**. A compact section navigation row smoothly scrolls to and focuses each heading without hiding fields or changing the draft. A muted gray highlight tracks the current section; reduced-motion preferences disable scroll animation. The fixed command strip keeps Save/Cancel available while scrolling.
+## Export during training and stop choices
 
-Labels and controls use consistent rows shared with the Preset editor and Settings. Metadata uses aligned pairs on wide windows and a single column in narrower workspaces. `Use Output Filename` sits beside its input, so it does not change the label or input baseline of neighboring fields. Preset details are available through a disclosure beside the preset control; numeric training controls stay compact. Section dividers retain a stronger outline than editable fields.
+In **Jobs**, **Save Snapshot** becomes available after the first validated checkpoint in a run started with live-export support. Choose a `.nam` destination. NAM-BOT exports the best validated checkpoint for each embedded model, briefly waiting at a safe training boundary, then continues training. **Latest exported snapshot** opens the most recent result.
 
-The editor shows `Save Job` buttons at both the top and bottom of the form.
+The suggested filename follows the run's frozen preset-name and ESR options and ends with a local timestamp, for example:
 
-- Save buttons stay neutral when the editor is clean.
-- Save buttons turn green only when the job has unsaved changes and the current editor state is valid to save.
-- `Use Output Filename` beside Job Name and Model Name copies the selected output audio filename stem into that field.
-- Clicking `Cancel` with unsaved edits opens a confirm dialog so the user can save, keep editing, or discard changes.
-- Choosing another app section from the sidebar or app menu while the editor has unsaved edits opens a discard warning before navigation.
-- Batch editors use the same navigation guard. `Keep Editing` retains both the selected files and shared edits.
-- Audio paths can be typed, pasted, or replaced through Browse. Only the bundled default input display is disabled.
-- Save and picker failures are shown in the editor, with the unsaved edits retained for retry. An unavailable preset must be explicitly replaced before saving or queueing a draft.
+```text
+My Amp - Studio - ESR 0.0123 - Snapshot 2026-09-19 14-32-08.nam
+```
 
-### Unsaved editor changes
+The ESR is the best reported checkpoint value when the dialog opens, rounded to four decimal places. Training can advance while you choose the destination. You can edit the name, and the dialog asks before replacing an existing file. Save & stop uses the same naming rules.
 
-Canceling a newly opened job does not prompt until the user changes a field or selects files. Default input audio and automatically resolved output directories do not count as edits. A shared snapshot function supplies the same check to editor Cancel and shell/menu navigation. Custom paths, selected modes, metadata, and training options remain protected; reverting fields to their original values restores the clean state. Batch file selections remain unsaved work and still require confirmation.
+**Stop** on a Jobs card opens these choices:
 
-### Input Audio Modes
+| Choice | Result |
+| --- | --- |
+| Save & stop | Exports the best validated model to your chosen destination, then requests a clean finish and normal final export. A successful run reports Finished early · model saved. Canceling the picker or an export failure leaves training running. |
+| Discard & stop | Ends training immediately without requesting a new export. Existing snapshots, checkpoints, logs, and history remain. |
+| Keep training | Closes the dialog and continues the run. |
 
-Input audio can be driven in two ways:
+Save Snapshot and Save & stop are unavailable before a checkpoint is exportable or while another export is pending. Expert `min_epochs` or `min_steps` settings can delay a clean finish. Use **Force Stop** if a waiting stop cannot finish; see [recovery](#recover-and-repeat-work) if termination is not confirmed.
 
-- `Default`
-  - uses the bundled NAM `v3_0_0.wav` training signal
-  - can optionally be exported to disk with `Save Default to Disk`
-  - generates the strict official-style V3 split where training stops 9 seconds before the end and validation uses the final 9 seconds
-- `Custom`
-  - lets the user browse to a specific input audio file
-  - treats the pair as user-managed training data rather than official V3-shaped data
-  - generates a generic split where training stops 10 seconds before the end and validation uses the final 10 seconds
-  - sets `data.common.require_input_pre_silence` to `null` so NAM does not reject continuous custom DIs that lack a silent boundary before validation
+These snapshot and three-choice controls belong to Jobs. Dashboard's Stop requests cancellation directly; open Jobs when you want to choose whether to save first.
 
-Custom input validation ESR is a local holdout metric for that specific pair and should not be treated as directly comparable to official V3 ESR unless the custom validation material is equivalent. Users can refine the generated split with a preset `Data JSON` expert override when a custom training signal has a known layout.
+## Create batches and reuse a setup
 
-For an older V2-style custom input, a useful override is:
+**Add audio files** and drag-and-drop use the same workflow. One capture creates a saved draft and immediately opens **Edit Job** for review. **Save Job** saves your changes; closing the editor leaves the original draft available. Queue it from Drafts when ready. Multiple captures open the batch editor so you can review shared choices before creating drafts. Fresh imports use your selected default preset and remembered input, output-folder, naming, report, and capture preferences. Model output explanations are available by hovering the labels and options.
+
+To reuse a particular setup, choose **Create Batch** on a draft or waiting job, or **Use as Template** on a finished run. Select the new captures, review the shared fields, and select **Create Batch**. Each result is an independent editable draft; nothing starts training yet.
+
+The batch preserves the template's preset selection, training and stopping settings, packed-tier choices, input signal, filename/report options, metadata, and notes. Each draft gets its own output audio path and a job name from that filename. If the output folder follows the capture, it follows each new file's folder. Otherwise all drafts keep the shared destination.
+
+Leave the batch's shared Model Name blank to use each filename as its embedded model name. Enter a shared Model Name if every export should carry the same value. The **Batch Label** identifies the group; it does not replace the individual job names. The source and generated jobs show a batch badge, but editing one never changes the others. Batch creation is saved as a single recoverable operation to avoid partial or duplicate batches after an interrupted response.
+
+### Remembered choices and unsaved edits
+
+New jobs reuse the last saved input mode/custom path, latency mode, manual delay, Modeled By, and send/return levels. A remembered Modeled By takes precedence over Default Author Name in Settings. Broader gear and tone metadata only carries across through an explicit copy or template.
+
+Output-folder mode and the custom folder are remembered when you save. Filename, extra-copy, and report checkboxes remember their choices. The [stopping defaults](#which-defaults-win) have their own precedence; selecting a different preset is not the same as changing your default preset in Settings.
+
+The editor's section buttons scroll between **Name & audio**, **Training**, **Model output**, and **Metadata** without hiding other fields. Save and Cancel remain at the top. Save Job is enabled when required fields are complete and there is work to save. An unavailable preset must be replaced explicitly.
+
+Cancel and navigation prompts protect changed fields and selected batch files. Automatic resolution of a default path does not count as an edit. Picker or save failures retain your edits for retry. An unsaved editor exists only in memory, so save a draft before closing the app. Draft deletion can be confirmed individually or use the remembered **Don't show this again** choice.
+
+## Recover and repeat work
+
+A2 jobs require NAM `0.13.0` or later. A confirmed older version blocks enqueue with upgrade guidance. If the selected environment's NAM version has not been confirmed, the job can wait in Queue with **Diagnostics needed**. Open [Diagnostics](diagnostics.md) and run **Re-check All**. Confirming a compatible version resumes a diagnostics-blocked queue during the same uninterrupted session.
+
+After restarting NAM-BOT, waiting jobs remain paused until you select **Resume Queue**. A run that was active at the interruption is marked failed because its training process is no longer attached. Review its logs and any remaining process before starting another attempt.
+
+If Force Stop cannot confirm termination, the run becomes failed and the queue stays paused. Check Task Manager or Activity Monitor and confirm the previous trainer has stopped before resuming. Adding jobs or running Diagnostics does not bypass this pause.
+
+Use **Create Draft** on a finished, failed, or stopped run to review its settings and train again. This creates a new attempt; it does not resume a checkpoint. The preset-library caveat under [what queueing freezes](#what-queueing-freezes) applies.
+
+| Work | What remains after closing or clearing |
+| --- | --- |
+| Unsaved editor | Lost when the app closes unless saved as a draft. |
+| Saved drafts | Stored for the next session and kept editable. |
+| Waiting jobs | Stored with frozen recipes; require Resume Queue after restart. |
+| Finished history | Stored with available metrics, logs, and artifact links until cleared. |
+| Exported models, reports, checkpoints, and logs | Kept on disk when you Clear a history entry or Clear Finished. |
+| Lifetime training statistics | Kept when history is cleared; see [Dashboard](dashboard.md). |
+
+Drafts and queue files retain backup copies. Transfers between Drafts and Queue save a recoverable copy before removing the source. Preset recovery notices appear in Jobs and Presets if a backup was needed or a recipe could not be read.
+
+While the queue is working, NAM-BOT asks the operating system to prevent sleep. On Windows this also keeps the display awake; on other platforms the display can sleep. The sleep blocker is released when training and queue handoff finish or the app exits.
+
+## Technical reference
+
+### Custom input splits
+
+The generated V3 configuration holds out the last nine seconds for validation. Custom input holds out the last ten seconds and sets `data.common.require_input_pre_silence` to `null`, which allows continuous custom signals without the official pre-validation silence. Both permit unequal audio lengths. Preset Data JSON can override the split when the signal has a known layout.
+
+For a V2-style custom input, use this split when it matches your capture layout:
 
 ```json
 {
@@ -218,511 +266,40 @@ For an older V2-style custom input, a useful override is:
 }
 ```
 
-### Output Root Modes
+ESR from a custom holdout describes that particular material. It is not directly comparable with V3 ESR unless the validation material is equivalent.
 
-The output root directory can be driven in three ways:
+### Convergence rules
 
-- `Settings Default`
-  - uses the `Default Model Output Root` from Settings when configured
-  - is the first-choice default for new drafts when no other output-root preference has been saved yet
-- `Output audio folder`
-  - follows the directory of the chosen output audio file
-  - becomes the fallback default when no Settings output root is configured
-- `Custom Folder`
-  - lets the user browse to a specific directory
-  - remembers the last custom folder path after the draft is saved
+Detector version 1 uses full-precision ESR and these fixed rules on every installation:
 
-### Model Output And Filename Preview
+| Level | Minimum validated epochs | Observation window | Relative improvement tolerance |
+| --- | ---: | ---: | ---: |
+| Fast | 100 | 50 | 2% |
+| Balanced | 150 | 75 | 1% |
+| Obsessive | 300 | 150 | 0.25% |
 
-The **Model output** section combines the output folder, file naming options, a live filename preview, and the optional extra copy. This replaces the nested `Final Model Filename` panel.
+For each exported model, both the change in best-so-far ESR across the window and the change between median ESR in its older/newer halves must fall below the tolerance. Every model must qualify for five consecutive observations. Increasing ESR counts as no improvement because export uses the best validated checkpoints.
 
-The final exported `.nam` filename always starts with the job name.
+The detector takes one final validation observation per completed epoch, excludes sanity checks and duplicates, and needs a fresh complete window after invalid or incomplete measurements. Less frequent validation makes those windows span more training epochs. The rules do not learn from local history or change the optimizer or learning-rate schedule. Initial replay coverage uses two histories of the same A2 preset, so it does not establish universal convergence timing across architectures and captures.
 
-- `Append preset name`
-  - adds the selected preset name after the job name
-- `Append final ESR`
-  - adds the best validation ESR after the preset segment when enabled, or directly after the job name when preset naming is off
-- `Also copy final model to output audio folder`
-  - keeps the finalized `.nam` in the training folder, then writes an additional copy beside the selected output audio file
+### Source and data formats
 
-The suffix order is fixed so filenames read consistently:
+The maintained TypeScript types are the complete schema reference. Use them instead of a copied JSON example when writing tools around NAM-BOT's files.
 
-- `Job Name`
-- `Job Name - Preset Name`
-- `Job Name - Preset Name - ESR 0.0123`
+| Topic | Source |
+| --- | --- |
+| `JobSpec`, `JobRuntimeState`, report flags, packed selections, and metadata | [Shared training types](../src/shared/training.ts) |
+| Editor defaults, stopping precedence, and batch copies | [Job editor session](../src/renderer/features/jobs/jobEditorSession.ts), [stopping preferences](../src/renderer/features/jobs/training-mode-preferences.ts), [template drafts](../src/renderer/features/jobs/jobTemplateDrafts.ts) |
+| Jobs actions, runtime cards, logs, and chart controls | [Jobs screen](../src/renderer/features/jobs/Jobs.tsx), [runtime card](../src/renderer/features/jobs/RuntimeCard.tsx), [ESR chart](../src/renderer/features/jobs/EsrHistoryChart.tsx) |
+| Data/model/learning config generation and expert precedence | [Config builder](../src/main/config/configBuilder.ts) |
+| Draft persistence and recoverable queue transfers | [Jobs IPC](../src/main/ipc/jobs.ts) |
+| Runtime states, process cancellation, output discovery, and finalization | [Queue manager](../src/main/jobs/queueManager.ts), [run directory resolver](../src/main/jobs/runDirectoryResolver.ts) |
+| Validation history and live export wrapper | [Training metrics script](../src/main/backend/training-metrics-script.ts), [history reader](../src/main/jobs/esr-history.ts), [training controls](../src/main/jobs/training-control.ts) |
+| Exact convergence implementation and replay checks | [Shared rules](../src/shared/convergence.ts), [detector](../src/main/backend/convergence-script.ts), [detector tests](../src/main/backend/convergence-script.test.ts) |
+| Exported metadata, snapshot evidence, and report contents | [Model metadata](../src/main/jobs/namModelMetadata.ts), [report data](../src/main/reports/report-data.ts), [report evidence](../src/main/reports/report-evidence.ts) |
 
-The preview includes `.nam`, updates when the job name, preset, or naming options change, and shares filename construction/sanitization with the main-process exporter. When ESR naming is enabled, it shows `ESR [pending]` until training supplies the real value; it never displays a made-up score. Batch mode previews each output audio filename separately rather than using the shared batch label. The embedded Model Name metadata is independent of the filename.
+Drafts live in `drafts.json`; queue and history records live in `queue.json` under the application's data directory. Generated `data.json`, `model.json`, `learning.json`, `stopping-policy.json`, and `esr-history.jsonl` belong to a run's workspace. The wrapper adds its Lightning callback around the installed `nam-full` entry point, records validation history, and handles `training-controls/` requests at safe boundaries. Snapshot export loads a separate CPU model, preserves normalization hooks, and keeps the live model, optimizer, and training random state intact.
 
-The preview describes the final model in the run's output folder. An additional copy beside the audio may receive a numeric collision suffix if that location already contains the filename.
+Older pending records without a frozen preset capture the available library recipe during recovery. If the recipe is missing, the run becomes a visible missing-preset failure. Old finished records may still have no recipe snapshot. Snapshot paths are tracked separately from final models, so an intermediate export cannot make an incomplete run appear successful.
 
-### Branded training reports
-
-The **Model output → Training reports** options independently enable **Save training image (PNG)** and **Save interactive report (HTML)**. Both start off and remember the last-used choice, just like filename options. Saving/copying jobs, using templates, creating batches, and retrying preserve these fields; queued runs retain their frozen choices.
-
-Selected reports accompany normal completion, **Save snapshot**, and **Save & stop**. The final model's optional extra copy beside the output audio receives companion reports too. Files use the actual model filename stem with `.training.png` or `.training.html`; existing companion files receive a numeric suffix rather than being overwritten automatically. A report failure produces a visible warning and does not invalidate the saved model or prevent Save & stop from finishing.
-
-The PNG is a 1,000-pixel-wide, app-style detail card with content-driven height containing identity, training facts, every submodel's **Saved model ESR**, and the complete ESR graph. The HTML adds the frozen training recipe, model metadata, timestamps, and best-checkpoint epochs. Dates and times use the viewer's local timezone and readable date/time format, matching finished run cards in Jobs and Dashboard; unavailable timestamps stay clearly labeled. Its graph has the same hover/tap, pinning, keyboard inspection, model toggles, and All/100/30 epoch windows as the application. Both use logarithmic ESR with decimal labels. Saved-model values describe the exported checkpoints, which may differ from the last measured values on the chart.
-
-The summary follows the expanded run card: bordered training facts and ESR panels sit side by side above the graph, stacking on phones. The HTML graph fits the available screen width. Both formats use the title-bar logo and a compact, subdued project footer; hovering or focusing the HTML logo plays the familiar color-flash and shake animation unless reduced motion is enabled.
-
-Reports include NAM-BOT branding. The PNG prints the project address; the HTML has one link to the NAM-BOT GitHub repository. HTML files embed their fonts, scripts, styles, and recorded data, so they work offline and can be shared as a single file. Reports omit terminal logs, local folder paths, private job notes, and raw configuration JSON.
-
-Finished Jobs cards provide **Save Report** to choose PNG or HTML and a destination. This action is not shown on the Dashboard and does not change defaults for future jobs. Failed, stopped, and older runs can export available statistics; missing history and metrics are explicitly unavailable. When no completed model remains, an available exported snapshot uses its own captured evidence; otherwise the report labels checkpoint values **Best recorded ESR** rather than claiming a saved model. Successful exports appear in the card's artifact links without a success notification. The button returns to its normal state after saving; failures and export warnings use the card's existing error area below the action rows.
-
-The trainer captures checkpoint-specific report evidence at snapshot export and training completion. The queue persists this evidence and report locations, so later training updates or restarts cannot silently change snapshot statistics. PNG capture runs in an isolated hidden renderer and adds no training dependency on a browser or graphics package in the Python environment.
-
-### Queue View
-
-Queued jobs appear in their own section.
-
-- queued items can be reordered by drag-and-drop
-- only queued and validating items are reorderable
-- `Unqueue All` restores waiting queue items back into drafts
-- individual queued jobs can also be unqueued one at a time
-
-The queue UI follows the same bottom-first execution model as drafts. The lowest visible queued job is the next item to move into Training, and drag-and-drop reordering preserves that logical order.
-
-After an app restart, pending jobs remain paused until **Resume Queue** is selected. Diagnostics-blocked cards show **Diagnostics needed** and a **Run Diagnostics** link. Confirming the NAM version automatically resumes those jobs during an uninterrupted session; an explicit restart or process-termination pause still requires Resume Queue.
-
-If Force Stop cannot confirm termination, the queue pauses persistently. Before resuming, check the system process manager and confirm the previous trainer has stopped. Enqueueing another job or re-running Diagnostics does not bypass that pause.
-
-- A2 jobs are preflighted before enqueue. If the selected NAM environment is confirmed older than `neural-amp-modeler` `0.13.0`, enqueue is blocked with an upgrade command.
-- If Diagnostics has not confirmed the selected NAM version yet, A2 jobs can be queued but pause as diagnostics-blocked queued items instead of failing. Run Diagnostics or `Re-check All` to confirm the environment; a valid NAM version resumes the queue automatically.
-- Batch enqueue preflights all selected drafts before adding any of them to the queue so partial A2 batch enqueue does not occur.
-- The A2 gate uses the NAM version already collected by Diagnostics so queueing drafts does not spawn new Python probes while another job is training.
-- The renderer shows an immediate queueing state while this preflight runs so validation does not look like a missed click.
-
-### Training View
-
-Active jobs appear in the training section.
-
-- active jobs surface stop and force-stop controls
-- terminal logs can be expanded and refresh incrementally while a job is active; the renderer keeps a bounded tail instead of repeatedly loading the entire file
-- while a run is active, elapsed time is measured from the start of the training run; remaining-time estimates are intentionally not shown because they proved unreliable across NAM training runs
-- expanded active-job details use a compact three-column layout: preset/training facts, ESR comparison, and artifact links
-
-### Finished View
-
-Completed, failed, and stopped jobs appear in the finished section.
-
-Finished cards show their completion date and time, even when collapsed, in the user's local timezone and date format. Hover the timestamp for the training start time. Older records without a timestamp show `Date unavailable`.
-
-- failed and stopped jobs can create a new editable draft so settings can be changed before queueing another pass
-- successful jobs can also create a new editable draft for another pass
-- successful result folders can be opened from the UI
-- finished cards can be used as templates for new editable drafts by selecting one or more new output audio files
-- terminal logs can be expanded after the run has finished
-- An already-open log refreshes its final tail when the job finishes or fails. Log-read errors appear in the log panel with retry guidance.
-- `Clear Finished` removes all finished runtime entries from the finished section
-- individual finished items can also be cleared from their card
-- expanded finished-job details use the same compact layout as active jobs, with artifact links instead of full path rows
-- across queue, training, and finished sections, collapsed runtime cards show status-specific quick stats:
-  - queued and validating cards show preset and planned epochs
-  - preparing cards show preset, detected device summary, and planned epochs
-  - running and stopping cards show progress/ESR plus elapsed time or stop mode details
-  - successful cards show preset, total runtime, and best ESR
-  - failed and canceled cards prioritize total runtime and failure or stop reason, with ESR when available
-
-For A2 Packed WaveNet jobs, NAM-BOT uses the highest-quality packed submodel as the primary ESR. With the default built-in A2 preset, that means A2 Full ESR is used for the headline runtime card, exported filename ESR suffix, and official `metadata.training.validation_esr` value. With the bundled A2 Heavy 12 preset, the `channels_12` Heavy submodel becomes the primary ESR because it is the highest-quality packed tier. Expanded details show all available packed submodel ESRs as a compact single-column comparison list from smallest to largest tier when NAM writes `packed_best.json`. NAM's aggregate packed ESR is not surfaced because it is a sum across submodels rather than the value most users compare against A1.
-
-Expanded active and finished cards show compact text links for available artifacts, including the workspace folder, output folder, workspace terminal log, saved run log, and model file. Hovering a link shows the full path. Folder links open directly; file links reveal the file in its folder. Links are job-scoped through IPC so the renderer only asks NAM-BOT to open known artifacts for that runtime entry.
-
-While the queue runner is processing training work, NAM-BOT starts Electron's system sleep blocker. Windows uses `prevent-display-sleep`, the strongest Electron blocker, to avoid system sleep during long batches and during handoff between queued jobs. Other platforms use `prevent-app-suspension`, which keeps the system active while still allowing the display to sleep. The blocker is released as soon as the queue runner is idle and no active training job remains, or when the app exits.
-
-## Job Schema
-
-Jobs use the `JobSpec` schema.
-
-```ts
-interface JobSpec {
-  id: string
-  name: string
-  createdAt: string
-  updatedAt: string
-  batchId?: string
-  batchSourceName?: string
-  presetId: string | null
-  appendPresetToModelFileName: boolean
-  appendEsrToModelFileName: boolean
-  copyFinalModelToOutputAudioFolder: boolean
-  inputAudioPath: string
-  inputAudioIsDefault: boolean
-  outputAudioPath: string
-  outputRootDir: string
-  outputRootDirIsDefault: boolean
-  metadata: {
-    name?: string
-    modeledBy?: string
-    gearType?: 'amp' | 'pedal' | 'pedal_amp' | 'amp_cab' | 'amp_pedal_cab' | 'preamp' | 'studio' | ''
-    gearMake?: string
-    gearModel?: string
-    toneType?: 'clean' | 'overdrive' | 'crunch' | 'hi_gain' | 'fuzz' | ''
-    inputLevelDbu?: number
-    outputLevelDbu?: number
-  }
-  trainingOverrides: {
-    epochs?: number
-    latencyMode?: 'manual' | 'auto'
-    latencySamples?: number
-    packedSubmodels?: Array<{
-      submodelIndex: number
-      submodelName?: string | null
-    }>
-  }
-  uiNotes?: string
-}
-```
-
-### Schema Notes
-
-- `presetId` links the run to a training preset rather than embedding the full recipe.
-- `inputAudioIsDefault` records whether the bundled default training signal is being used.
-- `outputRootDirIsDefault` tracks whether the root is following an automatic mode versus a custom folder choice.
-- `trainingOverrides` are intentionally narrow. Jobs override only the fields that need run-specific flexibility.
-- `trainingOverrides.packedSubmodels` is optional. When omitted, A2 Packed WaveNet jobs train every submodel declared by the selected preset. When present, NAM-BOT filters `model.net.config.submodels` by submodel index and name before writing `model.json`.
-- `metadata` is for NAM artifact tagging, not for configuring the core training recipe.
-- After a successful export, NAM-BOT also writes back metadata it can derive reliably. It updates `metadata.date`, writes the final validation ESR to `metadata.training.validation_esr`, and writes NAM-BOT-specific traceability under `metadata.nam_bot`.
-- For packed A2 exports, `metadata.training.validation_esr` uses the highest-quality packed submodel ESR when packed submodel metrics are available. With the default built-in A2 preset this is A2 Full; with the bundled A2 Heavy 12 preset this is A2 Heavy. Per-submodel ESRs are written under `metadata.nam_bot.packed_submodels` because NAM's official training metadata schema currently exposes only one `validation_esr` field.
-- `metadata.nam_bot` is intentionally outside the official NAM `metadata.training` object so custom fields do not interfere with plugin parsers that expect the NAM Trainer schema. Current NAM-BOT fields are `trained_epochs`, `preset_name`, `manual_latency_samples`, and `auto_latency_samples`.
-- Older models that still contain NAM-BOT traceability under `metadata.training.nam_bot` are treated as legacy-compatible input if NAM-BOT rewrites metadata again; those values are migrated into `metadata.nam_bot` rather than preserved inside `metadata.training`.
-- `appendPresetToModelFileName` controls whether the exported `.nam` file includes the selected preset name after the job name.
-- `appendEsrToModelFileName` controls whether the exported `.nam` file includes the best validation ESR after training finishes.
-- `copyFinalModelToOutputAudioFolder` keeps the normal training-folder model and publishes an additional finalized copy into the directory containing `outputAudioPath`.
-- `batchId` and `batchSourceName` are optional display-only traceability fields for drafts and runtime cards created from the same batch/template flow.
-- New jobs seed filename and final-copy options from the user's most recent checkbox choices in the job editor.
-
-## Runtime State
-
-### Live ESR History
-
-Expanded training and finished job cards include an **ESR over time** chart. Each embedded model has its own neon-colored curve and friendly tier label, with matching colors in the ESR summary. The chart uses NAM-BOT's dark panels, pixel typography, thin grid, and square controls; non-packed models have a single curve.
-
-- The horizontal axis shows one-based epochs. The vertical axis shows validation ESR in decimal notation; lower is better.
-- `All` reserves at least 20 epoch positions, leaving room to the right during the first few validations instead of stretching one or two samples across the plot. After that it expands with the recorded history. The 30- and 100-epoch views retain their full selected span, including when only a few measurements exist. Empty space adds no synthetic measurements, and inspection still selects only recorded epochs.
-- Curves show actual validation results, including regressions, rather than the running best checkpoint value shown in the ESR summary.
-- Hover over the chart to inspect exact values; leaving the chart returns to the latest result. Click or tap the chart to pin an epoch, then use `Return to latest` to resume following new results. The readout directly above the model values identifies their epoch and whether it is pinned or latest. A pinned epoch stays selected while it remains in the chosen viewing window.
-- Focus the chart and use arrow keys to inspect and pin adjacent recorded epochs, Home for the first visible epoch, or End/Escape to return to latest. Click a model in the legend to hide/show its curve.
-- The chart always uses a logarithmic ESR scale with ordinary decimal labels. `All`, `100 epochs`, and `30 epochs` select the visible epoch window; recent windows follow training live and rescale the ESR axis to their visible values. The full history is retained. A true zero ESR is placed at the bottom of the log plot, with an explicit note and its exact value in the legend.
-- Updates arrive after validation completes, normally once per epoch, on the existing two-second artifact poll. If an expert preset validates multiple times per epoch, the latest validation step represents that epoch. Epochs without validation have no measurement.
-- History stays with completed, failed, and stopped runs and survives app restarts. Older runs without recorded history show an explicit empty state; a retry starts a fresh history.
-
-NAM-BOT launches the installed `nam-full` entry point through a workspace-local Python wrapper. It adds a Lightning callback to NAM's existing callbacks and records `ESR_packed_<index>` (or `ESR` for non-packed models) at `on_validation_end` into `esr-history.jsonl` in that run's workspace. Names come from the generated model config, so a selected subset of embedded models is labeled correctly. Initial sanity-check validation and non-primary distributed workers are excluded. A metrics-capture error disables collection with a terminal message while allowing training to continue.
-
-The queue tails complete JSONL records incrementally and persists validated `esrHistory` entries with the runtime. This captures every validation epoch rather than reconstructing history from best-checkpoint files, which may be overwritten or removed during training.
-
-### Terminal Log View
-
-`Show Logs` opens the same terminal viewer in Jobs and on the Dashboard. It follows new output by default, including the final log update when training ends. Scrolling up pauses following while new lines continue to load; reaching the bottom resumes following automatically. A compact **Auto-scroll active** / **Auto-scroll paused** label identifies the log-view state separately from training, with no toggle. The paused position is retained while that job card stays mounted, including when its logs are hidden and reopened. Only the log pane scrolls, so following output does not move the surrounding page. The log pane is keyboard-focusable for manual scrolling.
-
-### Export During Training And Stop Choices
-
-Active jobs expose `Save Snapshot` after a validated checkpoint is available. Choose a `.nam` destination in the save dialog; NAM-BOT exports the best validated checkpoint for each embedded model, which may come from different epochs. Training briefly waits at a safe batch boundary while a separate CPU-loaded snapshot is exported, then continues automatically. The live model, optimizer state, and training RNG remain intact, and dataset normalization compensation is preserved. `Latest exported snapshot` in Artifacts opens the most recently saved snapshot.
-
-The suggested filename honors the current run's frozen naming checkboxes: preset name first, then ESR (four decimal places) when selected and available. It ends with `Snapshot YYYY-MM-DD HH-mm-ss` in local time, for example `My Amp - Studio - ESR 0.0123 - Snapshot 2026-09-19 14-32-08.nam`. The ESR is the best reported checkpoint value when the save dialog opens; training can advance while the dialog remains open. The name stays editable, and the dialog asks before replacing an existing file. Save & stop uses the same naming rules. Later edits to a draft or library preset do not change the run's naming settings.
-
-`Stop` opens a dialog with three choices:
-
-- **Save & stop:** save the best validated model to the chosen destination first, then ask the trainer to finish cleanly. The run completes successfully with a `Finished early · model saved` status and its normal final export. Canceling the save picker or an export failure leaves training running.
-- **Discard & stop:** stop the process immediately without requesting a new export. Previously exported snapshots, saved checkpoints, logs, and ESR history remain on disk.
-- **Keep training:** dismiss the dialog and continue.
-
-Export and Save & stop require a new run started with the control-capable wrapper, and are unavailable before the first best checkpoint or while another export is pending. A waiting finish can be force-stopped using the existing emergency action. Expert `min_epochs`/`min_steps` settings can delay a normal finish request until the trainer's minimum is satisfied.
-
-The wrapper handles workspace-local requests under `training-controls/` on the training thread, avoiding checkpoint read/write races. Export commands load a separate CPU model and copy its existing normalization export hooks. Once a complete model is returned, the main process adds user metadata and attribution from the run's frozen preset, then atomically saves the requested file. Editing or deleting the library preset cannot change snapshot attribution or prevent export. Snapshot paths are tracked in `modelExports` and excluded from final-model discovery so a snapshot cannot falsely make an incomplete run appear successful.
-
-Automatic stopping uses the same clean-finish and export mechanisms. See [training mode and convergence](#training-mode-and-convergence) for thresholds, fixed run settings, and handling of multiple submodels.
-
-### Runtime Fields
-
-Queued and finished runs use a separate runtime object, `JobRuntimeState`.
-
-Important runtime fields include:
-
-- `jobId`, `jobName`, and `status`
-- `frozenJob` for the exact job snapshot that was queued
-- `frozenPreset` for the complete training recipe and preset attribution captured at enqueue time
-- `completionWarnings` for nonfatal model-renaming, metadata, or copy failures, displayed on the finished card and written to the terminal log
-- timestamps such as `queuedAt`, `startedAt`, and `finishedAt`
-- progress fields such as `plannedEpochs` and `currentEpoch`
-- resolved paths such as workspace, run directory, generated configs, logs, and published model output
-- terminal progress summaries, checkpoint summaries, device summaries, and user-facing messages
-
-For queued runs that share the same output root:
-
-- NAM-BOT binds each active run to the timestamped output folder whose folder name time matches that run's start window
-- root-level fallback is only used when fresh training artifacts exist directly in the output root itself
-- NAM-BOT snapshots pre-existing artifacts before launch and ignores unchanged files from that baseline, including recent root-level models
-- this keeps each queued job's log, ESR tracking, and final `.nam` artifact bound to the correct training run even when previous run folders are touched during finalization
-- failed and canceled runs may retain logs, checkpoints, and explicitly exported snapshots, but only a successful run with a final `.nam` file can automatically rename, enrich, copy, or publish the trainer's final model
-
-### Job Status Values
-
-Jobs move through these statuses:
-
-- `draft`
-- `queued`
-- `validating`
-- `preparing`
-- `running`
-- `stopping`
-- `finalizing`
-- `succeeded`
-- `failed`
-- `canceled`
-
-Stop requests use two modes:
-
-- `graceful`
-- `force`
-
-Stop and application-quit requests cover the complete run lifecycle. During `preparing`, NAM-BOT cancels latency, Lightning, Torch, and other environment subprocesses; after the training PTY starts, the same request controls the full training process tree.
-
-Force Stop always moves the job to a terminal state after the operating-system kill attempt. A confirmed process-tree termination becomes `canceled`; if termination cannot be confirmed, the job becomes `failed` and the queue pauses until the user confirms recovery. Late events from a finished process cannot affect a newer active job.
-
-A zero trainer exit code first enters `finalizing`, including after Save & stop. NAM-BOT verifies that a final model exists and completes naming, metadata, and optional copying before reporting success or sending a completion notification. Nonfatal result-processing failures show **Completed with warnings**.
-
-Each run also captures one immutable backend-settings snapshot before preparation. Settings changes made while a job is preparing or running apply to later jobs, not the active run.
-
-## What The Editor Fields Drive
-
-The friendly job editor fields map to concrete training behavior.
-
-- `Job Name`
-  - labels the draft and queue item in the UI
-- `Input Audio`
-  - points to the dry training signal used by the run
-- `Output Audio`
-  - points to the re-amped capture that NAM is learning from
-- `Output Root Directory`
-  - controls where the run workspace and artifacts are written
-- `Preset`
-  - selects the base training recipe
-- `Epochs`
-  - overrides the preset default unless the preset locks that field
-- `Latency / Delay`
-  - supports `Manual` and `Auto-align`
-  - `Manual` writes the entered value to `data.common.delay` for `nam-full`
-  - manual `0` means no latency correction and no auto calculation
-  - `Auto-align` runs NAM's standard-input latency analyzer before training, then writes the calculated value to `data.common.delay`
-- `NAM Metadata`
-  - is written back into the final `.nam` file after a successful run
-
-If a selected preset locks epochs or latency through expert config, the job editor shows those fields as read-only with their effective values. Planned epochs and progress also use the effective learning config. Explicit expert accelerator and device settings are retained; automatic device detection applies to `accelerator: "auto"`.
-
-### Latency Auto-Alignment
-
-NAM-BOT's auto-align path intentionally reuses the latency analyzer from the official NAM GUI trainer rather than maintaining a separate DSP implementation.
-
-- auto-align detects the standard NAM input version through NAM itself
-- recognized NAM training DIs with built-in ticks, including v2 and v3, can be analyzed because NAM stores separate tick-location data for each version
-- custom or unrecognized input files may fail auto-align and should use manual latency instead
-- if NAM cannot calculate a recommended delay, the job fails before training starts so the user can switch to `Manual` and enter a known value
-- expanded training cards show compact latency details beside the preset details: `Latency` (`Manual` or `Auto-align`) and the actual `Delay` used for the run
-- terminal logs include NAM-BOT preflight annotations for manual delay, auto-align start, auto-align result, warnings, and the handoff into `nam-full`
-
-This is a preflight step because `nam-full` expects a concrete `data.common.delay` value. NAM-BOT calculates that value first, then launches `nam-full` with ordinary config files.
-
-When changing presets, the job editor adopts the next preset's epoch default only if the current epoch value still matches the previous preset default. Manually customized epoch values are preserved across preset changes.
-
-For Packed WaveNet presets with three or more submodels, the job editor shows an advanced packed-submodel checklist next to the preset selector. Every tier is selected by default. Deselecting tiers stores a job-level `packedSubmodels` override, which lets experimental presets such as Heavy or Ultra packs train only a subset of their declared submodels without creating another preset.
-
-## Queue Lifecycle
-
-The normal job lifecycle is:
-
-1. create or edit an in-memory job editor session
-2. save it into the draft list
-3. enqueue one or more drafts
-4. freeze the draft into a queue item with a new task id
-5. run validation, preparation, and training
-6. inspect logs, output folders, and final artifacts
-7. optionally retry, clear, or unqueue depending on state
-
-### Freeze-On-Enqueue
-
-When a draft is enqueued:
-
-- the draft is cloned
-- a new queue/task id is assigned
-- the queue item stores that cloned `frozenJob`
-- the queue item also stores a cloned `frozenPreset`, including its name, values, and expert overrides
-- the original editable draft is removed from the drafts list
-
-This prevents a user from accidentally changing the meaning of an already queued run.
-
-Editing or deleting the library preset does not change that run, its displayed attribution, or exported filename/metadata. Older pending records without a preset snapshot capture the available recipe during recovery; if it is unavailable, they become a visible missing-preset failure rather than silently using A2 defaults. Older finished history may still lack a recipe snapshot.
-
-Queue persistence completes before the draft is removed. A small recovery marker bridges the queue and draft files so a crash between those writes cannot delete the only durable copy of a job.
-
-Unqueue and Unqueue All use a recovery marker in the other direction: restored drafts are persisted before removing queue entries. A failed write leaves a durable queue copy, and the transfer can finish on restart.
-
-### A2 Version Gate
-
-NAM-BOT now defaults to local A2 training through the `a2-packed-wavenet` preset. A2 requires `neural-amp-modeler>=0.13.0` because earlier local `nam-full` installs do not include the required PackedWaveNet training path.
-
-- enqueue checks the selected preset's architecture tag before freezing the job
-- A2 jobs compare the Diagnostics-detected NAM version to `0.13.0`
-- the same A2 gate runs again before training starts, using the known Diagnostics version rather than launching another version probe
-- A1 and custom presets are not blocked by this A2-specific minimum version gate
-
-### Unqueue And Finished Drafts
-
-- `Unqueue` restores a queued item back into drafts.
-- `Unqueue All` restores every waiting queue item back into drafts.
-- `Create Draft` copies a finished run into Drafts so the user can tweak settings before queueing another pass. This is the primary recovery action for failed and stopped jobs.
-- `Clear Finished` removes finished history items from the queue manager view.
-- `Use as Template` on a finished history item opens the batch file picker and creates new editable drafts from that frozen run's settings without immediately queueing them.
-
-## Persistence
-
-### Draft Storage
-
-Saved draft jobs are persisted in the Electron user data folder:
-
-- Windows: `%APPDATA%\\NAM-BOT\\drafts.json`
-
-This file stores the editable draft list, not the currently open unsaved editor session.
-
-Draft and queue JSON files use atomic replacement and retain a `.bak` recovery copy. Preset, Settings, and update-status persistence use the same storage primitive.
-
-### Queue Storage
-
-Queue runtime state is persisted separately:
-
-- Windows: `%APPDATA%\\NAM-BOT\\queue.json`
-
-This is handled by the queue manager and represents queued, active, and historical runtime items rather than editable drafts.
-
-High-volume terminal progress is coalesced before queue state is written or sent to the renderer. Job progress events are emitted at most four times per second and queue persistence is limited to once per second, while terminal states and explicit queue operations are still persisted immediately.
-
-### Editor Session Persistence
-
-The open job editor session is renderer-memory only.
-
-- switching to another section with unsaved edits prompts before discarding the open editor session
-- batch file selections and shared edits participate in the same guard
-- canceling that prompt keeps the user on the editor with the in-progress state intact
-- the renderer session includes form values, selected preset, input mode, output-root mode, and validation visibility
-- closing the app still discards an unsaved editor session that was never saved as a draft
-
-## IPC And Process Boundaries
-
-The Jobs feature spans the renderer and Electron main process.
-
-### Renderer Responsibilities
-
-- display drafts, queue items, logs, and editor state
-- hold the unsaved editor session
-- validate required fields for save and queue affordances
-- react to queue-update and job-update events
-
-### Main Process Responsibilities
-
-- persist saved drafts
-- open audio pickers and result folders
-- manage queue operations such as enqueue, unqueue, retry, reorder, and clear
-- resolve the bundled default training signal path
-- launch and monitor actual training work through the queue manager
-
-Important IPC handlers include:
-
-- `jobs:createDraft`
-- `jobs:saveDraft`
-- `jobs:deleteDraft`
-- `jobs:listDrafts`
-- `jobs:reorderDrafts`
-- `jobs:enqueue`
-- `jobs:enqueueMany`
-- `jobs:unqueue`
-- `jobs:unqueueAll`
-- `jobs:retry`
-- `jobs:reorder`
-- `jobs:listQueue`
-- `jobs:openResultFolder`
-- `jobs:chooseAudioFile`
-- `jobs:getDefaultInputAudioPath`
-- `jobs:saveDefaultAudioTo`
-
-## Relationship To Presets
-
-Jobs depend on presets but should stay smaller and more tactical than presets.
-
-- presets define the base architecture and training recipe
-- jobs point at one preset and override only a few run-specific fields
-- the default A2 preset keeps new-job creation aligned with the current NAM training path
-- preset locking rules can make job fields read-only when the preset explicitly owns them
-
-This separation keeps:
-
-- job creation fast
-- preset reuse consistent
-- queue behavior predictable
-
-## Example Draft Job
-
-```json
-{
-  "id": "8f32d3e2-5d2d-4f44-a7fd-d7ac1f1f4c55",
-  "name": "JCM800 SM57 Edge",
-  "createdAt": "2026-03-12T20:10:00.000Z",
-  "updatedAt": "2026-03-12T20:14:00.000Z",
-  "presetId": "a2-packed-wavenet",
-  "tags": [],
-  "inputAudioPath": "C:\\Users\\dave\\AppData\\Local\\Programs\\NAM-BOT\\resources\\v3_0_0.wav",
-  "inputAudioIsDefault": true,
-  "outputAudioPath": "D:\\Captures\\JCM800\\edge-of-breakup.wav",
-  "outputRootDir": "D:\\Captures\\JCM800",
-  "outputRootDirIsDefault": true,
-  "metadata": {
-    "name": "JCM800 Edge",
-    "modeledBy": "Dave",
-    "gearType": "amp",
-    "gearMake": "Marshall",
-    "gearModel": "JCM800",
-    "toneType": "crunch",
-    "inputLevelDbu": 4,
-    "outputLevelDbu": -10
-  },
-  "trainingOverrides": {
-    "epochs": 100,
-    "latencyMode": "auto",
-    "latencySamples": 0
-  }
-}
-```
-
-## Current Defaults
-
-Current built-in job defaults are aligned with the default A2 Packed WaveNet preset path.
-
-- job name starts as `New Job`
-- preset defaults to `a2-packed-wavenet`
-- input audio defaults to the bundled NAM v3 training signal
-- epochs default to the preset epoch default
-- latency mode defaults to `Auto-align` for the first new job
-- after saving a job, future new drafts reuse the last saved `Manual` or `Auto-align` latency mode
-- manual latency samples reuse the most recently saved manual value
-- output root defaults to `Settings Default` when `Default Model Output Root` is configured
-- otherwise output root defaults to the training output file folder
-- once the user saves a different output-root mode, future new drafts reuse that preference
-- custom input audio mode/path, latency mode, manual latency, modeled by, send level, and return level reuse the most recently saved job values
-- broader NAM metadata is not silently copied from the previous job unless the user explicitly uses a draft as a batch template
-
-## Future Extensions
-
-Likely future additions to the jobs system:
-
-- multi-select draft and history management
-- more explicit draft tagging or grouping
-- draft import/export
-- stronger run templates for repeated capture workflows
-- deeper queue filtering and history views
-- richer validation around file pairing and sample-rate mismatches
-
-The Jobs system should continue to favor a clear split between:
-
-- unsaved renderer editor state
-- persisted editable drafts
-- frozen queue/runtime records
-
-That separation is what keeps both the editing flow and the queue behavior understandable.
+Per-model export metadata belongs under `metadata.nam_bot.packed_submodels`; NAM-BOT's epoch, preset, and latency attribution belongs under `metadata.nam_bot`. The primary ESR remains `metadata.training.validation_esr`. Legacy `metadata.training.nam_bot` values are migrated when NAM-BOT rewrites that metadata.

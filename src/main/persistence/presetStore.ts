@@ -193,10 +193,26 @@ export function deleteTrainingPreset(presetId: string): void {
   }
 
   const target = getPresetFilePath(presetId)
-  if (existsSync(target)) {
-    unlinkSync(target)
+  const targets = new Set([target])
+  ensurePresetDirectory()
+  // Older imports kept their exported filenames instead of using the preset ID.
+  const fileNames = new Set(readdirSync(userPresetsPath, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && /\.json(?:\.bak)?$/i.test(entry.name))
+    .map((entry) => entry.name.replace(/\.bak$/i, '')))
+  for (const fileName of fileNames) {
+    const fullPath = join(userPresetsPath, fileName)
+    try {
+      const preset = normalizeTrainingPreset(readJsonWithBackupSync(fullPath))
+      if (!preset.builtIn && preset.id === presetId) {
+        targets.add(fullPath)
+      }
+    } catch {
+      // An unreadable, unrelated preset must not prevent deleting this one.
+    }
   }
-  if (existsSync(`${target}.bak`)) {
-    unlinkSync(`${target}.bak`)
+  for (const presetPath of targets) {
+    // Remove the backup first so it cannot restore a deleted primary file.
+    if (existsSync(`${presetPath}.bak`)) unlinkSync(`${presetPath}.bak`)
+    if (existsSync(presetPath)) unlinkSync(presetPath)
   }
 }

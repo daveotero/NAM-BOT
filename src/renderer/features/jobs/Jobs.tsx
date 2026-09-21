@@ -596,6 +596,7 @@ export default function Jobs() {
     if (createdJobs.length > 0) {
       setDrafts((prev) => [...prev, ...createdJobs])
       setSearch('')
+      setJobEditorSession(buildJobEditorSession('Edit Job', createdJobs[0], settings))
     }
   }
 
@@ -1036,7 +1037,7 @@ export default function Jobs() {
           <div className="drop-overlay">
             <div className="drop-zone-empty">
               <h3>Drop output audio files</h3>
-              <p>Release to create draft jobs from the files you dropped.</p>
+              <p>Release to review the job settings. Multiple files open the batch editor.</p>
             </div>
           </div>
         )}
@@ -1809,16 +1810,6 @@ function JobEditor({
                 <div className="job-mode-options"><div className="toggle-group job-mode-controls" role="group" aria-label="Latency mode">
                   <button
                     type="button"
-                    className={`btn btn-sm ${latencyMode === 'manual' ? 'btn-blue' : 'btn-secondary'}`}
-                    title="Use the delay you enter in samples to align the training signal and capture. Use 0 for no latency correction."
-                    disabled={latencyLocked}
-                    aria-pressed={latencyMode === 'manual'}
-                    onClick={() => updateLatencyMode('manual')}
-                  >
-                    Manual
-                  </button>
-                  <button
-                    type="button"
                     className={`btn btn-sm ${latencyMode === 'auto' ? 'btn-green' : 'btn-secondary'}`}
                     title="Analyzes the training signal before the run and applies the measured delay."
                     disabled={latencyLocked}
@@ -1826,6 +1817,16 @@ function JobEditor({
                     onClick={() => updateLatencyMode('auto')}
                   >
                     Auto-align
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn btn-sm ${latencyMode === 'manual' ? 'btn-blue' : 'btn-secondary'}`}
+                    title="Use the delay you enter in samples to align the training signal and capture. Use 0 for no latency correction."
+                    disabled={latencyLocked}
+                    aria-pressed={latencyMode === 'manual'}
+                    onClick={() => updateLatencyMode('manual')}
+                  >
+                    Manual
                   </button>
                 </div>
                   <input
@@ -1875,8 +1876,8 @@ function JobEditor({
           <section className="property-section" aria-labelledby="job-model-output-heading">
             <h2 id="job-model-output-heading" tabIndex={-1}>Model output</h2>
             <div className="property-row">
-              <label className="form-label" htmlFor="output-root-dir">
-                Output folder {showValidationErrors && !isRootDirValid && <span className="ui-text-secondary" style={{ color: 'var(--neon-magenta)' }}>(Required)</span>}
+              <label className="form-label" htmlFor="output-root-dir" title="Each run normally creates a timestamped subfolder here for its model, checkpoints, training logs, and selected reports. Extra copy also places the finished model directly beside the output WAV.">
+                Run output folder {showValidationErrors && !isRootDirValid && <span className="ui-text-secondary" style={{ color: 'var(--neon-magenta)' }}>(Required)</span>}
               </label>
               <div className="property-control">
                 {/* Toggle buttons */}
@@ -1911,7 +1912,7 @@ function JobEditor({
                   <button
                     type="button"
                     className={`btn btn-sm ${outputRootMode === 'output-audio' ? 'btn-blue' : 'btn-secondary'}`}
-                    title="Save exported models beside the captured output audio. Batch jobs use each capture's folder."
+                    title="Create the run's output subfolder inside the captured output audio's folder. Batch jobs use each capture's folder."
                     aria-pressed={outputRootMode === 'output-audio'}
                     onClick={() => {
                       const dir = getDirname(editedJob.outputAudioPath)
@@ -1931,7 +1932,7 @@ function JobEditor({
                   <button
                     type="button"
                     className={`btn btn-sm ${outputRootMode === 'custom' ? 'btn-blue' : 'btn-secondary'}`}
-                    title="Choose a separate destination for this job's exported models."
+                    title="Choose the parent folder for this run's model, checkpoints, and training logs."
                     aria-pressed={outputRootMode === 'custom'}
                     onClick={() => {
                       onSessionChange({
@@ -2031,16 +2032,15 @@ function JobEditor({
                     </label>
                   ))}
                 </div>
-                <p className="property-hint">Save branded statistics and ESR history beside each saved model, including snapshots and extra copies. HTML reports work offline.</p>
               </div>
             </div>
-            <div className="property-row">
+            <div className="property-row property-row-checkbox">
               <span className="form-label">Extra copy</span>
               <div className="property-control">
-                <label className="job-check-option" title="Also copy each saved model beside its captured output audio, including snapshots. This choice becomes the default for new jobs.">
+                <label className="job-check-option" title="Also copy the finished model and selected reports directly beside the output WAV, even when Output audio folder is selected above. The original model, checkpoints, and logs stay in the run subfolder. Snapshots use your chosen save location. Remembered for new jobs.">
                   <input
                     type="checkbox"
-                    title="Also copy each saved model beside its captured output audio, including snapshots. This choice becomes the default for new jobs."
+                    title="Also copy the finished model and selected reports directly beside the output WAV, even when Output audio folder is selected above. The original model, checkpoints, and logs stay in the run subfolder. Snapshots use your chosen save location. Remembered for new jobs."
                     checked={editedJob.copyFinalModelToOutputAudioFolder}
                     onChange={(event) => {
                       window.localStorage.setItem(
@@ -2056,7 +2056,7 @@ function JobEditor({
                       })
                     }}
                   />
-                  <span>Copy model to output audio folder</span>
+                  <span>Copy finished model and reports beside output WAV</span>
                 </label>
               </div>
             </div>

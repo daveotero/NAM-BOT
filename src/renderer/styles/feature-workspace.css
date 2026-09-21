@@ -208,6 +208,8 @@
 .reference-code-header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: 5px 10px; background: var(--surface-header); border: 1px solid var(--border-dim); border-bottom: 0; color: var(--text-steel); font: var(--text-badge) var(--font-arcade); text-transform: uppercase; }
 .reference-code { margin: 0; padding: var(--space-3); border: 1px solid var(--border-dim); background: var(--bg-void); color: var(--neon-green); font: var(--text-code)/var(--leading-code) var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; overflow-x: auto; }
 .guide-content { color: var(--text-ash); font-size: var(--text-body); line-height: 1.65; }
+.guide-content a { color: var(--neon-cyan); text-underline-offset: 2px; }
+.guide-content a:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 .guide-step-title { font: var(--text-heading) var(--font-arcade); color: var(--neon-cyan); margin: var(--space-6) 0 var(--space-2); }
 .setup-guide-workspace .guide-toggle-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: 10px; }
 .setup-guide-workspace .guide-toggle-btn { min-height: 120px; }

@@ -1,29 +1,19 @@
-# Security Policy
+# Security policy
 
-## Reporting A Vulnerability
+## Report a vulnerability
 
-Please do not open a public GitHub issue for security-sensitive problems.
+Please report security-sensitive problems privately to the maintainer instead of opening a public GitHub issue. Include:
 
-Instead, report the issue privately to the maintainer with:
-
-- A description of the problem
-- Steps to reproduce it
+- A description of the problem and steps to reproduce it
 - Affected versions, if known
-- Any proof-of-concept details needed to understand the risk
+- Any proof of concept needed to explain the risk
 
-If no private reporting channel is listed yet on the public repo profile, contact the maintainer through the primary project or personal site linked from the repository.
+If no private reporting channel is listed on the public repository profile, contact the maintainer through the primary project or personal site linked from the repository.
 
 ## Scope
 
-Security reports are especially helpful for issues involving:
-
-- Unsafe command execution
-- Path handling and filesystem access
-- IPC exposure between renderer and main
-- Packaging or installer trust concerns
-- Sensitive data exposure in logs or exported diagnostics
-- Unsafe Python backend dependency versions surfaced through NAM-BOT setup or diagnostics guidance
+Reports may concern command execution, path and filesystem handling, renderer-to-main IPC, packaging or installer trust, sensitive data in logs or diagnostics, or unsafe Python dependencies recommended by setup and diagnostics guidance.
 
 ## Disclosure
 
-Please allow time for investigation and a fix before sharing details publicly.
+Please allow time to investigate and fix the problem before sharing details publicly.

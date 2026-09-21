@@ -153,7 +153,8 @@ test.afterEach(async ({}, info) => {
 })
 
 async function assertSafeArea(): Promise<void> {
-  await expect.poll(async () => page.evaluate(() => {
+  const expectedZoom = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.getZoomFactor())
+  await expect.poll(async () => page.evaluate((zoom) => {
     const bar = document.querySelector('.app-title-bar')!
     const safe = document.querySelector('.app-title-bar-safe-area')!.getBoundingClientRect()
     const wordmark = document.querySelector('.app-title-bar-wordmark')!.getBoundingClientRect()
@@ -165,6 +166,9 @@ async function assertSafeArea(): Promise<void> {
     const platform = bar.getAttribute('data-platform')
     const divider = platform === 'win32' && !fullscreen ? Number.parseFloat(getComputedStyle(bar).borderBottomWidth) : 0
     return {
+      // A complete previous-zoom frame can satisfy every geometry check below.
+      // Wait for the renderer to match the native zoom used for screen coordinates.
+      zoom: Math.abs(scale * zoom - 1) < 0.001,
       fits: section.right <= safe.right + 1 && wordmark.left >= safe.left && section.left > wordmark.right,
       // Windows includes the native top resize border; rounding also varies by DPI.
       height: Math.abs((rect.height - divider) / scale - 44) <= 1.25,
@@ -173,7 +177,7 @@ async function assertSafeArea(): Promise<void> {
       windowsSafe: platform !== 'win32' || fullscreen || (window.innerWidth - safe.right) / scale >= 120,
       fullscreenSafe: !fullscreen || Math.abs(safe.width - window.innerWidth) < 2
     }
-  })).toEqual({ fits: true, height: true, below: true, macSafe: true, windowsSafe: true, fullscreenSafe: true })
+  }, expectedZoom)).toEqual({ zoom: true, fits: true, height: true, below: true, macSafe: true, windowsSafe: true, fullscreenSafe: true })
 }
 
 async function transitionNativeWindow(action: 'minimize' | 'restore' | 'maximize' | 'unmaximize'): Promise<void> {
@@ -437,6 +441,12 @@ test('saved default presets apply to dropped audio and new batches while templat
   }
   await chooseMenu('Navigate', 'Jobs')
   await dropAudio([output])
+  await expect(toolbar.getByRole('heading', { name: 'Edit Job', exact: true })).toBeVisible()
+  await expect(page.locator('#preset-select')).toHaveValue(preferred.id)
+  await expect(page.locator('#epochs')).toHaveValue('37')
+  await expect(toolbar.getByRole('button', { name: 'Save Job', exact: true })).toBeVisible()
+  expect(await page.evaluate(() => window.namBot.jobs.listQueue())).toEqual([])
+  await toolbar.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(page.locator('.draft-card h4')).toHaveText('Default capture')
   expect(await page.evaluate(() => window.namBot.jobs.listDrafts())).toEqual([
     expect.objectContaining({ presetId: preferred.id, outputAudioPath: output, trainingOverrides: expect.objectContaining({ epochs: 37 }) })
@@ -491,7 +501,7 @@ test('saved default presets apply to dropped audio and new batches while templat
   const preferredRow = page.locator('.preset-library-row').filter({ has: page.getByRole('heading', { name: preferred.name, exact: true }) })
   await preferredRow.getByRole('button', { name: 'Delete', exact: true }).click()
   const confirmation = page.getByRole('alertdialog')
-  await expect(confirmation).toContainText('A2 Packed WaveNet will become your default.')
+  await expect(confirmation).toContainText('A2 Standard will become your default.')
   await confirmation.getByRole('button', { name: 'Delete', exact: true }).click()
   await expect(preferredRow).toHaveCount(0)
   await expect.poll(() => page.evaluate(() => window.namBot.settings.get())).toMatchObject({ defaultPresetId: DEFAULT_PRESET_ID })
@@ -501,6 +511,9 @@ test('saved default presets apply to dropped audio and new batches while templat
   const fallbackOutput = join(dataPath, 'A2 fallback.wav')
   await writeFile(fallbackOutput, Buffer.alloc(44))
   await dropAudio([fallbackOutput])
+  await expect(toolbar.getByRole('heading', { name: 'Edit Job', exact: true })).toBeVisible()
+  await expect(page.locator('#preset-select')).toHaveValue(DEFAULT_PRESET_ID)
+  await toolbar.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(page.locator('.draft-card h4').filter({ hasText: 'A2 fallback' })).toHaveCount(1)
   expect(await page.evaluate(() => window.namBot.jobs.listDrafts())).toEqual(expect.arrayContaining([
     expect.objectContaining({ outputAudioPath: fallbackOutput, presetId: DEFAULT_PRESET_ID, trainingOverrides: expect.objectContaining({ epochs: getBuiltInPreset(DEFAULT_PRESET_ID).values.epochs }) })
@@ -602,6 +615,8 @@ test('convergence feedback stays read-only on Jobs and Dashboard at normal and n
   if (!auto.convergence) throw new Error('Missing convergence fixture')
   auto.convergence.policy = auto.frozenJob.stopping
   auto.convergence.originalEpochLimit = null
+  auto.convergence.levels = auto.convergence.levels.map(level => ({ ...level,
+    recentImprovement: level.level === 'thorough' ? 0.024 : 0.001, observationCount: 151 }))
   await app.evaluate(({ BrowserWindow, ipcMain }, current) => {
     ipcMain.removeHandler('jobs:listQueue')
     ipcMain.handle('jobs:listQueue', () => current)
@@ -615,15 +630,19 @@ test('convergence feedback stays read-only on Jobs and Dashboard at normal and n
       const panel = card.getByRole('region', { name: 'Convergence status', exact: true })
       await expect(panel).toHaveCount(0)
       await card.getByRole('button', { name: 'Show Details', exact: true }).click()
-      await expect(panel).toContainText('Balanced · epoch 645')
+      await expect(panel.locator('.runtime-detail-label')).toHaveText(['Mode', 'Convergence'])
+      await expect(panel.locator('.runtime-detail-fact')).toHaveCount(2)
+      await expect(panel.locator('[title]')).toHaveAttribute('title', /first reached at epoch 645/)
       await expect(panel.getByRole('button')).toHaveCount(0)
       await expect(panel.getByRole('spinbutton')).toHaveCount(0)
       await expect(card.getByRole('button', { name: 'Stop', exact: true })).toBeVisible()
       if (run === runtime) {
         await expect(panel).toContainText('Fixed epochs')
         await expect(panel).toContainText('Monitoring only')
+        await expect(panel).toContainText('Threshold confirmed · 5/5 checks')
       } else {
         await expect(panel).toContainText('Auto convergence · Obsessive')
+        await expect(panel).toContainText('2.40% recent improvement · target <0.25%')
         await expect(card.locator('.training-progress-group')).toBeVisible()
         await expect(card.locator('.training-progress-meta')).toHaveText('32% of safety limit')
       }
@@ -642,6 +661,9 @@ test('convergence feedback stays read-only on Jobs and Dashboard at normal and n
       }
       await expect.poll(() => page.locator('.workspace-content > .layout-main').evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
       await captureRenderer(info, `convergence-${view.toLowerCase()}-${width}-${zoom}.png`)
+      await page.locator('.queue-card').filter({ has: page.getByRole('heading', { name: auto.jobName, exact: true }) })
+        .getByRole('region', { name: 'Convergence status', exact: true }).scrollIntoViewIfNeeded()
+      await captureRenderer(info, `training-progress-${view.toLowerCase()}-${width}-${zoom}.png`)
       await page.locator('.queue-card').filter({ has: page.getByRole('heading', { name: auto.jobName, exact: true }) })
         .locator('.queue-card-status-row').scrollIntoViewIfNeeded()
       await captureRenderer(info, `convergence-${view.toLowerCase()}-headline-${width}-${zoom}.png`)
@@ -836,8 +858,11 @@ test('branded training reports save real PNG and offline HTML from Jobs without 
   const reportWindow = app.waitForEvent('window')
   const reportId = await app.evaluate(async ({ BrowserWindow }, path) => {
     const window = new BrowserWindow({ show: false, width: 1200, height: 1000,
-      webPreferences: { sandbox: true, nodeIntegration: false, contextIsolation: true, partition: 'report-browser-test' } })
+      webPreferences: { sandbox: true, nodeIntegration: false, contextIsolation: true, backgroundThrottling: false, partition: 'report-browser-test' } })
     await window.loadFile(path)
+    // Exercise the exported report as a visible document. Hidden windows can
+    // stop painting during Playwright screenshots on newer Electron versions.
+    window.showInactive()
     return window.id
   }, destinations.html)
   const report = await reportWindow
@@ -1242,7 +1267,7 @@ test('Diagnostics and Setup Guide share section navigation and command styling',
     Object.defineProperty(navigator.clipboard, 'writeText', { configurable: true, value: async (text: string): Promise<void> => { document.body.dataset.copiedCommand = text } })
   })
   await page.getByRole('button', { name: 'Copy Find Conda', exact: true }).click()
-  await expect(page.locator('body')).toHaveAttribute('data-copied-command', process.platform === 'win32' ? 'where conda' : 'which conda')
+  await expect(page.locator('body')).toHaveAttribute('data-copied-command', process.platform === 'win32' ? 'where.exe conda' : 'which conda')
   await captureRenderer(info, 'diagnostics-actions.png')
   await diagnosticsNav.getByRole('button', { name: 'Checks', exact: true }).click()
   await waitForPropertyScroll()
@@ -1331,26 +1356,34 @@ test('settings property sections retain auto-save, browsing, validation, and def
   expect(errors).toEqual([])
 })
 
-test('notification setting auto-saves and fits narrow and zoomed layouts', async ({}, info) => {
+test('notification setting respects platform availability and fits narrow and zoomed layouts', async ({}, info) => {
   await chooseMenu(await settingsMenu(), 'Settings')
   const sections = page.getByRole('navigation', { name: 'Settings sections' })
   await sections.getByRole('button', { name: 'Application', exact: true }).click()
   await waitForPropertyScroll()
   const enabled = page.getByLabel('Enable desktop notifications', { exact: true })
-  await expect(enabled).toBeChecked()
-  await enabled.uncheck()
-  await expect(page.locator('.workspace-toolbar').getByRole('status')).toHaveText('Saved')
-  await expect.poll(async () => JSON.parse(await readFile(join(dataPath, 'settings.json'), 'utf8')).notificationsEnabled).toBe(false)
-  await chooseMenu('Navigate', 'Dashboard')
-  await expect(page.locator('.app-title-bar-section')).toHaveText('Dashboard')
-  await chooseMenu(await settingsMenu(), 'Settings')
-  await expect(page.locator('.app-title-bar-section')).toHaveText('Settings')
-  await sections.getByRole('button', { name: 'Application', exact: true }).click()
-  await expect(enabled).not.toBeChecked()
-  await enabled.check()
-  await expect(page.locator('.workspace-toolbar').getByRole('status')).toHaveText('Saved')
-  await expect.poll(async () => JSON.parse(await readFile(join(dataPath, 'settings.json'), 'utf8')).notificationsEnabled).toBe(true)
-  await enabled.focus()
+  if (process.platform === 'darwin') {
+    await expect(enabled).toBeDisabled()
+    await expect(enabled).not.toBeChecked()
+    await expect(enabled).toHaveAccessibleDescription(/unavailable in unsigned macOS applications/)
+    await expect(page.locator('#settings-notifications-unavailable')).toBeVisible()
+  } else {
+    await expect(enabled).toBeEnabled()
+    await expect(enabled).toBeChecked()
+    await enabled.uncheck()
+    await expect(page.locator('.workspace-toolbar').getByRole('status')).toHaveText('Saved')
+    await expect.poll(async () => JSON.parse(await readFile(join(dataPath, 'settings.json'), 'utf8')).notificationsEnabled).toBe(false)
+    await chooseMenu('Navigate', 'Dashboard')
+    await expect(page.locator('.app-title-bar-section')).toHaveText('Dashboard')
+    await chooseMenu(await settingsMenu(), 'Settings')
+    await expect(page.locator('.app-title-bar-section')).toHaveText('Settings')
+    await sections.getByRole('button', { name: 'Application', exact: true }).click()
+    await expect(enabled).not.toBeChecked()
+    await enabled.check()
+    await expect(page.locator('.workspace-toolbar').getByRole('status')).toHaveText('Saved')
+    await expect.poll(async () => JSON.parse(await readFile(join(dataPath, 'settings.json'), 'utf8')).notificationsEnabled).toBe(true)
+    await enabled.focus()
+  }
   await captureRenderer(info, 'notifications-normal.png')
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1000, 700))
   await sections.getByRole('button', { name: 'Application', exact: true }).click()

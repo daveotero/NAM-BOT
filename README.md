@@ -5,260 +5,184 @@
 </p>
 
 <p align="center">
-  Desktop control room for local Neural Amp Modeler training.
+  A desktop control room for local Neural Amp Modeler training.
 </p>
 
-NAM-BOT is an Electron desktop app that wraps the local Neural Amp Modeler training workflow in a friendlier UI. It is meant to keep the fun, tinkery side of local NAM training alive while making the process less intimidating for people who do not want to live in a terminal just to get started.
+NAM-BOT helps you turn recordings of your amps and pedals into [Neural Amp Modeler](https://github.com/sdatkinson/neural-amp-modeler) models on your own computer. Create jobs, queue captures, and follow training without managing each run in a terminal. If you are new to local NAM training, the app's Setup Guide and Diagnostics help you get the Python environment working too.
 
-If you do not already have NAM installed locally, NAM-BOT is also meant to help you get there. The app includes setup guidance and diagnostics that walk you through the steps to get a working local NAM environment up and running.
+Reusable, shareable presets give you room to experiment, including custom packed models with more tiers and larger networks when you want to pursue higher-quality captures.
 
-One of the most fun parts of NAM-BOT is that presets are not trapped on one machine. You can export and import training presets to share setups with other people, including creator name and creator URL metadata so the preset can carry attribution and a link back to its source.
+**[Download NAM-BOT](https://github.com/daveotero/nam-bot/releases/latest)** · [Get started](#install-and-set-up) · [Train your first model](#train-your-first-model) · [User guides](#user-guides) · [Report a problem](https://github.com/daveotero/nam-bot/issues)
 
-![NAM-BOT dashboard](./docs/screenshots/dashboard.png)
+![NAM-BOT Dashboard with active training and environment checks](./docs/screenshots/dashboard.png)
 
-## Why I Built This
+Screenshots use example session names and paths, with recorded training curves.
 
-I originally got pulled into Neural Amp Modeler through exactly the kind of open-source rabbit hole that makes a project stick with you. I loved the public repos, the command-line workflow, the feeling of learning by doing, and the fact that the NAM community felt generous and genuinely supportive.
+## What you can do
 
-These days, I often use Tone 3000 because it is fast, polished, and sounds great. But I still missed some of that DIY experimentation, especially the ability to push into bigger or weirder local training setups just because it is interesting to try.
+- Create individual jobs or batches, reorder waiting jobs, and reuse earlier runs as templates.
+- Train with A2 Standard or A1 presets. Customize recipes, choose packed model tiers, and import or export presets with creator attribution.
+- Monitor progress, validation error, and live terminal logs from Jobs or Dashboard.
+- Connect your local Conda environment and diagnose Python, GPU, or training-launch problems from the app.
+- Export `.nam` models with names and metadata you choose, save snapshots during training, and optionally keep image or HTML reports.
 
-NAM-BOT came out of that feeling. I wanted a desktop app that made local NAM training more approachable without sanding off the curiosity that makes this space fun in the first place.
+## Install and set up
 
-The goal is not to replace the deeper hands-on side of NAM. It is to give you a more comfortable launch point into it, whether you already know your way around Python and Conda or you are still figuring out what any of that means.
+### What you need
 
-## What It Tries To Do
+NAM-BOT uses a separate **Conda environment containing NAM and PyTorch** to do the training. Installing the desktop app does not install that environment. A2 training requires `neural-amp-modeler` 0.13.0 or newer.
 
-NAM-BOT tries to make local training smoother by giving you:
+| Computer                    | App download                    | Training options and setup instructions                                                                                                                                                              |
+| --------------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Windows 10 or 11, x64       | Windows installer (`Win64.exe`) | [CPU](./docs/setup-guide.md#standard--cpu-windows), [NVIDIA CUDA](./docs/setup-guide.md#nvidia-cuda-windows), or [AMD ROCm on supported Windows 11 hardware](./docs/setup-guide.md#amd-rocm-windows) |
+| Mac with Apple Silicon      | macOS `arm64.dmg`               | [Apple Silicon setup](./docs/setup-guide.md#apple-silicon), using Metal Performance Shaders (MPS) for GPU training                                                                                   |
+| Mac with an Intel processor | macOS `x64.dmg`                 | [Intel Mac compatibility](./docs/setup-guide.md#intel-mac-compatibility); CPU training needs a compatible Python/NAM/PyTorch environment                                                             |
 
-- A desktop UI for creating, queueing, and monitoring NAM training jobs
-- A2 Packed WaveNet local training as the default preset, with A1 presets still available for older workflows
-- Reusable presets you can export, import, and share with creator metadata
-- Guided setup help for people who are newer to the NAM and Python side
-- Diagnostics that explain backend, accelerator, and training launch problems in plain language
-- Live training logs without needing to camp in a terminal window
+CPU training is available; a supported GPU can make training much faster. GPU support depends on the exact hardware, driver, operating system, and PyTorch build. In particular, AMD support does not cover every Radeon card, and an Intel Mac app build does not guarantee compatibility with the latest Python training packages. The linked setup paths explain those requirements.
 
-## What You Can Do
+Download your build from [GitHub Releases](https://github.com/daveotero/nam-bot/releases/latest). Run the Windows installer, or open the matching Mac disk image and drag NAM-BOT into Applications. The macOS builds are unsigned; if macOS blocks the first launch, follow [Apple's instructions for opening an app from an unidentified developer](https://support.apple.com/en-us/102445).
 
-- Queue multiple training jobs and track status from a dashboard
-- Use dashboard diagnostics cards for Backend, Accelerator, Training Launch, and NAM Version status at a glance
-- Save and reuse training presets across runs
-- Export and import presets for sharing, including creator name and URL metadata
-- Point the app at a Conda environment by name or environment-folder path
-- Validate backend setup before launching jobs
-- Inspect backend readiness, Training Launch readiness, CUDA, ROCm, MPS, Lightning, and host GPU visibility from Diagnostics
-- Review live terminal output while a job is running
+### Already have NAM working?
 
-## Platform And Requirements
+You can usually reuse your existing Conda environment.
 
-**Windows**
+1. Open **Settings**. NAM-BOT looks for Conda on your system path and an environment named `nam`; if those are correct, leave them as they are.
+2. Otherwise, choose the Conda executable and select your environment by name or full folder path. Settings save automatically; wait for **Saved**. Direct Python executables and standalone virtual environments are not supported.
+3. Open **Diagnostics** and choose **Re-check All**. Confirm that the environment and training-launch checks pass, and that the accelerator matches the CPU or GPU you plan to use.
 
-- Windows 10 or Windows 11, x64
-- [Miniconda or Anaconda](https://www.anaconda.com/download), using a named environment or an environment-folder path
-- A Python environment with `neural-amp-modeler` 0.13.0 or newer installed
-- `neural-amp-modeler` 0.13.0 or newer is required for A2 local training
-- NVIDIA GPU recommended if you want faster local training
+### Starting from scratch?
 
-**macOS**
+1. Follow [Install Conda](./docs/setup-guide.md#install-conda) to install Miniconda, or use an existing Anaconda installation.
+2. Open **Anaconda Prompt** on Windows or **Terminal** on macOS. On Apple Silicon, use the Apple Silicon Conda installer.
+3. Follow the hardware-specific setup path in the table above to create a `nam` environment, install the appropriate PyTorch build, and install NAM. Those guides include the commands and checks for each platform.
+4. Return to NAM-BOT and connect the environment in **Settings**, then run **Diagnostics → Re-check All**.
 
-- Apple Silicon (`arm64`) and Intel (`x64`) builds are available as separate DMGs
-- Use Terminal and the `conda` command rather than Command Prompt / PowerShell and `conda.exe`
-- Apple Silicon users should choose Apple Silicon Miniconda and expect MPS diagnostics rather than CUDA-first messaging
-- Current macOS DMGs are unsigned and may require right-click `Open` on first launch
+The app includes a **Setup Guide** too. If a check fails, use the suggested repair in Diagnostics or the [troubleshooting section below](#diagnostics-and-help) before queueing a job. **Backend** readiness confirms the packages can be reached; **Training Launch** separately checks whether the trainer can start.
 
-## Install
+## Train your first model
 
-For a public repository, the typical user-friendly path is:
+Start with a matching audio pair: the dry signal you played into your gear and the recording of that gear's output. NAM-BOT trains from these files. Recording the capture happens in your audio setup; listening to the finished model happens in a compatible NAM player or plugin.
 
-1. Open the GitHub Releases page.
-2. Download the latest Windows installer if you are on Windows, or the matching `arm64` / `x64` DMG if you are on macOS.
-   Windows installer example: `NAM-BOT-Setup-0.4.0-Win64.exe`
-   macOS DMG examples: `NAM-BOT-0.4.5-macOS-arm64.dmg` or `NAM-BOT-0.4.5-macOS-x64.dmg`
-3. Run the installer on Windows, or open the DMG and move NAM-BOT into Applications on macOS.
+1. Open **Jobs → New Job**, or choose **Add audio files** and select a captured output recording. Dropping one recording into Jobs opens its editor immediately; multiple files open the batch editor.
+2. Give the job a name and check both audio fields. **Input audio** is the dry training signal; **Output audio** is the recording from your gear. Choose **Default** input only if you used the bundled NAM V3 signal for the capture; otherwise choose **Custom** and select the actual signal you used. **Save Default to Disk** exports the bundled signal when preparing a new capture.
+3. Choose a preset. **A2 Standard** is the initial default and a useful starting point. A1 presets are also available. A preset stores the reusable training recipe; a job supplies the audio and output choices.
+4. Check **Latency**. **Auto-align** measures delay for recognized NAM training signals. With an unrecognized custom signal, select **Manual** and supply its known delay in samples.
+5. Choose the training mode. **Auto convergence** can finish when improvements settle; **Fixed epochs** uses the number of passes through the training data you specify. The default A2 preset uses **Balanced** auto convergence with a 2,000-epoch maximum.
+6. Choose the **Model output** folder for the finished `.nam` file. Add model/creator metadata or filename options if useful. Reports are optional. This folder is separate from **Settings → Folders → Workspace Root**, which holds run files and logs.
+7. Choose **Save Job**, then **Queue** on the saved draft. The button shows **Queueing...** while NAM-BOT validates the job and freezes its settings. Follow progress in **Jobs** or **Dashboard**.
+8. When the run succeeds, choose **Open Folder** on its card to find the exported model. Load it in a compatible player, such as the [Neural Amp Modeler plugin](https://github.com/sdatkinson/NeuralAmpModelerPlugin); check the player's support for your chosen model architecture.
 
-## Setup Overview
+The example below creates a job with the larger **Ultra 20** preset and optional reports. You can follow the same workflow with the default preset.
 
-When NAM-BOT starts, it looks for Conda on your system `PATH` and assumes the default Conda environment name `nam`.
+![Animation of choosing five packed model tiers, enabling reports, and saving a NAM-BOT job](./docs/screenshots/new-job.gif)
 
-If it finds both of those and your local NAM install is healthy, you are usually ready to go right away. Open the app, confirm the checks pass, and start training.
+## Manage and monitor your jobs
 
-### If You Already Have NAM Working
+Jobs keeps drafts, waiting jobs, active training, and finished runs together. Add several recordings to create a batch with a shared recipe, or use **Use as Template** on a finished run for another set of captures. Search helps you find jobs as the list grows.
 
-If you already train NAM models outside NAM-BOT, you usually do not need to rebuild your Python environment.
+Training jobs run one at a time in queue order. Queued jobs retain their preset and settings even if you edit the library later. Reorder waiting jobs by dragging them; choose **Unqueue** to return one to drafts for editing. After restarting NAM-BOT, choose **Resume Queue** to continue saved waiting jobs. A card marked **Diagnostics needed** links to the checks required before training can begin.
 
-1. Open `Settings`.
-2. If NAM-BOT already found Conda on `PATH` and your environment is named `nam`, you may not need to change anything at all.
-3. Otherwise, point NAM-BOT at the same Conda environment name or environment-folder path you already use. Direct Python executables and standalone virtual environments are not currently supported.
-4. Open `Diagnostics` and confirm backend, accelerator, and Training Launch checks pass.
-5. Start training.
+During a run, **Show Details** displays device information, checkpoints, and the ESR graph. ESR (error-to-signal ratio) measures how closely the model matches the reference recording; lower values mean less measured error. **Show Logs** displays the trainer's live terminal output. Dashboard gives you an overview of active training, recent results, lifetime totals, and environment readiness.
 
-### If You Need To Install NAM Locally
+![NAM-BOT Jobs with a training run and ESR history](./docs/screenshots/jobs.png)
 
-If you do not already have a local NAM environment, NAM-BOT will help walk you through it. The expected quick-start path is:
+With auto convergence, **Fast**, **Balanced**, and **Obsessive** control how long training watches for smaller improvements before finishing, within the maximum epoch count. Fixed-epoch runs also show convergence feedback. These indicators help you judge progress; they do not guarantee that further training cannot improve a capture.
 
-1. Install Miniconda or Anaconda.
-2. Create a Conda environment named `nam`.
-3. Install `neural-amp-modeler` 0.13.0 or newer into that environment.
-4. Open NAM-BOT and let Diagnostics confirm the setup.
+On the **Jobs** card, **Save Snapshot** exports the best validated checkpoints and lets training continue. **Stop** offers **Save & stop**, **Discard & stop**, or **Keep training**; saving requires an available validated checkpoint. A successful normal run saves its model automatically. The [Jobs guide](./docs/jobs-system.md) explains the stopping rules, queue recovery, and saved-model results.
 
-On macOS, use Terminal for those commands. On Apple Silicon, choose the Apple Silicon Miniconda installer and treat MPS as the expected accelerator path.
+## Choose, customize, and share presets
 
-### Manual Setup Reference
+Open **Presets** to browse reusable recipes. Choose **Customize** on a built-in preset to make your own copy, then adjust its training settings or advanced JSON overrides. Select your preferred starting recipe under **Settings → Application → Default preset**.
 
-If you want to build the environment by hand, these are the commands NAM-BOT expects most people to start from:
+Use **Export** on a preset to share its file with another NAM-BOT user. They can add it with **Import Preset**. Creator name and URL travel with the recipe; audio files and job output choices remain separate.
 
-```bash
-conda create -n nam python=3.11 -y
-conda activate nam
-pip install --upgrade "neural-amp-modeler>=0.13.0"
-```
+### Experiment with larger packed models
 
-NAM-BOT performs a metadata-only safety check before importing NAM or Lightning. If the selected environment contains the known compromised Lightning releases `2.6.2` or `2.6.3`, NAM-BOT blocks validation and training until the environment is repaired.
+An A2 packed `.nam` contains several submodels trained together, giving you different model sizes from one run. Custom presets let you define compatible tiers and channel counts, which control network width. Larger networks offer more capacity to pursue higher-quality captures, at the cost of training resources and playback processing power.
 
-To check and repair an existing environment:
+| Built-in A2 preset      | Packed channel counts |
+| ----------------------- | --------------------- |
+| Packed WaveNet          | 3, 8                  |
+| Packed WaveNet Heavy 12 | 3, 8, 12              |
+| Packed WaveNet Ultra 20 | 3, 8, 12, 16, 20      |
 
-```bash
-pip show lightning pytorch-lightning
-pip uninstall -y lightning pytorch-lightning pytorch_lightning
-pip install "pytorch-lightning<=2.6.1"
-pip install --upgrade "neural-amp-modeler>=0.13.0"
-```
+For packs with three or more tiers, the job's **Packed models** checklist lets you train all tiers or a selected subset. Compare their ESR and listen to the results to decide which suits your capture. The [Presets guide](./docs/presets-system.md) covers everyday editing, sharing, and expert overrides; NAM's [packed-training reference](https://github.com/sdatkinson/neural-amp-modeler/blob/main/docs/source/tutorials/packed-training.rst) explains compatible custom configurations.
 
-If Lightning `2.6.2` or `2.6.3` was installed and imported in that environment, treat it as potentially compromised and rotate credentials used on that machine.
+![NAM-BOT Presets library with training recipes and packed model details](./docs/screenshots/presets.png)
 
-### If You Need CUDA Training
+## Keep a record of the results
 
-If you have an NVIDIA GPU and want faster local training, replace the default PyTorch build with a CUDA-enabled build in that same environment:
+Under **Model output → Training reports**, optionally enable a PNG image, an interactive HTML report, or both. They accompany model saves, including snapshots and **Save & stop**, and become defaults for new jobs. You can also choose **Save Report** on a finished Jobs card. HTML reports work offline; reports omit local folder paths, terminal logs, and private job notes.
 
-```bash
-conda activate nam
-pip uninstall -y torch
-pip install --index-url https://download.pytorch.org/whl/cu130 --no-cache-dir torch==2.10.0+cu130
-python -c "import torch; print(torch.__version__); print(torch.version.cuda); print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else None)"
-```
+For saved models, reports use the exported checkpoints' ESR, which may differ from the latest graph point. Reports without a saved model label the available measurements accordingly. See [training reports](./docs/jobs-system.md#branded-training-reports) for details.
 
-Expected result:
+<details>
+<summary>Example PNG training report</summary>
 
-- `torch.__version__` includes `+cu130`
-- `torch.version.cuda` is not `None`
-- `torch.cuda.is_available()` returns `True`
+<img src="./docs/screenshots/training-report.png" alt="A NAM-BOT training report with saved-model ESR and training history" />
 
-After that, launch NAM-BOT, fill in `Settings` only if needed, and use `Diagnostics` to confirm the app sees the same backend and GPU state.
+</details>
 
-### If You Have an AMD GPU (ROCm, Windows Only)
+## Diagnostics and help
 
-If you have an AMD Radeon GPU (RX 7000, RX 9000, or PRO W7000 series) on Windows, you can use ROCm-enabled PyTorch for GPU-accelerated training. NAM-BOT will automatically detect ROCm and display "ROCm (AMD) GPU is visible" in Diagnostics.
+Diagnostics checks **Backend**, **Accelerator**, **Training Launch**, and **NAM Version**. It inspects Conda, Python, NAM, PyTorch, Lightning, GPU visibility, and the process used to start training. The **Actions** section prioritizes problems and supplies repair commands; use **Re-check All** after making changes.
 
-**Requirements:**
+| Problem                                  | Where to start                                                                                                                                                           |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Conda or NAM cannot be found             | Check the Conda executable and environment name/folder in Settings. See [connecting an existing environment](./docs/setup-guide.md#connect-an-existing-nam-environment). |
+| The expected GPU is missing              | Check the driver and PyTorch installation for your hardware. CPU-only status is expected when you chose CPU training.                                                    |
+| Backend passes, but a job will not start | Check **Training Launch** and **NAM Version**. A2 requires NAM 0.13.0 or newer. A paused queue may also need **Resume Queue**.                                           |
+| A run fails after starting               | Read its **Show Logs** output and the error on its card. **Create Draft** makes an editable copy for another attempt.                                                    |
 
-- Windows 10 or Windows 11
-- AMD Radeon RX 7000, RX 9000, or PRO W7000 series GPU
-- **Python 3.12** (strictly required for official ROCm wheels)
-- AMD ROCm PyTorch wheels from the official AMD repository
+For more detail, open **Advanced details → Show Details**, then use **Copy AI Prompt** or **Copy Raw JSON**. These exports include environment paths and machine details, so review them before sharing with a helper or an AI assistant. The [Diagnostics guide](./docs/diagnostics.md) explains the checks. When [reporting an issue](https://github.com/daveotero/nam-bot/issues), include the app version, operating system, what you tried, and the relevant error or diagnostics.
 
-**Setup Steps:**
+NAM-BOT blocks the compromised Lightning versions `2.6.2` and `2.6.3` before importing them. If either was installed in your environment, follow the [Lightning security advisory](https://github.com/Lightning-AI/pytorch-lightning/security/advisories/GHSA-w37p-236h-pfx3) and the [setup guide's security and repair instructions](./docs/setup-guide.md#lightning-security-block).
 
-1. Create a Python 3.12 Conda environment:
+## User guides
 
-```bash
-conda create -n nam python=3.12 -y
-conda activate nam
-```
+| I want to                                                      | Read                                 |
+| -------------------------------------------------------------- | ------------------------------------ |
+| Install NAM and connect my hardware                            | [Setup guide](./docs/setup-guide.md) |
+| Create batches, manage the queue, or export models and reports | [Jobs](./docs/jobs-system.md)        |
+| Build, customize, or share a recipe                            | [Presets](./docs/presets-system.md)  |
+| Understand training activity and lifetime totals               | [Dashboard](./docs/dashboard.md)     |
+| Change my environment or application defaults                  | [Settings](./docs/settings.md)       |
+| Work through a setup or launch problem                         | [Diagnostics](./docs/diagnostics.md) |
 
-2. Install the ROCm SDK core package:
+For release history, see the [changelog](./CHANGELOG.md). Developer references are under [Run from source](#run-from-source).
 
-```bash
-pip install --no-cache-dir https://repo.radeon.com/rocm/windows/rocm-rel-7.2/rocm_sdk_core-7.2.0.dev0-py3-none-win_amd64.whl
-```
+## Why I built this
 
-3. Install ROCm-enabled PyTorch:
+I got pulled into Neural Amp Modeler through the kind of open-source rabbit hole that sticks with you: public repos, a command-line workflow, learning by doing, and a generous community willing to help.
+
+These days, I often use Tone 3000 because it is fast, polished, and sounds great. But I missed some of that DIY experimentation, especially the ability to push into bigger or weirder local training setups just because it is interesting to try.
+
+NAM-BOT came out of that feeling. I wanted local training to feel approachable while keeping room to tinker, whether you already know your way around Python and Conda or are still figuring out what those words mean.
+
+The station log leaves a few frequencies unlisted. They tend to carry further after hours.
+
+## Run from source
+
+NAM-BOT uses Electron, React, and TypeScript. For app development, use Node.js 22.12 or later in the 22.x series used by CI, plus npm, then run:
 
 ```bash
-pip install --no-cache-dir https://repo.radeon.com/rocm/windows/rocm-rel-7.2/torch-2.9.1%2Brocmsdk20260116-cp312-cp312-win_amd64.whl
+git clone https://github.com/daveotero/nam-bot.git
+cd nam-bot
+npm ci
+npm run dev
 ```
 
-4. Install Neural Amp Modeler:
+`npm ci` installs the locked dependencies. `npm run dev` launches the Electron app with hot reload; training still uses the Conda environment configured in Settings.
 
-```bash
-pip install --upgrade "neural-amp-modeler>=0.13.0"
-```
+| Command               | Purpose                                                                           |
+| --------------------- | --------------------------------------------------------------------------------- |
+| `npm run check`       | Type-check the app and tests, run the test suite, then build all Electron targets |
+| `npm run build`       | Build the main process, preload, and renderer into `out/`                         |
+| `npm run preview`     | Open the production build locally                                                 |
+| `npm run package:win` | Build and package the Windows installer into `release/`                           |
+| `npm run package:mac` | Build and package the macOS DMGs, then verify the bundled training-launch helper  |
 
-5. Verify ROCm installation:
-
-```bash
-python -c "import torch; print('CUDA Available:', torch.cuda.is_available()); print('HIP Version:', torch.version.hip)"
-```
-
-Expected result:
-
-- `CUDA Available:` returns `True`
-- `HIP Version:` shows a version string (e.g., `7.2.x`)
-- `torch.version.cuda` is `None` (this is normal for ROCm builds)
-
-**Notes:**
-
-- ROCm PyTorch uses the CUDA API internally via HIP, so `torch.cuda.is_available()` returns `True` even though you have an AMD GPU
-- NAM-BOT detects the difference by checking `torch.version.hip` and displays "ROCm (AMD) GPU is visible" in Diagnostics
-- macOS does not support ROCm; Intel Mac users must use CPU-only training
-- For the latest ROCm versions and compatibility, see the [AMD ROCm documentation](https://rocm.docs.amd.com/projects/radeon-ryzen/en/latest/docs/install/installrad/windows/install-pytorch.html)
-
-After setup, launch NAM-BOT and use `Diagnostics` to confirm "ROCm (AMD) GPU is visible" before training.
-
-## Diagnostics
-
-The Diagnostics panel is there to do more than just tell you pass or fail.
-
-It checks a few predetermined paths first, including:
-
-- Whether NAM-BOT can actually reach Conda
-- Whether the selected environment is reachable
-- Whether Python, NAM, torch, CUDA / ROCm / MPS, and Lightning look healthy inside that environment
-- Whether the host machine itself exposes expected GPU hardware when accelerator checks apply
-- Whether the selected environment can launch through the same PTY path used by real training jobs
-
-Diagnostics now summarizes the environment with compact tiles, prioritizes the most important fix in the Action Center, and keeps the detailed backend, accelerator, Training Launch, and NAM version checks in one matrix. The NAM version check calls out that A2 training requires `neural-amp-modeler>=0.13.0`. When it spots a likely GPU, environment, or launch-path problem, it gives you ready-to-paste commands for the most common fix paths. That covers a lot of the usual Windows, Conda, torch mismatch, and PTY launch issues without making you search around manually.
-
-If the built-in guidance is not enough, the Diagnostics panel can also generate a ready-to-paste troubleshooting prompt and raw diagnostics export with system and environment details included. You can drop that into an LLM like Claude or ChatGPT and get much more targeted help without having to manually explain your setup from scratch.
-
-## Typical Workflow
-
-1. Open `Jobs`.
-2. Drag in your source audio or create a new job manually.
-3. Save the job draft.
-4. Queue it.
-5. Watch the Queue button switch to `Queueing...` while NAM-BOT validates and freezes the draft.
-6. Monitor progress from the Dashboard and Jobs screens.
-
-Queued runs keep a snapshot of their preset, so later preset edits or deletion do not change waiting runs. After restarting NAM-BOT, use **Resume Queue** to continue restored pending jobs. A job waiting for NAM-version confirmation shows **Diagnostics needed** with a link to Diagnostics.
-
-## Preset Sharing
-
-Presets are more than saved defaults. NAM-BOT lets you export a training preset, send it to someone else, and import theirs into your own library.
-
-That makes it much easier to trade training recipes with other NAM users while keeping useful context attached. Creator name and creator URL metadata can travel with the preset, so people can see who made it and where to find more info.
-
-## In Action
-
-Creating and queueing a new job:
-
-![Creating and queueing a new NAM-BOT job](./docs/screenshots/new-job.gif)
-
-Jobs screen with drafts, active training, and history:
-
-![NAM-BOT jobs screen](./docs/screenshots/jobs.png)
-
-Presets library:
-
-![NAM-BOT presets screen](./docs/screenshots/presets.png)
-
-## Documentation
-
-- [Diagnostics Screen](./docs/diagnostics.md)
-- [Dashboard](./docs/dashboard.md)
-- [Settings Guide](./docs/settings.md)
-- [Jobs System](./docs/jobs-system.md)
-- [Presets System](./docs/presets-system.md)
-- [Desktop Shell](./docs/desktop-shell.md)
-- [Setup Guide](./docs/setup-guide.md)
+For platform build details, see [macOS support](./docs/macos-support.md). Contributor references cover the [desktop shell](./docs/desktop-shell.md), [UI style guide](./docs/ui-style-guide.md), and [release workflow](./docs/release-workflow.md).
 
 ## License
 

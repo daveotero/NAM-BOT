@@ -422,18 +422,24 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ isSettingsSaving: true, settingsSaveError: null })
     try {
       const savedSettings = await window.namBot.settings.save(settings)
-      set((state) => ({
-        settings: savedSettings,
-        settingsRevision: state.settingsRevision + 1,
-        validation: null,
-        acceleratorDiagnostics: null,
-        trainingLaunchDiagnostics: null,
-        namVersionInfo: null,
-        validationError: null,
-        acceleratorDiagnosticsError: null,
-        trainingLaunchDiagnosticsError: null,
-        namVersionInfoError: null
-      }))
+      set((state) => {
+        const diagnosticsChanged = !state.settings
+          || buildBackendSettingsKey(state.settings) !== buildBackendSettingsKey(savedSettings)
+          || state.settings.defaultWorkspaceRoot !== savedSettings.defaultWorkspaceRoot
+        if (!diagnosticsChanged) return { settings: savedSettings }
+        return {
+          settings: savedSettings,
+          settingsRevision: state.settingsRevision + 1,
+          validation: null,
+          acceleratorDiagnostics: null,
+          trainingLaunchDiagnostics: null,
+          namVersionInfo: null,
+          validationError: null,
+          acceleratorDiagnosticsError: null,
+          trainingLaunchDiagnosticsError: null,
+          namVersionInfoError: null
+        }
+      })
       return savedSettings
     } catch (error) {
       console.error('Failed to save settings:', error)

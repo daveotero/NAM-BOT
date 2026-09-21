@@ -36,6 +36,9 @@ export interface ConvergenceLevelStatus {
   qualified: boolean
   firstReachedEpoch: number | null
   waitingModels: string[]
+  /** Largest relative best-ESR gain or median trend across the exported models. */
+  recentImprovement?: number | null
+  observationCount?: number
 }
 export type TrainingCompletionReason = 'convergence' | 'epoch_limit' | 'safety_cap' | 'manual' | 'trainer'
 export interface ConvergenceStatus {
@@ -92,7 +95,11 @@ export function normalizeConvergenceStatus(value: unknown): ConvergenceStatus | 
       || !Array.isArray(entry.waitingModels) || !entry.waitingModels.every((name: unknown) => typeof name === 'string')
       || levels.some(level => level.level === entry.level)) return undefined
     levels.push({ level: entry.level, confirmations: entry.confirmations, qualified: entry.qualified,
-      firstReachedEpoch: entry.firstReachedEpoch, waitingModels: entry.waitingModels })
+      firstReachedEpoch: entry.firstReachedEpoch, waitingModels: entry.waitingModels,
+      ...(entry.recentImprovement === null || (typeof entry.recentImprovement === 'number'
+        && Number.isFinite(entry.recentImprovement) && entry.recentImprovement >= 0)
+        ? { recentImprovement: entry.recentImprovement } : {}),
+      ...(isCount(entry.observationCount) ? { observationCount: entry.observationCount } : {}) })
   }
   if (levels.length !== CONVERGENCE_LEVELS.length) return undefined
   const changes: ConvergenceStatus['changes'] = []

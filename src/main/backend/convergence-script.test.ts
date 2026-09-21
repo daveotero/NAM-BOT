@@ -12,6 +12,19 @@ function run(code: string, input: unknown = null): unknown {
 }
 
 describe.skipIf(!pythonAvailable)('versioned convergence detector', () => {
+  it('publishes the largest actual gain or median trend and clears stale measurements', () => {
+    expect(run(String.raw`
+m = ConvergenceMonitor({0: "Steady", 1: "Improving"}, {"mode": "fixed", "level": "fast", "maxEpochs": None}, 2000)
+for e in range(1, 151):
+    value = .001 if e < 100 else .02 if e <= 125 else .01
+    m.observe(e, [{"submodelIndex": 0, "esr": .01}, {"submodelIndex": 1, "esr": value}])
+before = dict(m.levels["fast"])
+m.observe(151, [])
+result = [before["recentImprovement"], before["observationCount"], before["waitingModels"],
+          m.levels["fast"]["recentImprovement"], m.levels["fast"]["observationCount"]]
+`)).toEqual([0.5, 51, ['Improving'], null, 0])
+  })
+
   it('replays the two report histories without looking ahead', () => {
     // Anonymous numbers only: five ESRs per completed epoch, no capture metadata or local paths.
     const histories: unknown = JSON.parse(readFileSync(new URL('./fixtures/convergence-histories.json', import.meta.url), 'utf8'))

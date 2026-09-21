@@ -1,8 +1,10 @@
 import { Notification } from 'electron'
 import log from 'electron-log/main'
+import { areDesktopNotificationsAvailable } from '../../shared/notifications'
 import type { JobRuntimeState } from '../types/jobs'
 
 interface NotificationDependencies {
+  platform?: string
   isEnabled: () => boolean
   navigate: (path: '/jobs' | '/diagnostics') => void
 }
@@ -24,7 +26,7 @@ export function createJobNotifier(dependencies: NotificationDependencies): (runt
     // Consume suppressed events too, so changing preferences never replays old alerts.
     reported.set(runtime.jobId, identity)
     try {
-      if (!dependencies.isEnabled() || !Notification.isSupported()) return
+      if (!areDesktopNotificationsAvailable(dependencies.platform ?? process.platform) || !dependencies.isEnabled() || !Notification.isSupported()) return
       const notification = new Notification({
         title: event === 'completed' ? 'Training completed'
           : event === 'failed' ? 'Training failed'

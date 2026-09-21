@@ -22,6 +22,7 @@ import {
   formatPackedSubmodelDisplayName,
   formatPresetArchitectureTag,
   getPackedSubmodelsForPreset,
+  isA2TrainingPreset,
   normalizeTrainingPreset
 } from '../../state/types'
 import { handleCardToggleKeyDown, shouldIgnoreCardToggle } from '../../utils/card-toggle'
@@ -57,8 +58,8 @@ const ARCHITECTURE_OPTIONS: Array<{ value: ArchitectureSize; label: string }> = 
 ]
 
 const BASIC_FIELD_HELP_TEXT = {
-  name: 'Library label only. Use something that helps you remember the amp, pedal, gain stage, or experiment.',
-  category: 'Organizer only. This does not change training, just how the preset is grouped in your library.',
+  name: 'Identifies this recipe in the library and training reports. Jobs can also include it in exported model filenames.',
+  category: 'Descriptive category saved with the preset. It does not change training or the library’s architecture grouping.',
   description: 'Quick note for what this profile is aiming at, what source files it came from, or what sounded best.',
   architectureVersion: 'a2 is the current NAM architecture. a1 remains available for older workflows. custom marks experimental local recipes.',
   modelFamily: 'Packed WaveNet is the A2 path. WaveNet and LSTM are available for a1 and custom local experiments.',
@@ -69,7 +70,7 @@ const BASIC_FIELD_HELP_TEXT = {
   learningRateDecay: 'How quickly the learning rate decreases after each epoch. Higher decay reduces it more quickly; zero keeps it constant.',
   ny: 'Training window length. Larger values give NAM a longer slice of the signal to learn from, but they cost more memory and time.',
   fitMrstft: 'Adds an extra frequency-aware loss term. It can help preserve texture and top-end detail on some rigs, but it changes how the fit behaves.',
-  mrstftWeight: 'Numeric strength of the MRSTFT loss. Official A2 uses 0.0005.',
+  mrstftWeight: 'Numeric strength of the MRSTFT loss. A2 uses this weight to enable the loss; set it to 0 to disable it. Official A2 uses 0.0005.',
   weightDecay: 'Adam optimizer weight decay. Official A2 uses a tiny value to regularize training.',
   outputNormalizeRmsDb: 'A2 normalizes training output to a fixed RMS target before folding level back into the exported model.'
 } as const
@@ -334,6 +335,16 @@ function getOptionalNumberControlValue(override: BasicFieldOverride | null, fall
   return fallback ?? ''
 }
 
+function getA2MrstftWeight(preset: TrainingPresetFile, model: Record<string, unknown> | null): number | null {
+  const override = getNestedValue(model, ['loss', 'mrstft_weight'])
+  const weight = override.found ? override.value : preset.values.mrstftWeight
+  return typeof weight === 'number' && Number.isFinite(weight) ? weight : null
+}
+
+function getA2MrstftLabel(weight: number | null): string {
+  return weight === null ? 'Check weight in Model JSON' : weight > 0 ? 'Enabled' : 'Disabled'
+}
+
 function buildBasicFieldOverrides(
   data: Record<string, unknown> | null,
   model: Record<string, unknown> | null,
@@ -444,7 +455,20 @@ function buildBasicFieldOverrides(
   const mrstftWeight = getNestedValue(model, ['loss', 'pre_emph_mrstft_weight'])
   const mrstftCoef = getNestedValue(model, ['loss', 'pre_emph_mrstft_coef'])
   const directMrstftWeight = getNestedValue(model, ['loss', 'mrstft_weight'])
-  if (mrstftWeight.found || mrstftCoef.found || directMrstftWeight.found) {
+  const usesA2Mrstft = getStringControlValue(overrides.architectureVersion, preset.values.architectureVersion) === 'a2'
+  if (usesA2Mrstft && directMrstftWeight.found) {
+    const weight = getA2MrstftWeight(preset, model)
+    overrides.fitMrstft = {
+      source: 'Model JSON -> loss.mrstft_weight',
+      displayValue: getA2MrstftLabel(weight),
+      controlValue: weight === null ? undefined : weight > 0
+    }
+    overrides.mrstftWeight = {
+      source: 'Model JSON -> loss.mrstft_weight',
+      displayValue: weight === null ? String(directMrstftWeight.value) : formatCompactNumber(weight),
+      controlValue: weight ?? undefined
+    }
+  } else if (!usesA2Mrstft && (mrstftWeight.found || mrstftCoef.found || directMrstftWeight.found)) {
     const weightValue = directMrstftWeight.found ? directMrstftWeight.value : mrstftWeight.value
     const enabled = typeof weightValue === 'number'
       ? weightValue > 0
@@ -694,6 +718,9 @@ function PresetCard({
   const summary = `${preset.values.modelFamily} / ${preset.values.architectureSize} / ${preset.values.batchSize} batch`
   const ownershipBadge = getPresetOwnershipBadge(preset)
   const packedSubmodels = getPackedSubmodelsForPreset(preset)
+  const mrstftLabel = isA2TrainingPreset(preset)
+    ? getA2MrstftLabel(getA2MrstftWeight(preset, preset.expert.model ?? null))
+    : preset.values.fitMrstft ? 'Enabled' : 'Disabled'
 
   return (
     <div
@@ -827,7 +854,7 @@ function PresetCard({
                   </div>
                   <div className="preset-detail-row">
                     <span className="preset-detail-label">MRSTFT</span>
-                    <span className="preset-detail-value">{preset.values.fitMrstft ? 'Enabled' : 'Disabled'}</span>
+                    <span className="preset-detail-value">{mrstftLabel}</span>
                   </div>
                   <div className="preset-detail-row">
                     <span className="preset-detail-label">Normalize</span>
@@ -917,6 +944,11 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
     ),
     [dataValidation.parsed, learningValidation.parsed, modelValidation.parsed, session.preset]
   )
+  const usesA2Mrstft = getStringControlValue(fieldOverrides.architectureVersion, session.preset.values.architectureVersion) === 'a2'
+  const a2MrstftWeight = getA2MrstftWeight(session.preset, modelValidation.parsed)
+  const mrstftHelp = usesA2Mrstft
+    ? 'A2 enables MRSTFT loss when its weight is above 0. Change MRSTFT Weight to control this setting.'
+    : BASIC_FIELD_HELP_TEXT.fitMrstft
   const isNameValid = session.preset.name.trim().length > 0
   const hasJsonErrors = [dataValidation.error, modelValidation.error, learningValidation.error].some((entry) => entry !== null)
   const importReady = importValidation.imported !== null
@@ -1483,11 +1515,18 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
               <div className="property-grid">
                 <div className="property-row">
                   <div className="form-label-row">
-                    <label className="form-label" htmlFor="preset-fit-mrstft">Fit MRSTFT</label>
-                    {renderInfoButton(BASIC_FIELD_HELP_TEXT.fitMrstft)}
+                    <label className="form-label" htmlFor="preset-fit-mrstft">{usesA2Mrstft ? 'MRSTFT' : 'Fit MRSTFT'}</label>
+                    {renderInfoButton(mrstftHelp)}
                   </div>
                   <div className="property-control">
-                    <label className="property-check-option" title={BASIC_FIELD_HELP_TEXT.fitMrstft}>
+                    {usesA2Mrstft ? <>
+                      <output id="preset-fit-mrstft" className="ui-text-body" title={mrstftHelp}>
+                        {getA2MrstftLabel(a2MrstftWeight)}
+                      </output>
+                      <p className="property-hint">{fieldOverrides.mrstftWeight
+                        ? 'A2 uses MRSTFT Weight from Model JSON. Set loss.mrstft_weight to 0 there to disable it.'
+                        : 'A2 uses MRSTFT Weight. Set it to 0 to disable it.'}</p>
+                    </> : <label className="property-check-option" title={BASIC_FIELD_HELP_TEXT.fitMrstft}>
                       <input
                         title={BASIC_FIELD_HELP_TEXT.fitMrstft}
                         id="preset-fit-mrstft"
@@ -1499,7 +1538,7 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                         })}
                       />
                       Include MRSTFT loss
-                    </label>
+                    </label>}
                     {renderOverrideBadge(fieldOverrides.fitMrstft)}
                   </div>
                 </div>
@@ -1926,7 +1965,7 @@ export default function Presets() {
       <ConfirmDialog
         isOpen={pendingDeletePreset !== null}
         title="Delete Preset?"
-        message={pendingDeletePreset ? `Delete preset "${pendingDeletePreset.name}"? This cannot be undone.${settings?.defaultPresetId === pendingDeletePreset.id ? ' A2 Packed WaveNet will become your default.' : ''}` : ''}
+        message={pendingDeletePreset ? `Delete preset "${pendingDeletePreset.name}"? This cannot be undone.${settings?.defaultPresetId === pendingDeletePreset.id ? ' A2 Standard will become your default.' : ''}` : ''}
         confirmLabel="Delete"
         onConfirm={() => {
           if (!pendingDeletePreset) {

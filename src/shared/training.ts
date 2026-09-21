@@ -1345,7 +1345,7 @@ export function buildBuiltInPresets(): TrainingPresetFile[] {
   return [
     createTrainingPreset({
       id: DEFAULT_PRESET_ID,
-      name: 'A2 Packed WaveNet',
+      name: 'A2 Standard',
       description: 'Official NAM A2 packed architecture. Trains one model that contains A2-Full and A2-Lite submodels.',
       category: 'quality',
       builtIn: true,
@@ -1362,7 +1362,7 @@ export function buildBuiltInPresets(): TrainingPresetFile[] {
     }),
     createTrainingPreset({
       id: A2_HEAVY_12_PRESET_ID,
-      name: 'A2 Packed WaveNet Heavy 12',
+      name: 'A2 Heavy 12',
       description: 'Experimental A2 packed architecture with official A2-Lite and A2-Full submodels plus a 12-channel heavy tier for higher-quality captures at increased CPU cost.',
       category: 'quality',
       builtIn: true,
@@ -1384,7 +1384,7 @@ export function buildBuiltInPresets(): TrainingPresetFile[] {
     }),
     createTrainingPreset({
       id: A2_ULTRA_20_PRESET_ID,
-      name: 'A2 Packed WaveNet Ultra 20',
+      name: 'A2 Ultra 20',
       description: 'Experimental A2 packed architecture with A2-Lite, A2-Full, A2-Heavy, A2-Ultra, and A2-Mammoth submodels for maximum-quality local testing at substantially increased CPU cost.',
       category: 'quality',
       builtIn: true,

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-20
+
+See [What's New in 0.7.0](WHATS_NEW.md) for a tour of the native desktop redesign, expanded packed-model presets, training controls, charts, and sharing features added since 0.6.0.
+
 ### Added
 
 - Automatic stopping at Fast, Balanced, or Obsessive convergence, with remembered safety limits starting at 2,000 epochs, progress against the limit, fixed stopping rules for each run, and convergence feedback during fixed-epoch runs.
@@ -14,10 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Preset defaults for training mode, convergence threshold, and maximum epochs, with per-job overrides and portable import/export.
 - Optional branded PNG training summaries and interactive, offline HTML reports alongside saved models, snapshots, and extra copies, plus manual report export from finished runs.
 - Readable training dates and times on finished runs and in reports.
-- A setting to enable or disable desktop training notifications.
+- A setting to enable or disable desktop training notifications on Windows.
+- A documentation index and feature guide covering every screen, plus a release-by-release What's New page.
 
 ### Changed
 
+- Adding or dropping one audio file now opens its job editor immediately. Multiple files still open the batch editor, and queueing remains a separate action.
+- Moved Model output explanations into tooltips to keep the job editor compact.
+- Replaced vague convergence text with a single Convergence value showing recent ESR improvement against the threshold, history collection, or confirmation progress.
+- Shortened the bundled preset names to A2 Standard, A2 Heavy 12, and A2 Ultra 20. Existing installations pick up these names automatically; custom preset names stay as saved.
 - Built-in A2 presets now use auto convergence: Balanced for the standard and Heavy 12 packs, and Obsessive for Ultra 20, each with a 2,000-epoch safety limit.
 - Organized the preset editor to match job controls, with Auto convergence first and a dedicated Loss & levels section.
 - Finished convergence runs show the completed epoch count beside their stopping threshold.
@@ -27,16 +36,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Simplified individual checkbox options while retaining grouped panels for packed submodels.
 - Shared the animated NAM-BOT logo with HTML reports and added a monochrome horns cursor on logo hover.
 - Simplified About's legal notice while retaining the full license in packaged builds.
-- Removed the duplicate activity indicator from the dashboard's Active Training heading.
-- Compact dashboard recent runs into rows with individual dismissal and Clear all controls, preserving Jobs history and lifetime totals across restarts.
-- Keep manual report export in Jobs and remove redundant report-save success notices and dashboard explanatory text.
+- Simplified the dashboard's training summary and recent runs, with individual dismissal and Clear all controls that preserve Jobs history and lifetime totals across restarts.
+- Kept manual report export in Jobs and removed redundant report-save success notices.
+- Rewrote the README and user guides around setup and everyday training, with current screenshots and an updated animated job walkthrough.
+- Refreshed Electron, React, routing, packaging, and test dependencies, including fixes for reported dependency vulnerabilities.
+- Disabled desktop notifications on macOS, with a Settings explanation that alerts are unavailable in unsigned applications. Older saved preferences cannot enable notification delivery.
 
 ### Fixed
 
+- Clarified run output subfolders, the optional model copy beside the capture, and the separate workspace; corrected help that placed checkpoints in the workspace.
+- Changing everyday preferences, such as desktop notifications, no longer clears diagnostic results and causes unnecessary checks.
+- Deleting older imported presets now removes files saved under their original export names, including recovery backups.
 - Presets now accept zero learning-rate decay.
 - Snapshot filenames now honor the run's preset and ESR naming options and use local timestamps precise to the second.
 - Long batch filenames and paths wrap and expose their full values on hover.
 - Snapshot reports retain the metrics and history captured with the saved weights, even as training advances.
+- Setup Guide and Diagnostics now use current platform instructions, command examples, and folder names; model-export help distinguishes snapshots from finished-model extra copies.
+- A2 presets show their effective MRSTFT loss weight, including JSON overrides, and finished convergence panels no longer suggest training is still running.
+- Desktop checks wait for zoom changes to settle on Windows, keep report previews painting during screenshots, and avoid unnecessary idle work on macOS.
 
 ## [0.6.8] - 2026-09-19
 

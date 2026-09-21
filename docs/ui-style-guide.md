@@ -49,6 +49,14 @@ Do not hard-code font sizes, families, or line heights in JSX. Do not shrink tex
 - Keyboard focus uses `--focus-ring`, a 2px cyan outline. An inset offset is appropriate where scroll containers would clip an outside outline. Never remove focus indication without an equivalent visible replacement.
 - Use the existing confirmation/application-dialog components. Dialogs use the same typography, flat controls, one-pixel border, cyan top accent, and soft overlay shadow. Actions wrap at narrow widths.
 
+## Option labels and help
+
+- Default to concise, self-explanatory labels. Put supporting explanations, examples, and technical details in tooltips rather than paragraphs beneath controls.
+- Do not repeat an option's meaning in both its label and an always-visible description. If the label needs a paragraph to make sense, improve the label first.
+- Keep inline text when users need to see it before acting: validation errors, unavailable features and their reasons, important consequences, or a required setup step. Use the shortest useful explanation.
+- Tooltips supplement the label; they must not contain the only indication that an option is unavailable or an action has an important consequence. Reuse existing tooltip behavior and support keyboard access when adding tooltip components.
+- Apply this preference to new controls and screens being revised. Keep detailed guidance in the user documentation and Setup Guide.
+
 ## Color, borders, and spacing
 
 Use `--surface-workspace`, `--surface-panel`, `--surface-header`, `--surface-field`, `--surface-hover`, and `--surface-selected`. Use `--border-panel` for structure and `--border-field` for inputs. Standard panels and controls have square corners and one-pixel borders; selected states can add a two-pixel accent.
@@ -57,7 +65,7 @@ Use `--text-ash` for primary content and `--text-steel` for secondary content. C
 
 Use the spacing tokens (`--space-1` through `--space-6`: 4, 8, 12, 16, 20, 24px) for new padding, margins, and gaps. Typical panels/cards use 16px padding, related controls use 8px gaps, and workspace sections use 20–24px separation. Explicit widths, chart coordinates, native frame geometry, and small optical adjustments are layout values, not additions to the spacing scale.
 
-Inline styles are reserved for runtime values such as progress width, computed status color, or a genuinely local layout value. Repeated layout belongs in a class. No embedded `<style>` blocks. Third-party editors may need inline typography as an adapter; those values must reference shared tokens. Canvas/game artwork and its local HUD are a deliberate exception to normal reading-surface typography, not a pattern for new application screens.
+Inline styles are reserved for runtime values such as progress width, computed status color, or a local layout value. Repeated layout belongs in a class. No embedded `<style>` blocks. Third-party editors may need inline typography as an adapter; those values must reference shared tokens. The About screen's terminal artwork may use its own decorative scale; ordinary reading surfaces follow the shared typography rules.
 
 ## Changing or adding a screen
 

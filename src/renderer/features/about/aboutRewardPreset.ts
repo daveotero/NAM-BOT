@@ -39,7 +39,7 @@ export function createEpochRunnerRewardPreset(): TrainingPresetFile {
     },
     origin: {
       app: 'NAM-BOT',
-      version: '0.6.8'
+      version: '0.7.0'
     }
   })
 }

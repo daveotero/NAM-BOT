@@ -8,7 +8,7 @@ const GUIDE_SECTIONS = [
   { id: 'guide-links', label: 'Links' }
 ]
 
-type GuideMode = 'standard' | 'nvidia' | 'apple' | 'amd'
+type GuideMode = 'standard' | 'nvidia' | 'apple' | 'amd' | 'intel'
 
 interface GuideOption {
   id: GuideMode
@@ -19,8 +19,8 @@ interface GuideOption {
 const guideOptions: GuideOption[] = [
   {
     id: 'standard',
-    label: 'Standard / Unsure',
-    description: 'Use this if you are not sure what GPU you have, or if you plan to run on CPU.'
+    label: 'Standard / CPU (Windows)',
+    description: 'Train on the processor, or start here if you are unsure about your GPU.'
   },
   {
     id: 'nvidia',
@@ -30,12 +30,17 @@ const guideOptions: GuideOption[] = [
   {
     id: 'amd',
     label: 'AMD ROCm (Windows)',
-    description: 'Use this if you have an AMD Radeon RX 7000/9000 or PRO W7000 series GPU on Windows.'
+    description: 'Check your exact GPU and Windows version against AMD’s support matrix.'
   },
   {
     id: 'apple',
     label: 'Apple Silicon',
     description: 'Use this if you are on an Apple Silicon Mac and want Metal acceleration.'
+  },
+  {
+    id: 'intel',
+    label: 'Intel Mac',
+    description: 'Connect an existing compatible environment; current PyTorch binaries have platform limits.'
   }
 ]
 
@@ -73,8 +78,7 @@ function renderGuideIntro(mode: GuideMode): JSX.Element {
         marginBottom: '16px'
       }}>
         <p className="ui-text-body" style={{ color: 'var(--text-steel)', margin: 0 }}>
-          <strong>NVIDIA path:</strong> This flow explicitly replaces a CPU-only PyTorch install with a CUDA-enabled build.
-          If you previously installed the wrong torch build, follow the NVIDIA commands exactly and then verify the result in Diagnostics.
+          <strong>NVIDIA path:</strong> Choose a PyTorch CUDA build that supports your GPU and driver, then verify GPU access in Diagnostics.
         </p>
       </div>
     )
@@ -104,9 +108,18 @@ function renderGuideIntro(mode: GuideMode): JSX.Element {
         marginBottom: '16px'
       }}>
         <p className="ui-text-body" style={{ color: 'var(--text-steel)', margin: 0 }}>
-          <strong>AMD ROCm path:</strong> Requires Python 3.12 and official AMD ROCm wheels. This installs ROCm-enabled PyTorch for AMD GPU acceleration on Windows.
+          <strong>AMD ROCm path:</strong> Check your exact GPU and operating system in <a href="https://rocm.docs.amd.com/projects/radeon-ryzen/en/latest/docs/compatibility/compatibilityrad/windows/windows_compatibility.html" target="_blank" rel="noopener noreferrer">AMD’s Windows support matrix</a> first. Support applies to individual models, not every card in a Radeon series. This path uses Python 3.12.
         </p>
       </div>
+    )
+  }
+
+  if (mode === 'intel') {
+    return (
+      <p className="ui-text-body">
+        NAM-BOT has an Intel Mac build, but PyTorch ended official Intel Mac binaries after the 2.2 series; see the <a href="https://pytorch.org/blog/pytorch2-2/" target="_blank" rel="noopener noreferrer">PyTorch announcement</a>.
+        Use <strong>Existing setup</strong> to connect a compatible NAM environment when available. A fresh Intel environment needs compatible older dependencies and is not covered by the Apple Silicon instructions.
+      </p>
     )
   }
 
@@ -118,7 +131,7 @@ function renderGuideIntro(mode: GuideMode): JSX.Element {
       marginBottom: '16px'
     }}>
       <p className="ui-text-body" style={{ color: 'var(--text-steel)', margin: 0 }}>
-        <strong>Standard path:</strong> This is the safest option if you are unsure about your GPU. You can always switch later after Diagnostics tells you what the environment can see.
+        <strong>Standard path:</strong> Install the CPU build for Windows. You can install a compatible GPU build later.
       </p>
     </div>
   )
@@ -128,20 +141,21 @@ function renderTorchInstall(mode: GuideMode): JSX.Element {
   if (mode === 'nvidia') {
     return (
       <>
+        <p className="ui-text-body">
+          Open the <a href="https://pytorch.org/get-started/locally/" target="_blank" rel="noopener noreferrer">PyTorch installation selector</a>.
+          Choose Stable, Windows, Pip, Python, and a CUDA version supported by your GPU and driver. Run its installation command in the activated environment.
+          If you are replacing a different PyTorch build, remove that build first:
+        </p>
         <CopyableCodeBlock
-          label="Step C: Remove Wrong Torch Build"
-          command="pip uninstall -y torch"
+          label="Remove an existing PyTorch build"
+          command="python -m pip uninstall -y torch torchvision torchaudio"
         />
         <CopyableCodeBlock
-          label="Step D: Install CUDA PyTorch"
-          command="pip install --index-url https://download.pytorch.org/whl/cu130 --no-cache-dir torch==2.10.0+cu130"
-        />
-        <CopyableCodeBlock
-          label="Step E: Verify CUDA Torch"
+          label="Verify CUDA after installation"
           command={'python -c "import torch; print(torch.__version__); print(torch.version.cuda); print(torch.cuda.is_available()); print(torch.cuda.device_count()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else None)"'}
         />
         <p className="ui-text-body" style={{ color: 'var(--text-steel)', marginTop: '-8px', marginBottom: '16px' }}>
-          Expected result: the version string should include <strong>+cu130</strong> and <strong>torch.cuda.is_available()</strong> should print <strong>True</strong>.
+          Expect a CUDA build value, <strong>True</strong> for GPU availability, and your GPU’s name. If it prints False, check the selected wheel and driver requirements before training.
         </p>
       </>
     )
@@ -150,43 +164,38 @@ function renderTorchInstall(mode: GuideMode): JSX.Element {
   if (mode === 'amd') {
     return (
       <>
+        <p className="ui-text-body">
+          Follow <a href="https://rocm.docs.amd.com/projects/radeon-ryzen/en/latest/docs/install/installrad/windows/install-pytorch.html" target="_blank" rel="noopener noreferrer">AMD’s native Windows PyTorch instructions</a> for the graphics driver, ROCm environment packages, and PyTorch packages.
+          Run the commands for your shell in the activated environment and keep all packages from the same documented release.
+        </p>
         <CopyableCodeBlock
-          label="Step C: Create Python 3.12 Environment"
-          command="conda create -n nam python=3.12 -y && conda activate nam"
-        />
-        <CopyableCodeBlock
-          label="Step D: Install ROCm SDK Core"
-          command="pip install --no-cache-dir https://repo.radeon.com/rocm/windows/rocm-rel-7.2/rocm_sdk_core-7.2.0.dev0-py3-none-win_amd64.whl"
-        />
-        <CopyableCodeBlock
-          label="Step E: Install ROCm PyTorch"
-          command="pip install --no-cache-dir https://repo.radeon.com/rocm/windows/rocm-rel-7.2/torch-2.9.1%2Brocmsdk20260116-cp312-cp312-win_amd64.whl"
-        />
-        <CopyableCodeBlock
-          label="Step F: Verify ROCm PyTorch"
+          label="Verify ROCm after installation"
           command={'python -c "import torch; print(\'CUDA Available:\', torch.cuda.is_available()); print(\'HIP Version:\', torch.version.hip)"'}
         />
         <p className="ui-text-body" style={{ color: 'var(--text-steel)', marginTop: '-8px', marginBottom: '16px' }}>
           Expected result: <strong>CUDA Available: True</strong> and <strong>HIP Version:</strong> shows a version string. Note: torch.version.cuda will be None for ROCm builds.
         </p>
-        <CopyableCodeBlock
-          label="Step G: Install Neural Amp Modeler"
-          command={'pip install --upgrade "neural-amp-modeler>=0.13.0"'}
-        />
       </>
     )
   }
 
   return (
     <>
+      {mode === 'apple' && (
+        <>
+          <p className="ui-text-body">Check <a href="https://developer.apple.com/metal/pytorch/" target="_blank" rel="noopener noreferrer">Apple’s PyTorch requirements</a> for your macOS version. Install Xcode command-line tools if needed:</p>
+          <CopyableCodeBlock label="Install Apple command-line tools" command="xcode-select --install" />
+        </>
+      )}
       <CopyableCodeBlock
-        label="Step C: Install PyTorch"
-        command="pip install torch"
+        label="Install PyTorch"
+        command={mode === 'apple' ? 'python -m pip install torch' : 'python -m pip install torch --index-url https://download.pytorch.org/whl/cpu'}
       />
       {mode === 'apple' && (
-        <p className="ui-text-body" style={{ color: 'var(--text-steel)', marginTop: '-8px', marginBottom: '16px' }}>
-          On Apple Silicon, NAM-BOT will later check whether PyTorch can use MPS on your machine.
-        </p>
+        <>
+          <CopyableCodeBlock label="Verify Apple GPU access" command={'python -c "import torch; print(torch.__version__); print(torch.backends.mps.is_available())"'} />
+          <p className="ui-text-body">Expect <strong>True</strong> for MPS availability. If it prints False, check macOS, the Python architecture, and PyTorch against Apple’s requirements.</p>
+        </>
       )}
     </>
   )
@@ -202,11 +211,13 @@ export default function Help() {
 
           <div className="guide-content">
             <p style={{ color: 'var(--text-steel)', marginBottom: '16px' }}>
-              If you already have Neural Amp Modeler working on this machine, you probably do not need to rebuild your environment.
-              In that case, NAM-BOT mainly needs the correct backend settings so it can point at the same Conda environment you already use for NAM training.
+              NAM-BOT needs a Conda environment containing Neural Amp Modeler and PyTorch. The desktop installer installs the app; the environment runs your training.
+              If NAM already works on this machine, connect that environment below.
             </p>
             <p style={{ color: 'var(--text-steel)', marginBottom: '16px' }}>
-              Security note: NAM-BOT checks package metadata before importing NAM or Lightning and blocks Lightning <strong>2.6.2</strong> and <strong>2.6.3</strong>, which were compromised PyPI releases. Use <strong>neural-amp-modeler 0.13.0 or newer</strong> for fresh installs and A2 local training.
+              NAM-BOT checks package metadata before importing NAM or Lightning and blocks compromised Lightning versions <strong>2.6.2</strong> and <strong>2.6.3</strong>.
+              If either was installed, follow the <a href="https://github.com/Lightning-AI/pytorch-lightning/security/advisories/GHSA-w37p-236h-pfx3" target="_blank" rel="noopener noreferrer">maintainers’ recovery advisory</a> before reusing the environment; replacing the package alone does not address possible credential exposure.
+              Use <strong>neural-amp-modeler 0.13.0 or newer</strong> for fresh installs and A2 training.
             </p>
 
             <div style={{
@@ -236,16 +247,18 @@ export default function Help() {
             </h3>
             <ol style={{ color: 'var(--text-steel)', paddingLeft: '20px', marginBottom: '16px' }}>
               <li>Go to <strong>Settings</strong> in the left menu</li>
-              <li>Set the Conda executable path if your setup does not use the default executable shown in Settings</li>
-              <li>Set the backend mode to match how you launch NAM today</li>
-              <li>Enter the Conda environment name or environment path that already contains your working NAM install</li>
+              <li>Use the detected Conda executable, or browse to the executable used by your installation</li>
+              <li>Choose <strong>Conda Environment Name</strong> or <strong>Conda Environment Prefix</strong></li>
+              <li>Enter the environment name or its folder’s full path. A prefix points to the environment folder, not its Python executable</li>
             </ol>
+            <CopyableCodeBlock label="List Conda environments" command="conda env list" />
+            <p className="ui-text-body">Run this in Anaconda Prompt on Windows or Terminal on macOS to find environment names and paths.</p>
 
             <h3 className="guide-step-title">
-              2. Save Settings
+              2. Wait for Saved
             </h3>
             <p style={{ color: 'var(--text-steel)', marginBottom: '16px' }}>
-              Settings save automatically after a short pause, or you can click <strong>Save Settings</strong>. Then open <strong>Diagnostics</strong> to check the environment you selected; use <strong>Re-check All</strong> to refresh existing results.
+              Settings save automatically after a short pause. Wait for <strong>Saved</strong> in the toolbar. <strong>Validate Backend</strong> also saves the visible settings before checking them.
             </p>
 
             <h3 className="guide-step-title">
@@ -258,17 +271,23 @@ export default function Help() {
               <li><strong>Backend</strong> is ready</li>
               <li><strong>Training Launch</strong> is ready</li>
               <li><strong>Accelerator</strong> shows the GPU you expect, if you plan to train with GPU acceleration</li>
+              <li><strong>NAM Version</strong> is 0.13.0 or newer for A2 presets</li>
             </ol>
+            <p className="ui-text-body">CPU-only status is expected for the Standard path. If a check fails, follow <strong>Actions</strong>, then <strong>Re-check All</strong>. For help, open <strong>Advanced details &gt; Show Details</strong> and use <strong>Copy AI Prompt</strong> or <strong>Copy Raw JSON</strong>. Review these before sharing; they contain local environment paths and machine details.</p>
 
             <h3 className="guide-step-title">
               4. Start Using NAM-BOT
             </h3>
             <ol style={{ color: 'var(--text-steel)', paddingLeft: '20px' }}>
               <li>Go to <strong>Jobs</strong></li>
-              <li>Click <strong>+ New Job</strong></li>
-              <li>Select your audio and output files</li>
-              <li>Save the job, then queue it</li>
+              <li>Choose <strong>New Job</strong>, or use <strong>Add audio files</strong> to add a captured output recording</li>
+              <li>Choose <strong>Default</strong> input if you captured the bundled NAM V3 signal. Otherwise choose <strong>Custom</strong> and select the dry signal used for your recording. <strong>Save Default to Disk</strong> exports the bundled signal for making a new capture</li>
+              <li>Select the captured output audio and a preset. The initial default, <strong>A2 Standard</strong>, uses Balanced auto convergence with a 2,000-epoch maximum and can finish earlier</li>
+              <li>Review latency, the model output folder, filename options, and optional PNG/HTML reports. <strong>Auto-align</strong> recognizes NAM signals; use a known manual delay for other inputs</li>
+              <li>Choose <strong>Save Job</strong>, then <strong>Queue</strong> on the draft</li>
             </ol>
+            <p className="ui-text-body">Monitor progress in Jobs or Dashboard. In Jobs, <strong>Save Snapshot</strong> exports the best available checkpoints while training continues. <strong>Stop</strong> there offers save-and-stop, discard, or keep-training choices. Dashboard’s Stop cancels directly. After restarting the app, use <strong>Resume Queue</strong> to continue waiting jobs.</p>
+            <p className="ui-text-body">Open the finished card’s model or output-folder link to find your <code>.nam</code> file, then load it into a compatible Neural Amp Modeler player.</p>
           </div>
         </PropertySection>
 
@@ -293,14 +312,16 @@ export default function Help() {
 
             {renderGuideIntro(guideMode)}
 
+            {guideMode !== 'intel' && (
+              <>
             <h3 className="guide-step-title">
               1. Install Miniconda
             </h3>
             <p style={{ color: 'var(--text-steel)', marginBottom: '8px' }}>
-              Navigate to: <a href="https://www.anaconda.com/download" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--neon-cyan)' }}>https://www.anaconda.com/download</a>
+              Install <a href="https://www.anaconda.com/docs/getting-started/installation" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--neon-cyan)' }}>Miniconda</a>, or use your existing Anaconda installation.
             </p>
             <p style={{ color: 'var(--text-steel)' }}>
-              Install Miniconda and make sure <code style={{ color: 'var(--neon-cyan)' }}>conda</code> is added to your PATH.
+              On Windows, accept the installer defaults and open <strong>Anaconda Prompt</strong> from the Start menu. On macOS, follow the shell-initialization instructions and open a new <strong>Terminal</strong> window.
             </p>
             <div style={{
               backgroundColor: 'rgba(0, 243, 255, 0.05)',
@@ -309,45 +330,42 @@ export default function Help() {
               marginBottom: '16px'
             }}>
               <p className="ui-text-body" style={{ color: 'var(--text-steel)', margin: 0 }}>
-                <strong>Important:</strong> Scroll to the bottom of the Anaconda download page to find the <strong>Miniconda</strong> installers.
-                If prompted, allow Miniconda to add itself to PATH.
+                Adding Conda to the global PATH is optional. NAM-BOT can use the full executable path in Settings.
               </p>
             </div>
             <p className="ui-text-body" style={{ color: 'var(--text-steel)', marginTop: '-4px', marginBottom: '16px' }}>
-              On Apple Silicon, choose the Apple Silicon installer. On macOS builds, you may need to right-click the app and choose <strong>Open</strong> on first launch if Gatekeeper warns about an unsigned app.
+              On Apple Silicon, choose the Apple Silicon installer. For an unsigned macOS app, follow <a href="https://support.apple.com/en-us/102445" target="_blank" rel="noopener noreferrer">Apple’s instructions for opening a trusted app</a> if Gatekeeper prevents the first launch.
             </p>
 
-            {guideMode !== 'amd' && (
               <>
                 <h3 className="guide-step-title">
                   2. Create NAM Environment
                 </h3>
                 <p style={{ color: 'var(--text-steel)', marginBottom: '16px' }}>
-                  Open Terminal on macOS, or Command Prompt / PowerShell on Windows, and run these commands <strong>one at a time</strong>:
+                  In Anaconda Prompt on Windows or Terminal on macOS, run these commands <strong>one at a time</strong>. If an environment named <code>nam</code> already exists, connect it through Existing setup or choose a different name here and in Settings.
                 </p>
 
                 <CopyableCodeBlock
                   label="Step A: Create Environment"
-                  command="conda create -n nam python=3.11 -y"
+                  command={guideMode === 'amd' ? 'conda create -n nam python=3.12 -y' : 'conda create -n nam python=3.11 -y'}
                 />
                 <CopyableCodeBlock
                   label="Step B: Activate"
                   command="conda activate nam"
                 />
               </>
-            )}
 
             <h3 className="guide-step-title">
               3. Install PyTorch for This Machine
             </h3>
             {renderTorchInstall(guideMode)}
 
-            {guideMode !== 'amd' && (
               <CopyableCodeBlock
-                label={guideMode === 'nvidia' ? 'Step F: Install Neural Amp Modeler' : 'Step D: Install Neural Amp Modeler'}
-                command={'pip install --upgrade "neural-amp-modeler>=0.13.0"'}
+                label="Install Neural Amp Modeler after PyTorch"
+                command={'python -m pip install --upgrade "neural-amp-modeler>=0.13.0"'}
               />
-            )}
+            <CopyableCodeBlock label="Check NAM version" command="python -m pip show neural-amp-modeler" />
+            <CopyableCodeBlock label="Check package dependencies" command="python -m pip check" />
 
             <h3 className="guide-step-title">
               4. Configure NAM-BOT
@@ -356,8 +374,8 @@ export default function Help() {
               <li>Go to <strong>Settings</strong></li>
               <li>Leave the default Conda executable unchanged unless your install needs a custom path</li>
               <li>Leave the default environment name as <code style={{ color: 'var(--neon-cyan)' }}>nam</code> unless you intentionally created a different environment</li>
-              <li>Choose an output directory</li>
-              <li>Click <strong>Save Settings</strong></li>
+              <li>Under <strong>Folders</strong>, choose a <strong>Default Model Output Root</strong> for run subfolders containing models, checkpoints, and training logs. <strong>Workspace Root</strong> separately holds NAM-BOT's generated configs, training controls, ESR history, and working terminal logs</li>
+              <li>Wait for <strong>Saved</strong> in the toolbar</li>
             </ol>
 
             <h3 className="guide-step-title">
@@ -375,11 +393,13 @@ export default function Help() {
             </h3>
             <ol style={{ color: 'var(--text-steel)', paddingLeft: '20px' }}>
               <li>Go to <strong>Jobs</strong></li>
-              <li>Click <strong>+ New Job</strong></li>
-              <li>Select input and output audio files</li>
-              <li>Adjust training settings</li>
+              <li>Choose <strong>New Job</strong></li>
+              <li>Match the input signal to the captured output recording, as described in Existing setup</li>
+              <li>Review the preset, training mode, latency, and output options</li>
               <li>Click <strong>Save Job</strong>, then <strong>Queue</strong></li>
             </ol>
+              </>
+            )}
           </div>
         </PropertySection>
 
@@ -388,11 +408,14 @@ export default function Help() {
             <a href="https://github.com/sdatkinson/neural-amp-modeler" target="_blank" rel="noopener noreferrer" className="btn btn-primary">
               NAM GitHub
             </a>
-            <a href="https://www.anaconda.com/download" target="_blank" rel="noopener noreferrer" className="btn btn-secondary">
+            <a href="https://www.anaconda.com/docs/getting-started/installation" target="_blank" rel="noopener noreferrer" className="btn btn-secondary">
               Anaconda / Miniconda
             </a>
             <a href="https://pytorch.org/get-started/locally/" target="_blank" rel="noopener noreferrer" className="btn btn-green">
               PyTorch Install Guide
+            </a>
+            <a href="https://github.com/daveotero/NAM-BOT/tree/main/docs" target="_blank" rel="noopener noreferrer" className="btn btn-secondary">
+              NAM-BOT Guides
             </a>
           </div>
         </PropertySection>

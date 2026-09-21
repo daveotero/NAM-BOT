@@ -1,407 +1,181 @@
-# Presets System
+# Presets
 
-UI presentation follows the shared [UI style guide](ui-style-guide.md), including typography, controls, and responsive review requirements.
+A preset is a reusable training recipe: model architecture, learning settings, optional stopping defaults, and any advanced NAM configuration. A [job](jobs-system.md) adds the capture audio, output destination, model metadata, and choices for that particular run.
 
-## Overview
+Start with a bundled preset, then use **Customize** when you want to change it. Your copy stays in the library alongside the original.
 
-NAM-BOT presets are the source of truth for training configuration. A preset defines:
+Bundled preset names update with the app, including on existing installations. Custom copies keep their saved names, and queued or past runs retain the recipe captured when they were queued.
 
-- the user-facing library metadata for a training recipe
-- the basic NAM training values exposed in the preset editor
-- any expert JSON override blocks layered on top of the generated NAM config files
-- optional training-mode, convergence-threshold, and safety-limit defaults
-- optional sharing metadata for preset creators
+## Choose a preset
 
-Jobs do not own the full training recipe. Jobs only point at a preset and optionally override a small set of run-time values such as epochs and manual/auto latency behavior.
+Open **Presets** to compare recipes. Select **Show More**, or the row background, to inspect training values, technical details, and every tier in a packed model. The A2, A1, and Custom badges identify architecture groups.
 
-At enqueue time, the runtime captures a complete preset snapshot. Later library changes do not alter the queued recipe or its result attribution. Drafts referencing a deleted or unreadable preset require an explicit replacement.
+| Bundled preset | Models in the export | Stopping default | Fixed-mode epoch default |
+| --- | --- | --- | ---: |
+| A2 Standard | Lite (3 channels), Full (8 channels) | Balanced auto convergence, maximum 2,000 epochs | 200 |
+| A2 Heavy 12 | Lite, Full, Heavy (12 channels) | Balanced auto convergence, maximum 2,000 epochs | 400 |
+| A2 Ultra 20 | Lite, Full, Heavy, Ultra (16 channels), Mammoth (20 channels) | Obsessive auto convergence, maximum 2,000 epochs | 666 |
+| Standard, Lite, Feather, and Nano WaveNet | One A1 model of the chosen architecture | Last used | 100 |
 
-## Goals
+A2 Standard is the initial default. It trains several embedded models together and exports them in one `.nam` file. Heavy 12 and Ultra 20 are experimental packs with larger tiers; they increase model capacity and playback CPU cost, without guaranteeing a better result for every capture. A2 training requires NAM `0.13.0` or later; [Diagnostics](diagnostics.md) checks the installed environment.
 
-- Keep presets understandable for musicians, producers, and tinkerers who do not want to edit raw NAM config files.
-- Preserve access to advanced NAM configuration through expert JSON blocks.
-- Make presets portable and shareable as standalone JSON files.
-- Maintain backward compatibility as the preset format evolves.
+The A1 WaveNet recipes remain available for A1 workflows. The editor also supports LSTM and custom recipes. The selected NAM environment must support the configuration you give it.
 
-## User Experience
+Set **Settings > Application > Default preset** to choose the recipe for new jobs, added audio, and fresh batches. Selecting a preset for one job does not change this setting. Existing drafts and explicit templates keep their own preset selection.
 
-### Library View
+### Find and organize recipes
 
-The presets page defaults to a library view rather than showing the editor at all times.
+Use **All**, **A2**, **A1**, or **Custom** to filter the library. Search matches names, descriptions, model families, and architecture tags without regard to case. The count shows matching presets out of all visible presets. Saving or importing clears the filters so the saved recipe is visible.
 
-- User presets appear before built-in presets.
-- Some special user-owned presets may be surfaced a little differently from normal library entries.
-- After-hours recipes support the same packed-model and convergence settings as other presets. Updates to bundled recipes leave previously saved user copies intact.
-- Each preset is shown as a compact library row with summary information and the same inline expanded details.
-- Each preset card shows an architecture tag: `A2`, `A1`, or `CUSTOM`.
-- Preset lists and job dropdowns sort A2 presets before A1 presets, with custom architecture recipes after those groups.
-- Clicking the card background toggles the same `Show More` / `Show Less` state as the explicit button.
-- Expanded preset details use compact columns for training values, technical metadata, and packed tiers.
-- Expanded Packed WaveNet preset details show every packed submodel tier in a compact single-column list, including imported custom packs.
-- Built-in presets can be customized into user presets.
-- User presets can be edited, duplicated, exported, and deleted.
-- Settings → Application → Default preset selects the recipe used for new jobs and dropped audio. Deleting that preset resets the saved default to A2 Packed WaveNet; existing drafts still require an explicit replacement if their preset is deleted.
-- Any preset can be exported.
+The library groups A2 first, then A1, then Custom. User recipes appear before bundled recipes within an architecture group. Filters leave that order intact and do not change the saved recipes.
 
-`Import Preset` and `New Preset` sit in the fixed workspace command bar. The filter strip offers All, A2, A1, and Custom architecture filters, plus case-insensitive search over name, description, model family, and architecture tag. The count shows matching presets out of all visible presets. Filters preserve the existing library order and do not alter or delete presets. Saving or importing a preset clears filters so the saved entry is visible.
+## Customize or create a preset
 
-### Manual Editor
+1. Select **Customize** on a bundled preset, **Duplicate** on a user preset, or **New Preset** for a fresh recipe.
+2. Give the preset a name and a description that explains what you changed or intend to test. Category is a descriptive label; it does not affect training or the library’s architecture grouping.
+3. Review **Architecture**, **Training**, and **Loss & levels**. The information controls explain individual fields.
+4. Add **Created By** and **Website / Profile** if you plan to share the recipe. New presets start with the author defaults from [Settings](settings.md).
+5. Select **Save Preset**. Choose the saved recipe when creating or editing a job.
 
-`Manual Editor` and `Import JSON` sit beside the editor heading on the left. The primary action on the right stays in a fixed-width slot: `Save Preset` in manual mode, `Apply JSON` in import mode. Applying JSON requires a valid import and returns to the manual editor for review before saving. Switching modes does not briefly remove or move the primary action, and the existing import-discard guard still protects entered JSON.
+User presets also have **Edit**, **Export**, **Copy Preset JSON**, and **Delete** actions. Bundled presets are read-only and remain available after you customize them. Updating the app does not rewrite your saved user copies.
 
-The manual editor is used when:
-
-- creating a new preset
-- editing an existing user preset
-- duplicating a preset
-- customizing a built-in preset
-
-The manual editor exposes friendly fields for the most common NAM training choices:
-
-- library metadata such as name, category, description, creator name, and creator link
-- creator names retain spaces while typing; surrounding whitespace is normalized when saving
-- NAM architecture version, model family, and architecture choice
-- training mode, fixed epoch defaults, convergence threshold and maximum epochs, batch size, learning rate, learning-rate decay, and `ny`
-- loss and level settings: MRSTFT loss, weight decay, and A2 output normalization
-
-The editor shows a `Save Preset` button in the fixed workspace command bar.
-
-The top Save and Cancel actions, plus Manual Editor / Import JSON mode controls, remain in the fixed workspace command bar while the editor scrolls. The manual editor shares the Jobs/Settings property-sheet layout: **Preset**, **Architecture**, **Training**, **Loss & levels**, and **Overrides** section buttons smoothly scroll to focused headings, with a muted gray active state. Reduced-motion preferences use immediate scrolling. Training starts with the same bordered mode controls used by the job editor. Other training and loss values use paired rows on wide windows and one column in narrow workspaces. All existing fields, override hints, JSON formatting, copy actions, and validation behavior remain available. Import JSON keeps its separate mode and discard guard, and applying an import still preserves the preset's name, category, description, and author.
+The editor's section buttons scroll through **Preset**, **Architecture**, **Training**, **Loss & levels**, and **Overrides**. Save and Cancel stay at the top. Save becomes available when the editor has valid changes. Cancel and navigation prompts protect unsaved work; failed saves retain your edits.
 
 ### Training-mode defaults
 
-The selectors are **Auto convergence**, **Fixed epochs**, and **Last used**, in that order. Auto convergence stores a Fast, Balanced, or Obsessive threshold and a required maximum epoch count. Fixed epochs stores an explicit fixed-mode preference and uses the preset's default epochs. Last used leaves the optional policy unset, so new jobs use the user's last selected mode, threshold, and safety limit. With no saved selection, new jobs use Balanced auto convergence with a 2,000-epoch limit. Existing user presets stay unset for compatibility; the bundled A2 presets explicitly select auto convergence.
-
-An explicit preset policy takes precedence over remembered job preferences. Each job receives a copy when it is created, including dropped audio and new batches. Changing the job's mode, threshold, limit, or fixed epoch count makes it a job override, retained when switching presets. **Use preset** restores the selected preset's stopping policy and fixed epoch default. Applying a preset alone does not overwrite the remembered user preference.
-
-Saved drafts, templates, and queued runs retain their resolved stopping rules when a preset is later edited. Active runs keep their frozen policy. Preset duplication, file import/export, and JSON copying preserve the optional policy. Importing a raw NAM config retains the editor's policy; importing a full preset with an explicit policy replaces it. Invalid policies are rejected instead of silently changing training mode.
-
-Latency, audio paths, file naming, report generation, and packed-tier selection remain per-job settings. These depend on the capture or export destination rather than the reusable model recipe.
-
-- Save buttons stay neutral when the editor is clean.
-- Save buttons turn green only when the preset has unsaved changes and the current editor state is valid to save.
-- Clicking `Cancel` with unsaved preset edits opens a confirm dialog so the user can save, keep editing, or discard changes.
-- Choosing another app section from the sidebar or app menu while the editor has unsaved edits opens a discard warning before navigation.
-
-### Import JSON Mode
-
-Import JSON is a separate mode within the preset editor.
-
-- It accepts raw JSON pasted by the user.
-- JSON is validated as the user types or pastes.
-- Import stays disabled until the snippet is valid.
-- Importing does not touch name, category, description, creator fields, or sharing metadata.
-- Import only hydrates the technical training parts of the preset back into the manual editor.
-
-This mode is intended for:
-
-- full preset JSON copied manually
-- raw `data`, `model`, and `learning` config objects
-- WaveNet or LSTM model snippets
-
-### Preset File Import / Export
-
-Preset file sharing is separate from the raw JSON import mode.
-
-- Each preset card has an `Export` button.
-- The presets page header includes `Import Preset`.
-- Export writes a standalone JSON file using the NAM-BOT preset schema.
-- Import Preset accepts actual NAM-BOT preset files, not partial config snippets.
-
-This split is intentional:
-
-- `Import Preset` is for library-ready shared preset files.
-- `Import JSON` inside the editor is for technical experimentation and raw config fragments.
-
-## Preset Schema
-
-Presets use the `TrainingPresetFile` schema.
-
-```ts
-interface TrainingPresetFile {
-  stopping?: {
-    mode: 'fixed' | 'convergence'
-    level: 'fast' | 'balanced' | 'thorough' // displayed as Obsessive
-    maxEpochs: number | null // positive integer for convergence; null for fixed
-  }
-  schemaVersion: 1
-  presetKind: 'training'
-  id: string
-  name: string
-  description: string
-  category: 'quality' | 'speed' | 'architecture' | 'custom'
-  builtIn: boolean
-  readOnly: boolean
-  visible: boolean
-  createdAt: string
-  updatedAt: string
-  lockedJobFields: Array<'epochs' | 'latencySamples'>
-  values: {
-    architectureVersion: 'a1' | 'a2' | 'custom'
-    modelFamily: 'PackedWaveNet' | 'WaveNet' | 'LSTM'
-    architectureSize: 'packed' | 'standard' | 'lite' | 'feather' | 'nano' | 'custom'
-    epochs: number
-    batchSize: number
-    learningRate: number
-    learningRateDecay: number
-    ny: number
-    fitMrstft: boolean
-    mrstftWeight: number
-    weightDecay: number
-    outputNormalizeRmsDb: number | null
-  }
-  expert: {
-    data?: Record<string, unknown>
-    model?: Record<string, unknown>
-    learning?: Record<string, unknown>
-  }
-  author?: {
-    name?: string
-    url?: string
-  }
-  origin?: {
-    app?: string
-    version?: string
-  }
-}
-```
-
-### Schema Notes
-
-- `schemaVersion` is the compatibility anchor for exported and persisted preset files.
-- `presetKind` distinguishes training presets from any future preset families.
-- `author` is share-facing metadata for the person, company, or profile behind the preset.
-- `origin` identifies the app and version that created or exported the preset file.
-- `stopping` is optional within schema version 1. Its absence selects Last used. Auto-convergence policies require a safety limit; a legacy null limit becomes 2,000 epochs when loading a preset.
-
-## Example Export
-
-```json
-{
-  "schemaVersion": 1,
-  "presetKind": "training",
-  "id": "my-a2-preset",
-  "name": "My A2 Preset",
-  "description": "General-purpose amp capture preset.",
-  "category": "custom",
-  "builtIn": false,
-  "readOnly": false,
-  "visible": true,
-  "createdAt": "2026-03-12T18:30:00.000Z",
-  "updatedAt": "2026-03-12T18:42:00.000Z",
-  "lockedJobFields": [],
-  "values": {
-    "architectureVersion": "a2",
-    "modelFamily": "PackedWaveNet",
-    "architectureSize": "packed",
-    "epochs": 100,
-    "batchSize": 16,
-    "learningRate": 0.004,
-    "learningRateDecay": 0.006,
-    "ny": 8192,
-    "fitMrstft": true,
-    "mrstftWeight": 0.0005,
-    "weightDecay": 0.000000317,
-    "outputNormalizeRmsDb": -18
-  },
-  "expert": {},
-  "author": {
-    "name": "Jane Doe",
-    "url": "https://example.com"
-  },
-  "origin": {
-    "app": "NAM-BOT",
-    "version": "0.1.3"
-  }
-}
-```
-
-## Basic Fields and What They Drive
-
-The manual editor fields map to the generated NAM config files.
-
-- `NAM Architecture`
-  - marks the preset as `A2`, `A1`, or `Custom` in the editor
-- `Model Family`
-  - selects the major network path: Packed WaveNet for A2, or WaveNet/LSTM for A1 and custom local recipes
-- `Architecture`
-  - selects Packed for A2, or one of the A1 architecture templates for WaveNet/LSTM
-- `Default Epochs`
-  - maps to trainer max epochs in fixed mode unless a job or expert override replaces it; auto mode uses its maximum-epochs safety limit instead
-- `Batch Size`
-  - maps to the training dataloader batch size
-- `Learning Rate`
-  - maps to optimizer learning rate
-- `LR Decay`
-  - maps to scheduler gamma as `1 - decay`; zero keeps the learning rate constant
-- `NY`
-  - maps to the training window length in `data.json`
-- `Fit MRSTFT`
-  - toggles the additional MRSTFT-related loss terms
-- `MRSTFT Weight`
-  - controls the strength of the MRSTFT loss term
-- `Weight Decay`
-  - maps to optimizer weight decay
-- `Output Normalize RMS dB`
-  - adds the A2 joint output normalization step when enabled
-
-## Expert Overrides
-
-Expert overrides are optional JSON blocks merged on top of the generated base configs.
-
-- `Data JSON` merges on top of generated `data.json`
-- `Model JSON` merges on top of generated `model.json`
-- `Learning JSON` merges on top of generated `learning.json`
-- If `Model JSON` provides `net`, that `net` replaces the generated `net` instead of deep-merging into it. This prevents mixed A1/A2 model shapes.
-
-For backward compatibility, NAM-BOT also accepts older custom-architecture preset exports where
-`expert.model` is a raw WaveNet or LSTM config snippet instead of a full `model.json` override.
-Those legacy shapes are normalized internally so existing shared presets from older NAM-BOT
-versions continue to generate the intended `net.config`.
+| Preset setting | New jobs receive |
+| --- | --- |
+| Auto convergence | The preset's Fast, Balanced, or Obsessive threshold and required maximum epoch count. |
+| Fixed epochs | Fixed mode with the preset's default epoch count, unless an expert override controls it. |
+| Last used | Your remembered job mode, threshold, and safety limit. With no saved choice, Balanced auto convergence and a 2,000-epoch limit. |
 
-If an expert block overrides one of the friendly manual fields:
+An explicit preset policy takes precedence over remembered job preferences. In a job, changing the mode, threshold, limit, or fixed epoch count creates an override that survives switching presets. **Use preset** restores the selected preset's stopping defaults and fixed epoch count.
 
-- that friendly field becomes read-only
-- the editor shows a subdued `JSON Override` badge
-- the override source and effective value are available on hover
-
-This prevents silent conflicts between the manual controls and the expert JSON.
-
-## Persistence
-
-### Internal User Preset Storage
-
-User presets are stored as one JSON file per preset in the Electron user data folder.
-
-> [!TIP]
-> You can quickly open this folder from the application's **File** menu by selecting **Open Presets Folder** (Shortcut: `Ctrl+Shift+P`).
-
-- Windows: `%APPDATA%\\NAM-BOT\\presets`
+Each new job receives a copy of its stopping policy. Editing the preset later does not change the resolved stopping rules in saved drafts or templates. Queueing freezes the complete recipe for that run. See [training mode and convergence](jobs-system.md#training-mode-and-convergence) for what the thresholds measure and how packed models qualify.
 
-Built-in presets are not stored there. They are defined in code and merged into the preset list after user presets.
+Audio paths, latency, selected packed tiers, filenames, reports, and exported model metadata are job settings. They are not saved as part of a shared preset.
 
-User presets retain `.bak` recovery copies. If a primary file is missing or invalid, NAM-BOT loads its valid backup and shows a recovery notice in Presets and Jobs. If neither copy is usable, it reports the unreadable file. Deleting a preset removes both its primary file and backup, so a deliberately deleted preset does not reappear through recovery.
+### Training fields
 
-### Special Preset Handling
+| Field | What it controls |
+| --- | --- |
+| NAM Architecture | The A2, A1, or Custom architecture classification. |
+| Model Family | Packed WaveNet, WaveNet, or LSTM. A2 uses Packed WaveNet; WaveNet and LSTM support A1 and custom recipes. |
+| Architecture | Packed for A2, the Standard/Lite/Feather/Nano templates for A1, or a custom configuration. |
+| Default epochs | The target when a job uses Fixed epochs. Auto convergence uses its Maximum epochs limit instead. |
+| Batch Size | Training examples processed together. Larger batches use more memory; reduce this if the environment runs out of memory. |
+| NY | Training window length in samples. Longer windows give the model more signal context and cost more memory and time. |
+| Learning Rate | The size of optimizer updates. |
+| LR Decay | How quickly the learning rate falls after each epoch. Zero keeps it constant; the generated scheduler uses `gamma = max(0, 1 - decay)`. |
+| MRSTFT / MRSTFT Weight | For A2, the read-only status follows the weight: above zero enables the frequency-aware loss; zero disables it. A1 also uses the Fit MRSTFT checkbox. |
+| Weight Decay | Optimizer regularization where supported by the generated model configuration. |
+| Output Normalize RMS dB | The A2 training-output normalization target. The export compensates for that normalization. |
 
-The preset system supports a small amount of app-specific special-case behavior for select user-owned presets.
+The A2 MRSTFT status in the editor and library reflects the effective weight, including a direct `loss.mrstft_weight` override in Model JSON. When that override locks the weight field, change its value in Model JSON.
 
-- special presets still use the normal user-preset save flow
-- the library refreshes immediately after those presets are saved
-- presentation may include light metadata cues in places where the UI cannot render richer custom badges
+The bundled A2 presets use batch size `16`, learning rate `0.004`, decay `0.006`, NY `8192`, MRSTFT enabled at `0.0005`, weight decay `0.000000317`, and output normalization at `-18 dB RMS`. Their stopping and fixed epoch defaults differ as shown above. The visible bundled A1 WaveNet presets use decay `0.007`, MRSTFT weight `0.0002`, no weight decay, and no output normalization.
 
-### Exported Preset Files
-
-Exported preset files can be saved anywhere the user chooses.
+## Packed models and larger custom packs
 
-- default suffix: `.nam-bot-preset.json`
-- actual file contents: full `TrainingPresetFile` JSON
+A packed preset defines a collection of embedded models. **Show More** lists the entire collection, including tiers from an imported custom pack. Heavy 12 has three tiers; Ultra 20 has five. The standard two-tier A2 preset remains available when you want Lite and Full only.
 
-Exported files are intended to be easy to share in forums, GitHub repos, cloud drives, or direct messages.
+In the job editor, packs with three or more tiers expose a **Packed models** checklist. All tiers start selected, and at least one must remain selected. This lets a job train and export a subset of a larger pack while preserving the library recipe. Selecting a different preset resets the checklist to that preset's full collection.
 
-## Import Rules
+Each tier has its own ESR curve and best checkpoint. Auto convergence waits for every selected tier to qualify. The largest exported tier supplies the primary ESR shown on the run card and in filename/metadata attribution; [Jobs](jobs-system.md#watch-training) explains how that differs from the latest validation result.
 
-### Import Preset
+### Tier names and CPU estimates
 
-The top-level `Import Preset` action:
+Friendly tier names follow channel-count ranges. An imported `channels_22` model, for example, displays as A2 Colossal. Values outside these ranges retain their model name or channel count.
 
-- opens a file picker
-- accepts a NAM-BOT preset JSON file
-- normalizes the preset into the current schema
-- saves it into the user preset library as a user-owned preset
+| Tier label | Channel range | Reference channels | Estimated playback CPU relative to A2 Full |
+| --- | ---: | ---: | ---: |
+| A2 Lite | 1 to 3 | 3 | 0.14× |
+| A2 Full | 4 to 8 | 8 | 1.00× |
+| A2 Heavy | 9 to 12 | 12 | 2.25× |
+| A2 Ultra | 13 to 16 | 16 | 4.00× |
+| A2 Mammoth | 17 to 20 | 20 | 6.25× |
+| A2 Colossal | 21 to 24 | 24 | 9.00× |
+| A2 Leviathan | 25 to 28 | 28 | 12.25× |
 
-If the imported file contains author metadata, it is preserved.
+These are planning estimates from `(channels / 8)^2`, not benchmarks or training-time predictions. Host implementation, sample rate, block size, compiler optimization, and fixed overhead affect actual playback CPU use. Tier names describe model size; listen to the exports when comparing results.
 
-### Import JSON
+### Define a custom pack
 
-The editor-level JSON import mode:
+Customize an expanded pack or import a complete compatible recipe, then work in **Model JSON** under Overrides. Packed tiers come from `model.net.config.submodels[]`; a tier's identity includes its array index and name. The associated export settings must agree with the selected submodels.
 
-- does not write directly to the library
-- validates and parses pasted JSON
-- imports only the technical preset settings into the current editor session
+**Model JSON** replaces the entire `net` block when you supply one. Keep a full valid PackedWaveNet network definition, including its submodels and export configuration. Copy or export a working recipe before editing it so you have the complete structure. The job's checklist later filters both the submodels and their matching `container_max_values` for that run.
 
-This is intentionally different from importing a finished shared preset file.
+The friendly controls do not construct arbitrary channel layouts. Advanced packs belong in the JSON override or an imported preset. The [shared model builders](../src/shared/training.ts) define NAM-BOT's bundled packed configurations and tier labeling.
 
-## Compatibility Strategy
+## Preset file import / export
 
-Backward compatibility is handled through schema normalization.
+Use **Export** on any preset to save a standalone `.nam-bot-preset.json` file. It contains the training recipe, stopping policy when set, creator details, and origin metadata. **Copy Preset JSON** copies the full preset text to the clipboard.
 
-- All preset reads pass through `normalizeTrainingPreset()`.
-- Missing fields are backfilled with defaults.
-- Missing architecture fields are inferred where possible. `PackedWaveNet` is treated as `a2`; WaveNet and LSTM are treated as `a1`; unknown nets are treated as `custom`.
-- Optional sharing metadata can be absent in older files without causing failures.
-- Legacy custom-architecture presets from older NAM-BOT releases are upgraded from flat
-  `expert.model` config snippets to the canonical `expert.model.net.config` shape during load.
-- New fields should be added in a backward-compatible way whenever possible.
+To add a shared file to the library, select **Import Preset** in the Presets toolbar. NAM-BOT reads the file, preserves its author information, and saves an editable user-owned copy with a new ID. Imported bundled presets become user copies too. File import does not overwrite the bundled original.
 
-When the schema eventually changes:
+**Import Preset** expects a NAM-BOT preset export. Use the editor's **Import JSON** mode for raw NAM configuration or model snippets.
 
-1. bump `schemaVersion`
-2. update normalization logic to migrate older shapes
-3. keep exported files self-describing
+## Apply pasted JSON
 
-## Relationship to Jobs
+1. Create or edit a preset, then select **Import JSON** beside the editor heading.
+2. Paste a complete NAM-BOT preset, a NAM `data`/`model`/`learning` configuration object, or a recognized WaveNet/LSTM model snippet.
+3. Resolve any validation error, then select **Apply JSON**.
+4. Review the technical fields in Manual Editor and select **Save Preset** to write the library entry.
 
-Jobs reference presets rather than duplicating the entire training configuration.
+Apply JSON updates the technical recipe in the current editor. It preserves your name, description, category, creator fields, and sharing metadata. A full preset with an explicit stopping policy replaces the editor's policy; raw configs and imports without one keep the current policy. Invalid policies are rejected.
 
-- presets define the base NAM training recipe
-- jobs apply only limited run-specific overrides
-- this keeps shared recipes reusable across many jobs
+JSON is validated while you type or paste, and Apply JSON stays disabled until the import is valid. Applying does not save the preset by itself. Switching away from entered JSON has a discard guard. The JSON editors provide formatting and error locations; Copy Preset JSON is available in the manual editor once the override blocks are valid.
 
-This separation is important for:
+## Expert overrides
 
-- a cleaner queue system
-- consistent experimentation
-- easier preset sharing between users
+Under **Overrides**, the optional blocks apply to these generated files:
 
-## Current Built-In Defaults
+| Editor block | Generated configuration |
+| --- | --- |
+| Data JSON | `data.json`: audio paths, delay, splits, normalization, and dataset options. |
+| Model JSON | `model.json`: network, loss, optimizer, and learning-rate scheduler. |
+| Learning JSON | `learning.json`: dataloaders, trainer, and fit options. |
 
-Current built-in defaults are aligned with official NAM A2 local training:
+Objects merge into the generated configuration; arrays and scalar values replace the corresponding values. A supplied model `net` replaces the whole generated network instead of merging A1 and A2 structures together.
 
-- NAM architecture: `a2`
-- model family: `PackedWaveNet`
-- architecture: `packed`
-- base epoch fallback: `100`
-- batch size: `16`
-- learning rate: `0.004`
-- learning-rate decay: `0.006`
-- `ny`: `8192`
-- MRSTFT enabled: `true`
-- MRSTFT weight: `0.0005`
-- weight decay: `0.000000317`
-- output normalization: `-18 dB RMS`
+When an override owns a friendly field, that control becomes read-only with a **JSON Override** badge. Hover the badge for the source and effective value. Change or remove the JSON override to use the friendly control again. An expert `data.common.delay` also locks the job's latency controls, and `trainer.max_epochs` locks its fixed epoch field.
 
-The default selected preset remains `A2 Packed WaveNet` (`a2-packed-wavenet`). It trains the official two-tier A2 packed model with `channels_3` Lite and `channels_8` Full submodels and defaults to **Balanced auto convergence** with a **2,000-epoch safety limit**. Its fixed-mode epoch default remains `200`.
+Two job choices are applied after the base recipe and expert blocks: the packed-tier selection filters the finished network configuration, and auto convergence sets `trainer.max_epochs` to the job's safety limit. Explicit expert accelerator/device choices remain in place; automatic device detection applies to `accelerator: "auto"`.
 
-`A2 Packed WaveNet Heavy 12` (`a2-packed-wavenet-heavy-12`) is also bundled as a built-in quality preset. It keeps the official A2 Lite and Full submodels, adds a third `channels_12` Heavy submodel as the highest-quality tier, and defaults to **Balanced auto convergence** with a **2,000-epoch safety limit**. Its fixed-mode epoch default remains `400`.
+The [Jobs technical reference](jobs-system.md#custom-input-splits) includes a custom-input data split example. The [config builder](../src/main/config/configBuilder.ts) is the exact reference for merge order and generated NAM keys.
 
-`A2 Packed WaveNet Ultra 20` (`a2-packed-wavenet-ultra-20`) is bundled for maximum-quality local experiments. It adds `channels_16` Ultra and `channels_20` Mammoth tiers above Heavy and defaults to **Obsessive auto convergence** with a **2,000-epoch safety limit**. Its fixed-mode epoch default remains `666`.
+## Editing, deletion, and recovery
 
-Packed submodel identity comes from each `model.net.config.submodels[]` entry's `name` plus its array index. NAM-BOT displays those names in Presets and uses them for per-job packed-submodel selection when a pack has three or more tiers.
+Changes to a library preset affect future runs queued from drafts that reference it. Already queued and active runs retain a complete frozen recipe, and finished history retains its original attribution. Creating a new draft from history restores the job's choices and preset ID, so its next run uses the current library recipe. Keep separate preset copies when comparing recipe revisions.
 
-Friendly A2 packed-tier labels are range-based instead of requiring one exact channel count. For example, `channels_21` through `channels_24` display as A2 Colossal, and `channels_25` through `channels_28` display as A2 Leviathan.
+Deleting your default preset resets **Settings > Application > Default preset** to A2 Standard. Existing drafts that referenced the deleted preset need an explicit replacement before saving or queueing; NAM-BOT does not silently substitute another recipe for them. Delete also removes older imports saved under an export filename and their recovery backups, so those presets do not reappear after restarting.
 
-Estimated runtime CPU coefficients are normalized to A2 Full (`channels_8`) as `1.00`. These are planning estimates, not measured benchmarks. They use `(channels / 8)^2`, because Packed WaveNet hidden-channel work generally scales closer to channel-count squared than linearly. Actual CPU use can vary by host, plugin wrapper, sample rate, block size, compiler optimizations, and fixed overhead.
+Use **File > Open Presets Folder** to see saved user recipes (`Ctrl+Shift+P` on Windows, `Cmd+Shift+P` on macOS). Each user preset has its own JSON file in the application's data directory. Bundled recipes come from the app and are not stored as editable files there.
 
-| Tier label | Channel range | Reference submodel | Estimated CPU coefficient at reference |
-| --- | ---: | --- | ---: |
-| A2 Lite | `1-3` | `channels_3` | `0.14x` |
-| A2 Full | `4-8` | `channels_8` | `1.00x` |
-| A2 Heavy | `9-12` | `channels_12` | `2.25x` |
-| A2 Ultra | `13-16` | `channels_16` | `4.00x` |
-| A2 Mammoth | `17-20` | `channels_20` | `6.25x` |
-| A2 Colossal | `21-24` | `channels_24` | `9.00x` |
-| A2 Leviathan | `25-28` | `channels_28` | `12.25x` |
+User preset files retain `.bak` recovery copies. If the primary file is missing or invalid, NAM-BOT loads a valid backup and shows a notice in Presets and Jobs. If neither copy is usable, it reports the unreadable file. Deleting a preset removes its primary file and backup, so recovery does not bring a deliberately deleted recipe back.
 
-The previous WaveNet presets remain available as `a1` presets. There is also a hidden LSTM compatibility preset used to preserve older drafts.
+## Format and source reference
 
-## Future Extensions
+The complete schema is `TrainingPresetFile` in [shared training types](../src/shared/training.ts). Export a preset to obtain a current, complete example rather than assembling one from a partial field list.
 
-Likely future additions to the preset system:
+| Field group | Purpose |
+| --- | --- |
+| `schemaVersion: 1`, `presetKind: "training"` | Identifies the file format and preset type. |
+| `id`, `name`, `description`, `category`, timestamps | Library identity and organization. |
+| `builtIn`, `readOnly`, `visible` | Ownership and library visibility. |
+| `values` | Friendly architecture, training, loss, and normalization fields. |
+| `expert.data`, `expert.model`, `expert.learning` | Advanced overrides for generated NAM configs. |
+| `stopping` | Optional fixed/convergence policy. Absence means Last used; the stored `thorough` level is displayed as Obsessive. |
+| `lockedJobFields` | Derived epoch/latency locks from expert configuration. |
+| `author`, `origin` | Optional creator credit and app/version provenance for sharing. |
 
-- richer author/source metadata
-- release notes or changelog metadata for shared presets
-- additional model families or architectures
-- richer preset discovery or filtering
+Preset loading normalizes older files, fills missing fields, and infers architecture where possible: PackedWaveNet maps to A2, WaveNet/LSTM to A1, and unknown networks to Custom. Older flat WaveNet/LSTM expert snippets are normalized to the `expert.model.net.config` structure. Missing author/origin metadata is accepted. Legacy auto policies with no cap receive the current 2,000-epoch launch limit; invalid policies produce an error.
 
-The schema should continue to prefer optional nested objects over many flat top-level fields so it can evolve without becoming brittle.
+| Implementation detail | Source |
+| --- | --- |
+| Schema, defaults, built-in recipes, packed labels, and normalization | [Shared training model](../src/shared/training.ts) |
+| Library sorting, file storage, collisions, and backup recovery | [Preset store](../src/main/persistence/presetStore.ts) |
+| File import/export and origin metadata | [Preset IPC](../src/main/ipc/presets.ts) |
+| Apply JSON preservation rules and fresh preset defaults | [Preset editor session](../src/renderer/features/presets/presetEditorSession.ts) |
+| Editor controls, override detection, and JSON validation | [Preset editor](../src/renderer/features/presets/Presets.tsx) |
+| Runtime configuration and merge precedence | [Config builder](../src/main/config/configBuilder.ts) |
