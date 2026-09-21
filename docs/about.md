@@ -2,6 +2,8 @@
 
 Open **About** from the sidebar to see your NAM-BOT version, project links, credits, and available app updates. The screen includes links to the source repository, issue tracker, creator, studio, and project support.
 
+The **What's New** line below your version opens the [release highlights](../WHATS_NEW.md) on GitHub, including when your app is already up to date.
+
 NAM-BOT is a desktop front end for [Neural Amp Modeler](https://github.com/sdatkinson/neural-amp-modeler), created by Steven Atkinson. NAM-BOT is released under the [MIT license](../LICENSE.md).
 
 ## Check for an app update

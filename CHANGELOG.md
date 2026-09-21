@@ -20,6 +20,7 @@ See [What's New in 0.7.0](WHATS_NEW.md) for a tour of the native desktop redesig
 - Readable training dates and times on finished runs and in reports.
 - A setting to enable or disable desktop training notifications on Windows.
 - A documentation index and feature guide covering every screen, plus a release-by-release What's New page.
+- A What's New link beneath the version in About, opening the release highlights on GitHub even when the app is up to date.
 
 ### Changed
 

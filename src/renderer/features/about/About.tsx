@@ -121,6 +121,12 @@ function createBootSequence(updateStatus: UpdateStatus): BootSequenceItem[] {
       statusText: hasUpdateAvailable ? 'UPDATE AVAILABLE' : undefined,
       statusClassName: hasUpdateAvailable ? 'terminal-entry-status-update' : undefined
     },
+    {
+      type: 'entry',
+      label: "WHAT'S NEW:",
+      value: 'Read the release highlights',
+      link: 'https://github.com/daveotero/nam-bot/blob/main/WHATS_NEW.md'
+    },
     ...(hasUpdateAvailable && updateStatus.latestVersion ? [
       {
         type: 'entry',
