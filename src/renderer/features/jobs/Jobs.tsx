@@ -1810,16 +1810,6 @@ function JobEditor({
                 <div className="job-mode-options"><div className="toggle-group job-mode-controls" role="group" aria-label="Latency mode">
                   <button
                     type="button"
-                    className={`btn btn-sm ${latencyMode === 'manual' ? 'btn-blue' : 'btn-secondary'}`}
-                    title="Use the delay you enter in samples to align the training signal and capture. Use 0 for no latency correction."
-                    disabled={latencyLocked}
-                    aria-pressed={latencyMode === 'manual'}
-                    onClick={() => updateLatencyMode('manual')}
-                  >
-                    Manual
-                  </button>
-                  <button
-                    type="button"
                     className={`btn btn-sm ${latencyMode === 'auto' ? 'btn-green' : 'btn-secondary'}`}
                     title="Analyzes the training signal before the run and applies the measured delay."
                     disabled={latencyLocked}
@@ -1827,6 +1817,16 @@ function JobEditor({
                     onClick={() => updateLatencyMode('auto')}
                   >
                     Auto-align
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn btn-sm ${latencyMode === 'manual' ? 'btn-blue' : 'btn-secondary'}`}
+                    title="Use the delay you enter in samples to align the training signal and capture. Use 0 for no latency correction."
+                    disabled={latencyLocked}
+                    aria-pressed={latencyMode === 'manual'}
+                    onClick={() => updateLatencyMode('manual')}
+                  >
+                    Manual
                   </button>
                 </div>
                   <input
