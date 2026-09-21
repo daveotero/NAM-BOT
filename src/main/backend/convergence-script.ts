@@ -33,7 +33,8 @@ class ConvergenceMonitor:
         self.reason = None
         self.changes = [{"epoch": 0, "policy": dict(self.policy)}]
         self.levels = {level: {"level": level, "confirmations": 0, "qualified": False,
-            "firstReachedEpoch": None, "waitingModels": []} for level in CONVERGENCE_RULES}
+            "firstReachedEpoch": None, "waitingModels": [], "recentImprovement": None,
+            "observationCount": 0} for level in CONVERGENCE_RULES}
 
     def limit(self):
         return self.original_epoch_limit if self.policy["mode"] == "fixed" else self.policy["maxEpochs"]
@@ -41,7 +42,7 @@ class ConvergenceMonitor:
     def unavailable(self, message):
         self.rows = []
         for state in self.levels.values():
-            state.update(confirmations=0, qualified=False, waitingModels=[])
+            state.update(confirmations=0, qualified=False, waitingModels=[], recentImprovement=None, observationCount=0)
         self.phase, self.message = "unavailable", message
 
     @staticmethod
@@ -74,16 +75,21 @@ class ConvergenceMonitor:
             window = rule["window"]
             ready = self.validated_epochs >= rule["minimum"] and len(self.rows) > window
             waiting = []
+            largest_improvement = None
+            state["observationCount"] = min(len(self.rows), window + 1)
             if ready:
+                largest_improvement = 0.0
                 recent = self.rows[-window:]
                 split = (window + 1) // 2
                 for index, name in self.expected_models.items():
                     gain = self.improvement(self.rows[-window-1][1][index], self.best[index])
                     trend = self.improvement(median(row[0][index] for row in recent[:split]),
                                              median(row[0][index] for row in recent[split:]))
+                    largest_improvement = max(largest_improvement, gain, trend)
                     if gain >= rule["tolerance"] or trend >= rule["tolerance"]:
                         waiting.append(name)
             state["waitingModels"] = waiting
+            state["recentImprovement"] = largest_improvement
             state["confirmations"] = min(CONVERGENCE_CONFIRMATIONS, state["confirmations"] + 1) if ready and not waiting else 0
             state["qualified"] = state["confirmations"] >= CONVERGENCE_CONFIRMATIONS
             if state["qualified"] and state["firstReachedEpoch"] is None:

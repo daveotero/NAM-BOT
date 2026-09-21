@@ -13,7 +13,7 @@ vi.mock('electron', () => ({
   }
 }))
 
-import { createTrainingPreset } from '../../shared/training'
+import { createTrainingPreset, DEFAULT_PRESET_ID, A2_HEAVY_12_PRESET_ID, A2_ULTRA_20_PRESET_ID } from '../../shared/training'
 import { deleteTrainingPreset, getPresetLoadWarnings, getTrainingPresetById, listTrainingPresets, saveTrainingPreset } from './presetStore'
 
 beforeEach(() => {
@@ -26,6 +26,55 @@ afterEach(() => {
 })
 
 describe('preset path validation', () => {
+  it('uses current bundled names even when older built-in files exist', () => {
+    const directory = join(mockPaths.userDataPath, 'presets')
+    mkdirSync(directory)
+    const names = [
+      [DEFAULT_PRESET_ID, 'A2 Packed WaveNet', 'A2 Standard'],
+      [A2_HEAVY_12_PRESET_ID, 'A2 Packed WaveNet Heavy 12', 'A2 Heavy 12'],
+      [A2_ULTRA_20_PRESET_ID, 'A2 Packed WaveNet Ultra 20', 'A2 Ultra 20']
+    ]
+    for (const [id, oldName] of names) {
+      writeFileSync(join(directory, `${id}.json`), JSON.stringify(createTrainingPreset({
+        id, name: oldName, builtIn: true, readOnly: true
+      })))
+    }
+    const custom = saveTrainingPreset(createTrainingPreset({ id: 'my-copy', name: 'A2 Packed WaveNet' }))
+    for (const [id, , currentName] of names) {
+      expect(listTrainingPresets().filter((preset) => preset.id === id)).toHaveLength(1)
+      expect(getTrainingPresetById(id)).toMatchObject({ name: currentName, builtIn: true, readOnly: true })
+    }
+    expect(getTrainingPresetById(custom.id).name).toBe('A2 Packed WaveNet')
+  })
+
+  it('deletes legacy export filenames and duplicate copies by their stored ID', () => {
+    const preset = saveTrainingPreset(createTrainingPreset({ id: 'preset-1773692588983', name: 'REVxSTD' }))
+    const directory = join(mockPaths.userDataPath, 'presets')
+    const legacyPath = join(directory, 'revxstd.nam-bot-preset.json')
+    writeFileSync(legacyPath, JSON.stringify(preset))
+    writeFileSync(`${legacyPath}.bak`, JSON.stringify(preset))
+    const other = saveTrainingPreset(createTrainingPreset({ id: 'other', name: 'REVxSTD' }))
+    deleteTrainingPreset(preset.id)
+    expect(existsSync(legacyPath)).toBe(false)
+    expect(existsSync(`${legacyPath}.bak`)).toBe(false)
+    expect(listTrainingPresets().some((entry) => entry.id === preset.id)).toBe(false)
+    expect(getTrainingPresetById(other.id).name).toBe(other.name)
+  })
+
+  it.each(['missing', 'corrupt'])('deletes a legacy backup when its primary is %s', (primary) => {
+    const directory = join(mockPaths.userDataPath, 'presets')
+    mkdirSync(directory)
+    const legacyPath = join(directory, 'old-export.nam-bot-preset.json')
+    const preset = createTrainingPreset({ id: 'legacy-id', name: 'Old import' })
+    writeFileSync(`${legacyPath}.bak`, JSON.stringify(preset))
+    if (primary === 'corrupt') writeFileSync(legacyPath, '{broken')
+    expect(getTrainingPresetById(preset.id).name).toBe(preset.name)
+    deleteTrainingPreset(preset.id)
+    expect(existsSync(legacyPath)).toBe(false)
+    expect(existsSync(`${legacyPath}.bak`)).toBe(false)
+    expect(() => getTrainingPresetById(preset.id)).toThrow('unavailable')
+  })
+
   it('recovers corrupt and missing primary files from backups and reports the recovery', () => {
     const preset = saveTrainingPreset(createTrainingPreset({ id: 'recover-me', name: 'Recover me' }))
     saveTrainingPreset(preset)

@@ -1,9 +1,10 @@
 {
   "name": "nam-bot",
-  "version": "0.6.8",
+  "version": "0.7.0",
   "description": "Neural Amp Modeler Training Manager",
   "main": "./out/main/index.js",
   "scripts": {
+    "postinstall": "install-electron",
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "test": "vitest run && node --test build/release-metadata.test.cjs",
@@ -42,32 +43,31 @@
     "@fontsource/inter": "^5.3.0",
     "@fontsource/vt323": "^5.3.0",
     "@playwright/test": "^1.63.0",
-    "@types/node": "^25.3.5",
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
-    "@types/uuid": "^11.0.0",
-    "@vitejs/plugin-react": "^5.1.4",
-    "electron": "^40.10.6",
-    "electron-builder": "^26.8.1",
+    "@types/node": "^25.9.8",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron": "^42.11.6",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "esbuild": "^0.25.12",
     "typescript": "^5.9.3",
     "vite": "^7.3.6",
-    "vitest": "^3.2.7"
+    "vitest": "^4.1.11"
   },
   "dependencies": {
-    "@babel/runtime": "^7.28.6",
+    "@babel/runtime": "^7.29.7",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@uiw/react-textarea-code-editor": "^3.1.1",
-    "electron-log": "^5.4.3",
+    "electron-log": "^5.4.4",
     "node-pty": "^1.1.0",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4",
-    "react-router-dom": "^7.18.1",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-router-dom": "^7.18.4",
     "rehype-prism-plus": "^2.0.2",
     "uuid": "^13.0.2",
-    "zustand": "^5.0.11"
+    "zustand": "^5.0.15"
   }
 }

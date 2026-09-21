@@ -24,7 +24,7 @@ beforeEach(() => { vi.clearAllMocks(); mocks.instances.length = 0; mocks.support
 describe('job notifications', () => {
   it.each(['succeeded', 'failed', 'canceled', 'queued'] as const)('honors the master switch for %s and never replays suppressed alerts', (status) => {
     let enabled = false
-    const notify = createJobNotifier({ isEnabled: () => enabled, navigate: vi.fn() })
+    const notify = createJobNotifier({ platform: 'win32', isEnabled: () => enabled, navigate: vi.fn() })
     const job = { ...runtime(status), errorCategory: 'a2_diagnostics_pending' as const }
     notify(job)
     expect(mocks.show).not.toHaveBeenCalled()
@@ -39,7 +39,7 @@ describe('job notifications', () => {
   })
 
   it('deduplicates updates but allows completion after a rerun', () => {
-    const notify = createJobNotifier({ isEnabled: () => true, navigate: vi.fn() })
+    const notify = createJobNotifier({ platform: 'win32', isEnabled: () => true, navigate: vi.fn() })
     notify(runtime('succeeded')); notify(runtime('succeeded'))
     expect(mocks.show).toHaveBeenCalledOnce()
     notify(runtime('queued')); notify(runtime('running')); notify(runtime('succeeded'))
@@ -48,7 +48,7 @@ describe('job notifications', () => {
 
   it('opens the matching screen on click', () => {
     const navigate = vi.fn()
-    const notify = createJobNotifier({ isEnabled: () => true, navigate })
+    const notify = createJobNotifier({ platform: 'win32', isEnabled: () => true, navigate })
     notify(runtime('succeeded'))
     mocks.instances[0].emit('click')
     expect(navigate).toHaveBeenLastCalledWith('/jobs')
@@ -58,12 +58,20 @@ describe('job notifications', () => {
   })
 
   it('does not interrupt job updates when notifications are unsupported or fail', () => {
-    const notify = createJobNotifier({ isEnabled: () => true, navigate: vi.fn() })
+    const notify = createJobNotifier({ platform: 'win32', isEnabled: () => true, navigate: vi.fn() })
     vi.mocked(Notification.isSupported).mockReturnValue(false)
     notify(runtime('failed'))
     expect(mocks.show).not.toHaveBeenCalled()
     mocks.supported.mockReturnValue(true)
     mocks.show.mockImplementationOnce(() => { throw new Error('Notification unavailable') })
     expect(() => notify(runtime('failed', 'next'))).not.toThrow()
+  })
+
+  it.each(['succeeded', 'failed', 'canceled', 'queued'] as const)('suppresses %s notifications on unsigned macOS builds even with an enabled saved preference', (status) => {
+    const notify = createJobNotifier({ platform: 'darwin', isEnabled: () => true, navigate: vi.fn() })
+    notify({ ...runtime(status), errorCategory: 'a2_diagnostics_pending' })
+    expect(mocks.supported).not.toHaveBeenCalled()
+    expect(mocks.options).not.toHaveBeenCalled()
+    expect(mocks.show).not.toHaveBeenCalled()
   })
 })

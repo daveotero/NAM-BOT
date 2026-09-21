@@ -1,4 +1,5 @@
 import { DEFAULT_PRESET_ID } from '../../shared/training'
+import { areDesktopNotificationsAvailable } from '../../shared/notifications'
 
 export type BackendMode = 'conda-name' | 'conda-prefix'
 
@@ -25,7 +26,7 @@ export const defaultSettings: AppSettings = {
   defaultWorkspaceRoot: null,
   defaultPresetId: DEFAULT_PRESET_ID,
   autoOpenResultsFolder: false,
-  notificationsEnabled: true,
+  notificationsEnabled: areDesktopNotificationsAvailable(process.platform),
   defaultAuthorName: '',
   defaultAuthorUrl: ''
 }

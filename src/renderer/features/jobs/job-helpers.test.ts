@@ -125,7 +125,7 @@ describe('getCollapsedSummaryItems', () => {
       }
     })
 
-    const items = getCollapsedSummaryItems(runtime, 'A2 Packed WaveNet', nowMs)
+    const items = getCollapsedSummaryItems(runtime, 'A2 Standard', nowMs)
 
     expect(items).toEqual([
       { label: 'Progress', value: '50%' },
@@ -141,9 +141,9 @@ describe('getCollapsedSummaryItems', () => {
     })
 
     expect(getStatusSentence(runtime)).toBe('Run Diagnostics to confirm NAM 0.13.0+ before this A2 job can start.')
-    expect(getCollapsedSummaryItems(runtime, 'A2 Packed WaveNet', nowMs)).toEqual([
+    expect(getCollapsedSummaryItems(runtime, 'A2 Standard', nowMs)).toEqual([
       { label: 'Blocked', value: 'Run Diagnostics', tone: 'error' },
-      { label: 'Preset', value: 'A2 Packed WaveNet' },
+      { label: 'Preset', value: 'A2 Standard' },
       { label: 'Epochs', value: '100' }
     ])
   })

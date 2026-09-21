@@ -473,7 +473,7 @@ function getAcceleratorGuidance(
     case 'lightning_mismatch':
       return {
         title: 'Recommended Check',
-        body: 'PyTorch sees CUDA, but Lightning does not agree. That usually means the environment has mixed torch and Lightning installs or stale packages left behind.',
+        body: 'PyTorch sees a GPU, but Lightning does not agree. That usually means the environment has mixed torch and Lightning installs or stale packages left behind.',
         setupSteps,
         note: `These checks target ${environmentReference}. If they still disagree, use the AI troubleshooting export below so the full package picture is included.`,
         steps: [
@@ -1048,7 +1048,7 @@ function findFirstBackendFailure(validation: BackendValidationSummary | null): B
 
 function buildBackendAction(settings: AppSettings | null, failure: BackendCheckResult): ActionItem {
   const commands = getDiagnosticCommands(settings)
-  const condaLookupCommand = window.namBot.platform === 'win32' ? 'where conda' : 'which conda'
+  const condaLookupCommand = window.namBot.platform === 'win32' ? 'where.exe conda' : 'which conda'
 
   if (failure.code === 'lightning_vulnerable' || failure.code === 'lightning_security_check_failed') {
     return {
@@ -1110,7 +1110,7 @@ function buildTrainingLaunchAction(settings: AppSettings | null, diagnostics: Tr
     return null
   }
 
-  const condaLookupCommand = window.namBot.platform === 'win32' ? 'where conda' : 'which conda'
+  const condaLookupCommand = window.namBot.platform === 'win32' ? 'where.exe conda' : 'which conda'
   const failedCheck = diagnostics.checks.find((check) => check.status === 'fail')
   const warningCheck = diagnostics.checks.find((check) => check.status === 'warn')
   const primaryCheck = failedCheck ?? warningCheck
@@ -1120,7 +1120,7 @@ function buildTrainingLaunchAction(settings: AppSettings | null, diagnostics: Tr
       title: 'Fix This First',
       headline: 'Training workspace is not writable',
       body: 'NAM-BOT must create a temporary workspace before it launches training.',
-      steps: ['Open Settings.', 'Set Default Workspace Root to a local folder you can write to.', 'Avoid iCloud, OneDrive, Dropbox, network drives, and external drives while troubleshooting.', 'Re-check Diagnostics.'],
+      steps: ['Open Settings.', 'Set Workspace Root to a local folder you can write to.', 'Avoid iCloud, OneDrive, Dropbox, network drives, and external drives while troubleshooting.', 'Re-check Diagnostics.'],
       commands: [],
       verify: 'The Workspace write row should pass.',
       tone: 'fail'
@@ -1321,7 +1321,14 @@ function ActionCenter({ actions, allReady, onOpenSettings }: { actions: ActionIt
           </div>
           <div style={{ display: 'grid', alignContent: 'start' }}>
             {primary.commands.length > 0 ? (
-              primary.commands.map((command) => <CopyableCodeBlock key={command.label} label={command.label} command={command.command} />)
+              <>
+                <p className="ui-text-body">
+                  {window.namBot.platform === 'win32'
+                    ? 'Run these commands in Anaconda Prompt (CMD), not PowerShell. They target the environment selected in Settings.'
+                    : 'Run these commands in Terminal. They target the environment selected in Settings.'}
+                </p>
+                {primary.commands.map((command) => <CopyableCodeBlock key={command.label} label={command.label} command={command.command} />)}
+              </>
             ) : (
               <div className="ui-text-body" style={{ border: '1px solid var(--border-dim)', padding: '12px', color: 'var(--text-steel)' }}>
                 No command is needed for this fix. Update the setting, folder, or app location, then re-check.

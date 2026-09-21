@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { areDesktopNotificationsAvailable, MACOS_NOTIFICATIONS_UNAVAILABLE } from '../../../shared/notifications'
 import { useAppStore, AppSettings } from '../../state/store'
 import { formatPresetArchitectureTag } from '../../state/types'
 import WorkspaceToolbar from '../../components/WorkspaceToolbar'
@@ -151,6 +152,8 @@ export default function Settings() {
   const isBackendBusy = isSettingsSaving || isBackendValidationLoading
   const visiblePresets = presets.filter((preset) => preset.visible)
   const defaultPresetUnavailable = !visiblePresets.some((preset) => preset.id === localSettings.defaultPresetId)
+  const notificationsAvailable = areDesktopNotificationsAvailable(window.namBot.platform)
+  const notificationsHint = notificationsAvailable ? 'Show desktop notifications for training results.' : MACOS_NOTIFICATIONS_UNAVAILABLE
 
   return (
     <PropertySheet sections={SETTINGS_SECTIONS} navigationLabel="Settings sections" className="settings-workspace">
@@ -298,7 +301,7 @@ export default function Settings() {
             <div className="property-control">
               <div className="property-input-action">
                 <input
-                  title="Default destination for exported models in new jobs. Each job can choose a different folder."
+                  title="Default parent folder for training output. Each run normally creates a timestamped subfolder for its model, checkpoints, and training logs."
                   id="settings-output-root"
                   type="text"
                   className="form-input"
@@ -312,7 +315,7 @@ export default function Settings() {
                   Browse
                 </button>
               </div>
-              <p className="property-hint">Default destination for new jobs. Each job can use a different folder.</p>
+              <p className="property-hint">Runs normally create timestamped subfolders here for models, checkpoints, training logs, and selected reports. Each job can choose a different parent folder.</p>
             </div>
           </div>
 
@@ -321,7 +324,7 @@ export default function Settings() {
             <div className="property-control">
               <div className="property-input-action">
                 <input
-                  title="Folder for per-run working files, including generated configs, logs, and checkpoints."
+                  title="Separate folder for NAM-BOT's generated configs, control files, ESR history, and working terminal logs. Models and checkpoints go in the run's output folder."
                   id="settings-workspace-root"
                   type="text"
                   className="form-input"
@@ -335,6 +338,7 @@ export default function Settings() {
                   Browse
                 </button>
               </div>
+              <p className="property-hint">Working files only: generated configs, training controls, ESR history, and terminal logs. Models and checkpoints use the run output folder above.</p>
             </div>
           </div>
         </PropertySection>
@@ -417,18 +421,21 @@ export default function Settings() {
             </div>
           </div>
 
-          <div className="property-row property-row-checkbox">
+          <div className={`property-row${notificationsAvailable ? ' property-row-checkbox' : ''}`}>
             <span className="form-label">Notifications</span>
             <div className="property-control">
-              <label className="property-check-option" title="Show desktop notifications for training results.">
+              <label className="property-check-option" title={notificationsHint}>
                 <input
                   type="checkbox"
-                  title="Show desktop notifications for training results."
-                  checked={localSettings.notificationsEnabled}
+                  title={notificationsHint}
+                  disabled={!notificationsAvailable}
+                  aria-describedby={notificationsAvailable ? undefined : 'settings-notifications-unavailable'}
+                  checked={notificationsAvailable && localSettings.notificationsEnabled}
                   onChange={(event) => setLocalSettings({ ...localSettings, notificationsEnabled: event.target.checked })}
                 />
                 <span className="label-text">Enable desktop notifications</span>
               </label>
+              {!notificationsAvailable && <p className="property-hint" id="settings-notifications-unavailable">{MACOS_NOTIFICATIONS_UNAVAILABLE}</p>}
             </div>
           </div>
         </PropertySection>

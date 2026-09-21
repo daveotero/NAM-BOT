@@ -1,49 +1,58 @@
-# Settings System
+# Settings
 
-UI presentation follows the shared [UI style guide](ui-style-guide.md), including typography, controls, and responsive review requirements.
+Settings controls the Conda environment NAM-BOT uses, default folders and author details, and a few application preferences. Use the **Backend**, **Folders**, **Author**, and **Application** tabs to jump between sections.
 
-The Settings page manages global configuration for NAM-BOT, including backend paths, default metadata, and general application behavior.
+Changes save automatically after a short pause. The toolbar shows **Unsaved changes**, **Saving...**, or **Saved**. There is no Save Settings button. If saving fails, the toolbar displays the error; resolve it before relying on the new values.
 
-Settings uses the same continuous property sheet as Jobs and the Preset editor, with aligned labels and controls under **Backend**, **Folders**, **Author**, and **Application**. A fixed section strip smoothly scrolls to headings and highlights the current section in gray. Reduced-motion preferences use immediate scrolling. Save status stays in the workspace toolbar. Fields use muted borders, while section dividers retain stronger contrast; narrow windows stack labels above their controls.
+Changing notifications, author details, the default preset, the results-folder option, or the output folder keeps your existing diagnostic results. Changing the Conda environment or workspace location clears those results so Dashboard and Diagnostics can check the new setup. You can still run checks manually whenever needed.
 
-## Auto-save Behavior
+## Connect your training environment
 
-Settings in NAM-BOT are automatically saved after a short pause. The header shows save status; no manual save is required.
+NAM-BOT uses a Conda environment containing Python, PyTorch, and Neural Amp Modeler. If you have not installed those yet, follow the [Setup Guide](setup-guide.md).
 
-- A short debounce (approximately 500 ms) prevents constant disk writes while typing.
-- Navigating away flushes the current settings draft instead of canceling the pending save.
-- The header reports `Unsaved changes`, `Saving`, `Saved`, or a visible save error.
-- **Validate Backend** first saves the exact settings shown on screen, then validates that saved snapshot.
-- Changing backend settings invalidates earlier backend, accelerator, launch, and NAM-version results so a stale `Backend Ready` result is not displayed for the new target.
-- Late validation broadcasts from a previous environment are discarded. The saved normalized settings are returned to the editor so readiness and the displayed target stay consistent.
-- Settings-load and file-picker errors are shown with retry guidance.
+1. Set **Conda Executable Path** to your Conda executable. When NAM-BOT finds Conda on your system path, **Use PATH** selects it automatically; **Custom Path** lets you browse to a specific installation.
+2. Choose a **Backend Mode**:
+   - **Conda Environment Name** selects an environment by name, such as `nam`.
+   - **Conda Environment Prefix** selects the full environment folder. Use the folder containing that environment, rather than the path to its Python executable.
+3. Enter the environment name or prefix and choose **Validate Backend**. This saves the values currently shown before checking them.
+4. Open **Diagnostics** to check accelerator support, training launch, and the installed NAM version as well.
 
-## Configuration Categories
+**Backend Ready** confirms the basic environment check. A2 training also requires `neural-amp-modeler` 0.13.0 or newer, and the separate Training Launch check must be able to start the process NAM-BOT uses for training.
 
-### Backend Configuration
+Changing the backend clears earlier readiness results so they can be checked against the new environment. A run already in progress keeps the environment it started with. NAM-BOT does not currently support selecting a standalone Python or virtualenv executable as its backend.
 
-- **Conda Executable Path**: Path to the Conda executable NAM-BOT should use. On Windows this is often `conda.exe`; on macOS it is usually `conda`.
-- **Backend Mode**: Choose between using a named Conda environment or an explicit Conda environment prefix.
-- **Environment Name/Prefix**: The identifier for the Conda environment where NAM is installed.
-- **A2 local training requirement**: The selected environment must have `neural-amp-modeler>=0.13.0` for A2 presets. Diagnostics and job enqueue checks use this same backend configuration to detect the installed NAM version.
+## Choose your folders
 
-Older settings files that selected the unsupported Direct Python mode are migrated to the default named Conda environment when loaded.
+**Default Model Output Root** is the default parent folder for training output. Each run normally creates a timestamped subfolder there for its model, checkpoints, training logs, and selected reports. Each job can choose its own parent folder.
 
-### User Information
+The job editor remembers your last output-folder mode. If you last chose a custom folder or the recorded output audio's folder, new jobs continue using that choice. To use the folder configured here, select the Settings default as the job's output-folder source. Without a remembered choice or a Settings default, new jobs use the output audio's folder once you select a recording.
 
-- **Default Author Name**: Auto-filled into the "Modeled By" field when creating new Jobs or "Created By" when creating new Presets.
-- **Default Author URL**: Auto-filled into the "Website / Profile" field for new Presets.
+**Workspace Root** stores each run's working files: generated configurations, training controls, ESR history, and working terminal logs. Models and checkpoints go in the run output folder, not here. Leave it blank to use NAM-BOT's default workspace inside its application data folder. Choose a writable location with room for the runs you intend to keep.
 
-### Output Configuration
+The model output folder and workspace serve different purposes. Use **Browse** beside either field to select its location. See the [Jobs guide](jobs-system.md) for per-job destinations and filename options.
 
-- **Default Model Output Root**: The first-choice folder new drafts use for trained NAM model output, unless the job editor is set to follow the training output file folder or a custom folder.
-- **Workspace Root**: Where temporary training files and logs are stored.
+## Set author defaults
 
-### Application Settings
+**Default Author Name** supplies the initial author name for new presets and a fallback for **Modeled By** in new jobs. The job editor remembers the last nonempty Modeled By value from a saved job and uses that ahead of this default. Edit Modeled By in the job when you want to change it.
 
-- **Default preset**: The saved preset used for new jobs, dropped or selected output audio files, and batches created from fresh files. It starts with A2 Packed WaveNet and includes all visible built-in and user presets. Each new job inherits the chosen preset's epoch count. Deleting the selected default in Presets resets this preference to A2 Packed WaveNet. If the preset becomes unavailable outside the app or is hidden, new jobs still fall back to A2, and Settings flags the unavailable selection. Existing jobs and batches created from a template retain their selected recipe.
-- **Enable desktop notifications**: Turns training alerts on or off. Enabled by default, including for existing installations. Changes auto-save and apply to future alerts without restarting, including jobs already running. Alerts cover completed, failed, or canceled training and jobs waiting for A2 diagnostics. Clicking an alert opens Jobs or Diagnostics. Suppressed alerts are not replayed when re-enabled. System notification settings still apply.
-- **Automatically open results folder**: Opens the completed run folder in your system file browser once training finishes.
-  On Windows this usually means File Explorer. On macOS this means Finder.
+**Default Author URL** fills the author link for new presets, such as your website or profile page. Changing these defaults does not rewrite existing jobs or presets.
 
-The job queue is always persisted so that pending and completed jobs survive an app restart. Training logs are retained with their jobs; NAM-BOT does not currently run an age-based log cleanup task.
+## Choose a default preset
+
+**Default preset** selects the recipe for new jobs, files dropped or selected to create jobs, and batches started from fresh files. It starts with **A2 Standard** and offers the visible built-in and custom presets.
+
+Existing drafts keep their selected recipe. A batch created from a template uses the template's recipe. Deleting your selected default in Presets resets the preference to A2 Standard. If the selected preset becomes unavailable in another way, Settings flags it and new jobs fall back to the app default.
+
+Presets can also supply training-mode defaults. Review the chosen mode in each job before queueing it. The [Presets guide](presets-system.md) covers custom recipes and packed submodels.
+
+## Results and notifications
+
+**Automatically open results folder after training** opens the run's results folder in File Explorer or Finder when training completes successfully. It is off by default. Changes apply to runs started afterward.
+
+On Windows, **Enable desktop notifications** is on by default. Notifications cover completed, failed, or canceled runs, plus queued A2 jobs waiting for Diagnostics. Clicking an alert opens the relevant Jobs or Diagnostics screen.
+
+On macOS, the checkbox is unchecked and disabled, with an explanation beside it. Desktop notifications are unavailable in unsigned macOS applications, so NAM-BOT does not send them even if an older saved preference is enabled. Training results remain available in Jobs and Dashboard.
+
+The notification preference takes effect for future alerts as soon as it saves, including alerts from a job already running. Re-enabling it does not replay alerts you missed. Your operating system's notification settings also apply.
+
+Jobs history and the queue are saved automatically. For what happens to waiting or active jobs after an app restart, see the [Jobs guide](jobs-system.md).

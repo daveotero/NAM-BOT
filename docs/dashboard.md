@@ -1,89 +1,61 @@
 # Dashboard
 
-UI presentation follows the shared [UI style guide](ui-style-guide.md), including typography, controls, and responsive review requirements.
+The Dashboard gives you a quick view of active training, your training record, and the environment NAM-BOT is using. Open [Jobs](jobs-system.md) when you want to create, queue, edit, or export a run.
 
-## Overview
+![Dashboard showing an active training run, lifetime statistics, and diagnostic summaries](screenshots/dashboard.png)
 
-The Dashboard summarizes job activity, active training, and environment health. The compact counter strip and diagnostics section retain the original dashboard's focus. The attached sidebar, command strip, and bottom status bar remain available while the workspace scrolls.
+The screenshot uses an example session with recorded training metrics.
 
-## Jobs Overview
+## Job counts
 
-The top counter strip counts the current job buckets:
+The counter strip reflects the drafts and history currently retained in Jobs:
 
-- Drafts
-- Queued
-- Training
-- Completed
-- Errors
+| Count | Includes |
+| --- | --- |
+| Drafts | Saved jobs that have not been queued. |
+| Queued | Jobs waiting to run or being validated. |
+| Training | Jobs preparing, running, stopping, or finalizing. |
+| Completed | Successful runs still in Jobs history. |
+| Errors | Failed and canceled runs still in Jobs history. |
 
-These counts are read from the same draft and queue state used by the Jobs screen.
+These counts can change when you clear Jobs history. The lifetime totals in **Training record** are kept separately.
 
-## Active Training
+## Follow an active run
 
-When any job is preparing, running, stopping, or finalizing, the Dashboard shows an `Active Training` section using the same runtime card component as the Jobs screen.
+**Active Training** appears while a job is preparing, training, stopping, or finishing its exports. The card shows progress and the live ESR chart as results arrive. ESR measures the model's error against the recorded output; lower values indicate a closer fit on that validation data.
 
-The cards share the Jobs screen's styling, including flat background hover feedback, edge-to-edge rows, typography, status badges, action spacing, expanded details, and narrow-window layouts.
+Use **Show Details** to inspect the run's preset, training mode, latency alignment, epochs, checkpoints, and device. **Show Logs** opens the training output and refreshes it while the run is active.
 
-- running jobs can be expanded
-- terminal logs can be shown and refreshed
-- stop, force stop, and artifact actions report errors on the runtime card
-- finalizing runs remain visible until model processing completes; stop controls are hidden during this finalization stage
-- already-open logs fetch their final tail when a run ends
+For **Auto convergence**, the progress percentage measures how much of the maximum epoch limit has been used. Training can finish earlier when the selected convergence level is reached. Fixed-epoch runs also display convergence feedback, but that feedback does not stop them. See the [Jobs guide](jobs-system.md) for choosing a training mode.
 
-## Diagnostics Summary
+**Stop on the Dashboard cancels the run directly, without asking to save a model first.** To save a checkpoint while training continues, or choose **Save & stop**, open Jobs. **Save Snapshot** is available there once the run has a usable checkpoint.
 
-The Dashboard `Diagnostics` section summarizes the same four checks as the Diagnostics screen:
+If a run stops responding, the card can offer **Force Stop**. Stop controls disappear during finalization while NAM-BOT finishes processing the model. Action errors appear on the card.
 
-- Backend
-- Accelerator
-- Training Launch
-- NAM Version
+## Lifetime training record
 
-The Dashboard loads missing diagnostic snapshots in the background so users see the same broad readiness picture without opening Diagnostics first.
+**Training record** keeps these totals even after finished jobs are cleared:
 
-### Status Labels
+| Total | What it counts |
+| --- | --- |
+| Completed runs | Successful training jobs. A packed run counts once, regardless of how many submodels it contains. |
+| Training time | Recorded start-to-finish time for finished runs, including failed and canceled runs. |
+| Epochs trained | Recorded completed epochs from finished runs, including runs that ended early. |
+| Most-used preset | The preset used for the most successful runs. |
 
-Each row uses the same basic status language as Diagnostics:
+The recent-runs table shows up to five successful runs, newest first, with model name, preset, local completion time, and duration. There is no age cutoff.
 
-- `PASS` for ready checks
-- `CHECK` for advisory or update-needed states
-- `FAIL` for blocking failures
-- `SKIP` when the check has not completed yet
+- **×** hides one row from the Dashboard.
+- **Clear all** hides all currently completed runs from this list, including older rows beyond the five shown.
 
-The NAM Version card includes the A2 local-training requirement. A2 presets require `neural-amp-modeler>=0.13.0`.
+Hiding rows does not delete Jobs history, models, or reports, and does not change lifetime totals. New completions appear normally. To open a model's folder or save a report, find the finished run in Jobs.
 
-## Commands and Status
+NAM-BOT imports the history it still has when creating the training record. Runs cleared before this feature was installed cannot be recovered. Missing durations and epoch counts are left out rather than estimated; interrupted runs can therefore contribute incomplete statistics. If the record cannot be read, the Dashboard shows **Statistics unavailable** with **Retry**.
 
-The command strip offers `New job`; its hover hint includes the platform's existing keyboard shortcut. Settings, Diagnostics, and Jobs are accessible from the navigation menu without a duplicate row of dashboard shortcuts. No action starts training automatically.
+## Check environment health
 
-## Lifetime Training Record
+The four **Diagnostics** tiles summarize Backend, Accelerator, Training Launch, and NAM Version. Missing results load in the background. **PASS** means a check is ready, **CHECK** needs attention, **FAIL** reports a failed check, and **SKIP** means a result is not yet available.
 
-The training record displays completed runs, recorded training hours, epochs trained, and the most-used preset. A compact recent-runs table shows up to five non-dismissed successful runs, newest first, with model name, completion date, preset, and duration on one line at normal desktop widths. At narrow widths or high zoom, metadata wraps below the name without shrinking the text. There is no date cutoff, so occasional users still see their last captures. Before any successful runs, it shows `No completed runs yet`.
+Choose **Open diagnostics** for repair steps, fresh checks, and troubleshooting exports. The [Diagnostics guide](diagnostics.md) explains what each check covers.
 
-The right-aligned **×** hides an individual run from this section only; the next older eligible run fills the space. **Clear all** in the section header hides all currently completed runs, including those beyond the five visible rows. These actions persist across app restarts, do not delete Jobs history or exported files, and do not change lifetime totals. Newly completed runs appear normally. After all eligible runs are hidden, the section shows `No recent runs to show`.
-
-- Completed runs counts successful training jobs. A packed-model run counts once, regardless of the number of embedded models or intermediate exports.
-- Training time sums recorded start-to-finish wall time for finished runs, including failed and canceled runs. It includes setup/finalization time within those timestamps. Runs with missing/invalid timestamps or unknown duration after an interrupted process are excluded.
-- Epochs trained counts recorded epochs from finished runs, including early finishes. It does not substitute the planned epoch budget for missing progress evidence. Failed/canceled runs use checkpoint/ESR evidence rather than an in-progress epoch counter.
-- Most-used preset counts successful runs per preset ID, using names frozen with each run. Older runs without a recorded recipe cannot supply a reliable preset name.
-- Recent model names use the run's NAM metadata name when supplied, otherwise its job name. Unknown durations display a dash. Older ledger entries are backfilled from retained Jobs history; already-cleared records whose names were never captured display `Completed run`.
-
-The main process stores a compact per-run ledger in `training-statistics.json` in the user's NAM-BOT data directory. It contains IDs, model names, timestamps, outcomes, durations, epoch counts, and preset identity, not audio paths or training logs. Existing retained history is imported automatically. Runs cleared before this feature was installed cannot be reconstructed. Clearing one or all finished jobs preserves both lifetime totals and the recent-runs list, including across app restarts. Repeated updates are deduplicated by run ID; retries have distinct IDs. Existing version-1 ledgers without model names remain readable.
-
-Writes use the existing atomic-file/backup mechanism. History removal requires the run's statistics to be saved first. If the statistics file cannot be read, the dashboard shows an unavailable state rather than fabricated zero totals, and the existing file is preserved.
-
-The persistent bottom bar reports backend readiness, accelerator readiness, current training activity, and the number of waiting jobs. During a run it includes the job name and available progress percentage. Status items open Diagnostics or Jobs through the same unsaved-editor guard used by the sidebar and application menu.
-
-At narrower widths or higher zoom levels, the shared diagnostic cards wrap into fewer columns without reducing their text size. The sidebar and bottom bar remain accessible. The About terminal and title-bar logo animation retain their existing behavior.
-
-The Dashboard should stay lightweight. Detailed troubleshooting, command copy blocks, raw check matrices, and AI troubleshooting exports belong on the Diagnostics screen.
-
-### Training mode
-
-Active training cards group their read-only mode and convergence feedback in the bordered Preset box inside **Show Details**, alongside the existing latency, epoch, checkpoint, and device facts. Fixed-epoch runs show the highest convergence level reached without stopping. Runs using **Auto convergence** show their selected level and required maximum epochs, with a progress bar labeled as a percentage of the safety limit; convergence may stop the run sooner. The limit initially defaults to 2,000 epochs and remembers the user's last value. The mode, threshold, and limit stay fixed for the run. Save Snapshot and the existing stop controls remain available. See [training mode and convergence](jobs-system.md#training-mode-and-convergence) for the shared detector thresholds.
-
-### Training reports
-
-Recent completed runs show their completion date and time in the user's local timezone and date format.
-
-**Save Report** is available on finished Jobs cards only. Dashboard recent rows are a compact summary with dismissal controls. Report content, remembered automatic-export choices, and sharing behavior are documented in [Jobs: branded training reports](jobs-system.md#branded-training-reports).
+The bottom status bar stays available throughout the app. Its backend and accelerator items open Diagnostics; its current job and queue items open Jobs.

@@ -17,10 +17,12 @@ import { defaultSettings } from '../types'
 import { normalizeSettings } from './settingsStore'
 
 describe('normalizeSettings', () => {
-  it('defaults notifications on for old settings and preserves an explicit opt-out', () => {
-    expect(normalizeSettings({}).notificationsEnabled).toBe(true)
-    expect(normalizeSettings({ notificationsEnabled: 'false' }).notificationsEnabled).toBe(true)
+  it('uses the platform notification default for old settings and preserves saved preferences', () => {
+    const platformDefault = process.platform !== 'darwin'
+    expect(normalizeSettings({}).notificationsEnabled).toBe(platformDefault)
+    expect(normalizeSettings({ notificationsEnabled: 'false' }).notificationsEnabled).toBe(platformDefault)
     expect(normalizeSettings({ notificationsEnabled: false }).notificationsEnabled).toBe(false)
+    expect(normalizeSettings({ notificationsEnabled: true }).notificationsEnabled).toBe(true)
   })
   it('migrates unsupported legacy settings to supported defaults and drops dead fields', () => {
     const normalized = normalizeSettings({

@@ -1,103 +1,129 @@
 # Desktop shell
 
-UI presentation follows the shared [UI style guide](ui-style-guide.md), including typography, controls, and responsive review requirements.
+This contributor reference covers the Electron window, menus, dialogs, and native verification. The [UI style guide](ui-style-guide.md) is the source of truth for typography, shared components, colors, and responsive layout.
 
-NAM-BOT uses one compact retro header for the wordmark and current section. The header stays above scrolling content, uses the existing pixel font, and becomes subtly muted when the window loses focus. Training activity appears only in the persistent footer: Idle, Training (including preparation and stopping), Finalizing, or Queue Paused. Active work takes precedence over a pending queue pause. The wordmark restores the original cyan/magenta split shadow and wild color-flash/shake on hover, scaled to the compact header. Reduced-motion preferences disable the animation. The logo has a stable hover area; drag the blank header space to move the window.
+## Window and workspace
 
-The workspace fills the window below the title bar. An attached sidebar groups the primary work screens and system tools with a small gap; both groups remain together at the top. A persistent command strip sits above independently scrolling screen content. Its right side contains only page-specific actions, with no generic product label. A bottom status bar opens Diagnostics or Jobs and uses the existing unsaved-editor guard. It shows current backend, accelerator, job, and queue state. Standard controls use compact borders and stationary hover feedback; the logo and About terminal retain their distinctive animation. The Dashboard keeps its job counters, active training cards, diagnostics, and lifetime training record; see [Dashboard](dashboard.md).
+The title bar shows the NAM-BOT wordmark and current section above the scrolling workspace. Blank header space can drag the window; the logo and menu button have separate interactive regions. The header dims when focus moves to another app. Reduced-motion preferences disable the wordmark animation.
 
-Jobs, Presets, Settings, and Diagnostics render their own actions into the shared command strip through a React portal. The buttons retain their feature handlers, including Save/Cancel, batch creation, preset editor modes, Settings save status, and Re-check All. Preset mode controls sit beside the heading on the left; the right-side primary action keeps a fixed width and stays mounted while switching between Save Preset and Apply JSON. Jobs and Presets submit their existing forms by form ID. The feature components own action state and confirmations; the shell does not duplicate their business logic. See [Jobs](jobs-system.md), [Presets](presets-system.md), and [Settings](settings.md).
+The sidebar, page command strip, and bottom status bar are shared across screens. The status bar shows the backend, accelerator, current job, and queue state, with links to Diagnostics and Jobs. Active training takes precedence over a pending queue pause. Page actions belong to their feature components: Jobs, Presets, Settings, and Diagnostics render into `WorkspaceToolbar` through a React portal. The shell does not own their save, validation, or queue logic.
 
-Field styling is shared through `global.css`: text inputs, selects, and JSON editors use a muted one-pixel `--border-field` outline, with cyan focus and magenta validation states. Preset search and the filename preview use the same border color. Section dividers use the stronger `--border-dim` color independently of fields.
-
-Compact checkbox controls use the shared `property-option-panel` inset: a subtly cyan-tinted background, muted outline, and internal padding. This groups packed model selection, filename options, extra-copy controls, preset loss options, and the Settings results-folder preference without changing the main section dividers. Packed-model choices stack into one column in narrow editors.
-
-Active work uses the shared `WorkingIndicator`: a 16-pixel, 3×3 cyan matrix with a bright pulse and fading phosphor trail, scanning left to right across each row over 1.8 seconds. It appears in the Jobs and Diagnostics navigation items, loading and queueing controls, active-training heading, and running-job badges. Each activation starts at the top-left LED. When work ends, the current pattern pauses and fades away over 200 milliseconds; work that resumes during that fade cancels removal and restarts the scan. Animation is CSS-only, with the component briefly retaining the grid for its exit transition. Reduced-motion preferences show a stationary matrix with a brighter center and immediate appearance/removal. The indicator is decorative, preserving the surrounding labels for assistive technology.
-
-Jobs, Presets, Settings, Diagnostics, and Setup Guide share `PropertySheet` section navigation in `feature-workspace.css`. The current section has a muted gray background, with no colored underline. Section buttons smoothly scroll and focus their headings; reduced-motion preferences switch to immediate navigation. The selected destination stays highlighted during animation and at the scroll limit, including a final one-pixel adjustment; ordinary scrolling resumes position tracking. Forms use shared property-row styles and become single-column at narrow widths. Diagnostics and Setup Guide also share `CopyableCodeBlock`. Section navigation does not hide fields or change saved data.
+Navigation uses `AppCommand` and the unsaved-editor guard. See the [Jobs](jobs-system.md), [Presets](presets-system.md), [Settings](settings.md), and [Dashboard](dashboard.md) guides for user workflows.
 
 ## Platform behavior
 
-- **Windows:** `titleBarStyle: hidden` and a 44-DIP native window-controls overlay replace the standard title strip. Minimize, maximize/restore, and close remain Electron/Windows controls. The thin native resize border can add about one DIP to the renderer's reported overlay height. Blank header space is draggable; the menu button is not. Double-click and snap behavior remain with Windows.
-- **macOS:** `titleBarStyle: hiddenInset` retains the standard inset traffic lights and the normal application menu. Their position is not customized. Branding reserves 90 DIPs at the left edge. This reservation and the compact header's typography compensate for application zoom.
-- **Other platforms:** retain their native window frame and menu, with a compact content header.
-- **Fullscreen:** the header remains useful for section/activity and Windows menu access, but removes the native-control reservations and drag behavior. Exiting fullscreen restores the platform's spacing.
+| Platform | Window behavior |
+| --- | --- |
+| Windows | `titleBarStyle: hidden` with a 44-DIP native controls overlay. Minimize, maximize/restore, and close remain Windows controls. Blank header space supports native dragging, double-click, and snap behavior. |
+| macOS | `titleBarStyle: hiddenInset` retains native traffic lights and the system application menu. Branding reserves 90 DIPs at the left; the app does not reposition the traffic lights. |
+| Other platforms | The native frame and menu remain, with a compact header inside the window. |
+| Fullscreen | The content header remains, including Windows menu access. Native-control reservations and header dragging are disabled until fullscreen ends. |
 
-Windows uses Electron's `titlebar-area-x`, `titlebar-area-y`, `titlebar-area-width`, and `titlebar-area-height` CSS environment variables, with conservative initial fallbacks. The header reserves the full native overlay area, then draws its bottom divider outside that area so the caption controls cannot paint over it. The shell bridge reports focus, fullscreen, and application zoom; it does not implement minimize/maximize/close commands.
+DIPs are device-independent pixels. The header compensates for application zoom so its native-control spacing and compact text stay usable. Windows supplies its overlay geometry through the `titlebar-area-x`, `titlebar-area-y`, `titlebar-area-width`, and `titlebar-area-height` CSS environment variables, with fallbacks for initialization. The native top resize border can add about one DIP to the reported height. The divider sits below the full overlay area so caption controls do not paint over it.
+
+The shell IPC bridge reports focus, fullscreen state, and zoom. It accepts requests from the main window's main frame and does not expose custom minimize, maximize, or close commands.
 
 ## Menu and keyboard
 
-On Windows, click the upper-left menu button or press **F10**. Enter and Space activate the focused button. The popup uses the same menu definition as the application menu on macOS. The persistent Windows menu strip is hidden without enabling Alt-to-reveal. Shift+F10 and combinations such as Alt+Tab are not intercepted.
+On Windows, open the application menu with the upper-left button or F10. Enter and Space activate the focused button. The persistent Windows menu strip stays hidden; Alt does not reveal a second strip. Shift+F10 and Alt+Tab are not intercepted. macOS uses its normal application menu.
 
-Existing shortcuts remain registered, including Ctrl/Cmd+N for New Job, Ctrl/Cmd+Shift+N for New Preset, Ctrl/Cmd+1–4 for the main sections, F1 for Setup Guide, and Ctrl/Cmd+, for Settings. Popup coordinates are converted from renderer CSS pixels to window DIPs at the current zoom. Dismissing the menu restores focus to the previous control when it still exists; a newly opened confirmation dialog keeps its focus.
+| Action | Shortcut |
+| --- | --- |
+| New Job | Ctrl/Cmd+N |
+| New Preset | Ctrl/Cmd+Shift+N |
+| Dashboard, Jobs, Presets, Diagnostics | Ctrl/Cmd+1, 2, 3, or 4 |
+| Setup Guide | F1 |
+| Settings | Ctrl/Cmd+, |
+| Open Logs Folder | Ctrl/Cmd+Shift+L |
+| Open Presets Folder | Ctrl/Cmd+Shift+P |
+| Open Workspace Folder | Ctrl+Shift+W on Windows; Cmd+Shift+O on macOS |
 
-New Job, New Preset, and navigation still use `AppCommand` and the existing unsaved-editor guard. Commands bring the window forward, recreating it if the last macOS window was closed. The latest command waits for the renderer to load saved settings/presets and register its listener, so opening a new editor from the menu keeps the user's defaults. Readiness messages are accepted only from the main window's main frame. Native close and application quit still pass through the training-aware quit guard. Single-instance activation and macOS Dock window recreation are preserved.
+Use Ctrl on Windows and Cmd on macOS. Settings lives under Navigate on Windows and the application-name menu on macOS. About NAM-BOT and Check for Updates are under Help on Windows and the application-name menu on macOS.
 
-The shared menu groups commands under File, Navigate, Edit, View, Window, and Help. File includes logs, workspace, and preset folders. Edit retains standard native text editing, including Paste and Match Style on Mac; View includes application zoom and fullscreen, with reload/devtools available in development. Help includes setup, diagnostics, and project links. On Windows, Settings is under Navigate and About/update checking are under Help. On macOS, those commands live in the application-name menu, alongside Services, Hide, and Quit. Settings retains Cmd+, and Open Workspace Folder uses Cmd+Shift+O instead of occupying Cmd+Shift+W. The Mac Window menu uses Electron's native `windowMenu` role, and Help uses the `help` role to retain macOS menu search.
+The menu definition in `src/main/shell/appMenu.ts` also supplies native editing commands, application zoom, fullscreen, folder access, and help links. Reload and developer tools appear in development. macOS retains Services, Hide, Paste and Match Style, the native Window menu role, and Help menu search. The Mac Window menu's Zoom action resizes the window; View controls application-content zoom.
 
-Window contains Minimize and Close on Windows. The native window Zoom role is only included on macOS, where it resizes a window; application content zoom remains under View on every platform.
+Windows popup coordinates convert renderer CSS pixels to DIPs using the current zoom. Dismissing a popup returns focus to the previous control if it still exists; a newly opened confirmation dialog keeps focus.
+
+Commands bring the window forward and recreate it when the last Mac window has closed. The latest pending command waits for saved settings and presets to load and for the renderer listener to become ready. This preserves defaults when New Job or New Preset opens an editor. Readiness messages require the main window's main frame. Single-instance activation also brings the existing app forward.
 
 ## Themed app dialogs
 
-About, manual update-check results, and the training-aware exit prompt render as compact dark dialogs using the app's retro type and neon accents. The About dialog preserves version, credits, and project-link actions; opening credits still respects unsaved editor changes. The normal About page and its terminal animation remain available.
+About, manual update-check results, and the training exit prompt use the shared app dialog. About includes version, credits, and project links; opening credits respects unsaved changes. The in-app About page remains available too.
 
-The main process owns each request and validates the originating window, request ID, and button index before acting. A native HTML modal dialog contains keyboard focus and makes underlying content inert. Escape selects the cancel action; focus returns to the previous control. On Mac the default action is placed last, at the right, without changing the response IDs; keyboard traversal follows the visual order. A minimized window is brought forward before showing a themed dialog. App navigation commands are held off while a dialog is open. Reload or renderer loss cancels pending requests, and native message boxes remain a fallback when the renderer is unavailable. OS file/folder pickers and fatal startup error boxes remain native.
+The main process owns each dialog request and validates its window, request ID, and response index. A modal HTML dialog contains keyboard focus and makes the background inert. Escape selects the cancel action, and dismissal restores focus. On macOS the default button appears last on the right without changing response IDs; keyboard traversal follows the displayed order.
 
-## Existing native integrations
+The app restores a minimized window before presenting a themed dialog. Navigation commands are ignored while a dialog is open. Reload or renderer loss cancels pending requests, and native message boxes are the fallback when the renderer is unavailable. File and folder pickers and fatal startup error boxes remain native.
 
-Active training updates the taskbar progress indicator. Finished, failed, or canceled jobs produce desktop notifications; clicking one brings the app forward and opens Jobs. The training quit confirmation defaults to **Keep Training**, and shutdown cleanup runs only after approval. Confirmation dialogs retain focus containment, Escape cancellation, and focus restoration.
+## Notifications, updates, and shutdown
 
-About NAM-BOT opens the version dialog from Help on Windows or the application-name menu on Mac, while the in-app About screen remains available. The startup GitHub Releases check highlights About when a newer stable version is available. Check for Updates, in the same platform-specific menu, bypasses the one-hour cache and shows the result. A failed lookup retains the last successful check date and any cached release link without reporting success.
+Training updates the taskbar progress indicator. On Windows, completed, failed, or canceled jobs can produce desktop notifications; clicking a notification brings the app forward and opens Jobs. Notifications are disabled in the unsigned macOS builds, with an explanation in Settings. The training-aware close and quit guard defaults to **Keep Training** and performs shutdown cleanup only after confirmation.
 
-Logs live in the application data folder at `logs/nam-bot.log`. Workspaces use the root configured in Settings, falling back to the app data `workspaces/` directory.
+The startup GitHub Releases check marks About when a newer stable version is available. **Check for Updates** bypasses the one-hour cache and displays the result. Failed checks retain the last successful check date and cached release link without reporting a successful lookup. See [Updates and credits](about.md).
+
+Open logs through **File > Open Logs Folder**. The file is `logs/nam-bot.log` under the application data directory. Workspaces use the root configured in Settings, with the application-data `workspaces/` directory as the fallback.
 
 ## Development and verification
 
-From this checkout:
+From the repository root:
 
 ```powershell
 npm ci
 npm run dev
 ```
 
-`npm ci` installs the locked dependencies. `npm run dev` starts Electron with renderer hot reload. Restart it after main/preload changes, or use `npm run dev -- --watch` to watch those bundles as well.
-
-`npm run build` builds all three targets without launching. `npm run preview` opens the compiled production build for an ordinary manual smoke test.
+`npm ci` installs the locked dependencies. `npm run dev` starts Electron with renderer hot reload. Restart after main-process or preload changes, or use `npm run dev -- --watch` to watch those bundles. `npm run build` builds all three targets without launching; `npm run preview` opens that production build for manual review.
 
 ```powershell
 npm run check
 npm run test:desktop-shell
 ```
 
-`npm run check` type-checks application and tests, runs Vitest and release-metadata tests, and builds the production main/preload/renderer bundles. `npm run test:desktop-shell` launches those compiled bundles in real Electron windows through Playwright; run the build first after changes. No separate Playwright browser download is needed.
+`npm run check` type-checks application and test code, runs Vitest and release-metadata tests, and builds the production bundles. The separate `npm run test:desktop-shell` command launches those bundles in Electron through Playwright. Rebuild before testing changed source. No separate Playwright browser download is needed.
 
-Desktop tests cover preload initialization and renderer Node isolation, isolated persistence, native window minimize/maximize/restore, 1000×700 resizing, 75–150% application zoom, fullscreen transitions, menu activation and zoomed popup anchoring, guarded navigation for all three editor types, canceled training-aware close/quit, and second-instance activation. Shell requests from another window are rejected. Windows also checks actual OS hit regions for dragging, the menu, and all three caption controls. A Mac-only test recreates the window through Dock activation. Another test recreates it through New Job, New Preset, and Settings menu commands, checking saved author defaults; on Windows, that isolated test process stays running after its last window closes to exercise the same command delivery. The themed About test focuses an existing control on each platform, without assuming the Windows hamburger exists on Mac.
+### Automated coverage
 
-Mac native Quit is driven with `Menu.sendActionToFirstResponder('terminate:')`; calling a native role's JavaScript `click` callback does not execute its AppKit action. On Mac, tests verify shortcut registration and custom command callbacks separately: Chromium's injected keys do not exercise AppKit menu shortcuts. The Windows test does exercise the injected native menu accelerator. These checks do not claim physical keyboard/mouse coverage for every OS control. The test launch enables Chromium smooth scrolling so CI host animation settings do not suppress that test path; reduced-motion tests still verify the application's immediate-scroll behavior.
+The desktop suite checks preload initialization, renderer Node isolation, temporary persistence, native minimize/maximize/restore events, narrow and zoomed layouts, fullscreen, menus, popup anchoring, guarded editor navigation, training-aware close/quit cancellation, and second-instance activation. Windows tests inspect actual OS hit regions for dragging, the menu, and caption controls.
 
-The lifecycle test subscribes to each native minimize, restore, maximize, and unmaximize event before requesting that transition. It waits for restoration and checks native visibility, focus, and minimized state before maximizing; a renderer focus label alone is not a restoration barrier. Missing events fail with the native state and bounds, without retrying the action or skipping macOS coverage.
+Mac checks include Dock window recreation. Menu-command recreation verifies saved editor defaults on both platforms; the Windows test keeps only its isolated process alive after the last window closes to exercise this path. Other desktop cases cover feature workflows, shared styling, and report exports with simulated training data.
 
-Tests set `NAM_BOT_DESKTOP_SHELL_SMOKE=1` and require a dedicated `nam-bot-shell-*` directory directly under the system temporary folder via `NAM_BOT_DESKTOP_SHELL_DATA`. Bootstrap sets `userData` and Chromium session data **before persistence modules initialize**. Startup backend/update checks are skipped, backend IPC uses inert fixtures, and training operations are disabled. An optional `NAM_BOT_DESKTOP_SHELL_ACTIVE=1` simulates active work for the real quit guard without starting a trainer. These switches are for automated tests only. Temporary data is retained for failure diagnosis and is never the normal NAM-BOT profile.
+Native minimize, restore, maximize, and unmaximize listeners are registered before the action. Tests wait for native restoration and verify visibility, focus, and minimized state before maximizing. A renderer focus label alone does not establish restoration. Zoom checks wait for the renderer's shell scale to match the main process's zoom before accepting geometry or converting it to screen coordinates. Otherwise a complete frame from the previous zoom can produce incorrect native hit-test points.
 
-The suite writes renderer images, native window captures where available, logs, and `verification.json` under `test-results/desktop-shell`; the HTML report is in `playwright-report`. Both locations are ignored by Git. Windows and macOS build jobs run the suite and upload its evidence even on failure. Native captures use Electron's host window capture, not the renderer screenshot. On macOS, capture is marked unavailable unless screen-recording permission is already granted, avoiding an unattended permission prompt.
+Mac Quit uses `Menu.sendActionToFirstResponder('terminate:')`; calling a native role's JavaScript `click` callback does not perform its AppKit action. Mac tests check shortcut registration and custom callbacks separately because injected Chromium keys do not exercise AppKit shortcuts. Windows also exercises an injected native menu accelerator. The suite enables Chromium smooth scrolling to exercise that path regardless of host animation settings; reduced-motion cases check immediate navigation separately.
 
-Report the following separately:
+These checks do not cover physical keyboard and mouse behavior for every OS control, real GPU training, or every monitor configuration.
 
-1. **Mac build verified:** compilation succeeded on a Mac runner.
-2. **Mac launch verified:** the native Electron suite passed on that runner.
-3. **Mac native appearance verified:** a usable native capture was inspected, or someone checked the app on a Mac. A renderer screenshot or passing layout assertion alone does not establish this.
+### Test isolation
+
+The suite sets `NAM_BOT_DESKTOP_SHELL_SMOKE=1` and creates a dedicated `nam-bot-shell-*` directory directly under the system temporary directory. Its absolute path is passed through `NAM_BOT_DESKTOP_SHELL_DATA`. Bootstrap validates the location and sets `userData` and Chromium session data before importing persistence modules.
+
+Smoke mode skips startup backend and update checks, supplies inert backend IPC fixtures, and disables training operations. `NAM_BOT_DESKTOP_SHELL_ACTIVE=1` can simulate active work for the real quit guard without starting a trainer. These switches belong to automated tests. The temporary profile is retained for diagnosis and cannot fall back to normal NAM-BOT data.
+
+### Evidence and limits
+
+The suite writes screenshots, available native captures, logs, and verification records under `test-results/desktop-shell/`. Its HTML report is in `playwright-report/`; both directories are ignored by Git. Windows and macOS CI build jobs upload this evidence even on failure.
+
+Renderer screenshots capture app content. Native captures use Electron's host-window capture and can include OS controls. On macOS, native capture is marked unavailable unless screen-recording permission has already been granted, so unattended tests do not prompt for access.
+
+Report these outcomes separately:
+
+- A Mac build passed when compilation succeeded on a Mac runner.
+- A Mac launch passed when the native Electron suite passed there.
+- Mac native appearance was verified only when someone inspected a usable native capture or checked the app on a Mac. Renderer images and layout assertions alone do not establish it.
 
 ## Windows packaging and final checks
 
 ```powershell
 npm run package:win
 $env:NAM_BOT_TEST_EXECUTABLE = (Resolve-Path 'release/win-unpacked/NAM-BOT.exe').Path
-npm run test:desktop-shell
-Remove-Item Env:NAM_BOT_TEST_EXECUTABLE
+try {
+  npm run test:desktop-shell
+} finally {
+  Remove-Item Env:NAM_BOT_TEST_EXECUTABLE
+}
 ```
 
-`npm run package:win` builds the application and creates the Windows NSIS installer plus the unpacked packaged executable. The environment override runs the same isolated tests against that executable. The tests do not install the app or overwrite an existing installation.
+`npm run package:win` builds the app and creates the NSIS installer plus the unpacked executable. The environment override runs the isolated suite against that packaged executable. The tests do not install the app or overwrite an existing installation. See [macOS support](macos-support.md) for Mac packaging.
 
-For reproducible Chromium device-scale checks, set `NAM_BOT_TEST_SCALE` to `1`, `1.25`, or `1.5` before running the suite, then remove it. Forced device scale is distinct from changing Windows display settings or moving between physical monitors.
+Set `NAM_BOT_TEST_SCALE` to `1`, `1.25`, or `1.5` for forced Chromium device-scale checks, then remove it after the run. This differs from changing Windows display scaling or moving a window between physical monitors. Forced-scale runs check overlay geometry but skip the OS caption-edge hit test because Chromium's forced scale does not change Windows DPI.
 
-Human checks still matter: drag the blank header, double-click to maximize/restore, test the caption buttons, Windows 11 snap layouts/maximize hover, Alt+Tab, and mixed-monitor display scaling. macOS traffic-light alignment, fullscreen hover behavior, and the normal menu must be checked on a Mac or in usable native CI captures. Local Windows tests do not establish those Mac results.
+Manual review should cover header dragging, double-click maximize/restore, caption buttons, Windows 11 snap layouts and maximize hover, Alt+Tab, and mixed-monitor scaling. Check Mac traffic-light alignment, fullscreen hover behavior, and menu appearance on a Mac or in usable native captures. Local Windows checks do not establish those results.

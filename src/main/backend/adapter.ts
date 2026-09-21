@@ -1922,7 +1922,7 @@ export async function inspectTrainingLaunchDiagnostics(
         'NAM-BOT could not create or write to the training workspace.',
         {
           detail: message,
-          suggestion: 'Set Default Workspace Root to a local writable folder in Settings.'
+          suggestion: 'Set Workspace Root to a local writable folder in Settings.'
         }
       ),
       createTrainingLaunchCheck('skip', 'pty_python_skipped', 'PTY Python launch', 'Skipped until the training workspace is writable.'),
@@ -1938,7 +1938,7 @@ export async function inspectTrainingLaunchDiagnostics(
         workspaceRoot,
         workspacePath,
         checks,
-        suggestion: 'Choose a local writable Default Workspace Root in Settings.',
+        suggestion: 'Choose a local writable Workspace Root in Settings.',
         errors: [message]
       }
     )

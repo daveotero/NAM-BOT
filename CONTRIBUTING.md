@@ -1,116 +1,90 @@
-# Contributing To NAM-BOT
+# Contributing to NAM-BOT
 
-Thanks for taking an interest in NAM-BOT.
+NAM-BOT is an Electron desktop app for training Neural Amp Modeler captures. Contributions can cover the app, training integration, documentation, or testing on hardware the maintainer does not have.
 
-This project is still early, so the most helpful contributions are usually a few larger improvements rather than lots of tiny churn.
+Development is primarily on Windows. macOS support is already implemented, including Apple Silicon and Intel packaging, native menus, and desktop CI checks. Testing real training sessions and packaged builds on a Mac is especially useful. See the [macOS reference](./docs/macos-support.md) for platform details and credits.
 
-The biggest one by far is macOS support. NAM-BOT was built with that in mind where practical, but it has mostly been developed and tested on Windows because I am not a Mac user and do not have a Mac machine available for building and validation. If you are comfortable with Electron packaging, platform-specific path/process behavior, or testing on Apple hardware, that would be an especially valuable contribution.
+## Before you start
 
-## Before You Start
+Read the [README](./README.md) for the project overview and check existing issues and pull requests for related work. For a larger change, open an issue to discuss the problem before spending time on implementation.
 
-- Read [README.md](./README.md) for the project overview and setup flow.
-- Read [AGENTS.md](./AGENTS.md) if you are contributing with an AI coding assistant inside this repo.
-- Check existing issues and pull requests before starting duplicate work.
+Read [AGENTS.md](./AGENTS.md) when using an AI coding assistant. For UI changes, follow the [UI style guide](./docs/ui-style-guide.md), including its shared component and screenshot requirements.
 
-## Development Setup
+## Set up a checkout
 
-```bash
-npm install
-```
-
-Purpose: installs project dependencies and rebuilds native Electron modules such as `node-pty`.
+Use Node.js 22.12 or newer in the Node 22 series, with npm. CI uses Node 22. Clone your fork, then run these commands from the repository root:
 
 ```bash
+npm ci
 npm run dev
 ```
 
-Purpose: starts the Electron app in development mode with hot reload.
+`npm ci` installs the versions recorded in `package-lock.json` and downloads the Electron runtime before tests or development start. `npm run dev` launches Electron with renderer hot reload. Restart the app after changing main-process or preload code, or use `npm run dev -- --watch` to watch those bundles too.
+
+The app can launch without a configured training environment. To test real training, connect a Conda environment through Settings and follow the [setup guide](./docs/setup-guide.md). The [desktop test suite](./docs/desktop-shell.md#development-and-verification) uses isolated temporary data and simulated backend responses.
+
+NAM-BOT uses React and TypeScript in the renderer, Zustand for shared renderer state, electron-log for logging, and electron-vite for builds. The main process under `src/main/` owns filesystem access, persistence, and training processes. `src/preload/` exposes the IPC bridge to `src/renderer/`.
+
+## Check your changes
+
+Run the combined check before opening a pull request:
 
 ```bash
-npm run build
+npm run check
 ```
 
-Purpose: builds the Electron main process, preload script, and renderer for production.
+This type-checks application and test code, runs the Vitest application suite and Node release-metadata tests, then builds the main, preload, and renderer bundles. It does not run the desktop suite or package an installer.
 
-```bash
-npm run package
-```
+You can run each part separately while working:
 
-Purpose: builds the app and creates the Windows installer output in `release/`.
+| Command | Purpose |
+| --- | --- |
+| `npm run typecheck` | Check TypeScript across the application and tests. |
+| `npm test` | Run Vitest and release-metadata tests once. |
+| `npm run build` | Compile all three Electron targets into `out/`. |
+| `npm run preview` | Launch the compiled app for manual review. |
+| `npm run test:desktop-shell` | Exercise the compiled app in Electron through Playwright. Build first after source changes. |
 
-## GitHub Actions And Releases
+For desktop behavior, run `npm run build` followed by `npm run test:desktop-shell`. The suite covers menus, window lifecycle, editor workflows, and rendered layout using a temporary profile. See [desktop verification](./docs/desktop-shell.md#development-and-verification) for packaged-app testing and the limits of native screenshots.
 
-This repo includes two GitHub Actions workflows:
+For UI changes, inspect rendered screenshots at normal width, at 1000×700, and at 150% application zoom. Check every consumer of a changed shared component. A passing layout assertion does not replace a visual review.
 
-- `CI`: runs on every push and pull request, installs dependencies with `npm ci`, and runs `npm run build`
-- `Release`: packages the Windows app and publishes release assets when a Git tag matching `v*` is pushed
+## Package the app
 
-The release workflow does not run on every commit push.
+| Command | Output |
+| --- | --- |
+| `npm run package:win` | Build the app and create the Windows NSIS installer and `release/win-unpacked/` app. `npm run package` is an alias for this workflow. |
+| `npm run package:mac` | Build the app, package Apple Silicon and Intel DMGs on macOS, and verify the bundled `node-pty` helper. |
 
-Recommended release timing:
+Packaging writes to `release/`. Local packaging does not install the app. Follow the [release workflow](./docs/release-workflow.md) for artifact names, publication, and final checks.
 
-1. Push the finished work to `main`.
-2. Run a final smoke test against that `main` commit.
-3. Push the version tag only when you want GitHub to publish that exact commit as a release.
+## CI and releases
 
-To trigger a real release build, push a version tag such as:
+There are three GitHub Actions workflows:
 
-```bash
-git tag v0.3.1
-git push origin v0.3.1
-```
+- [CI](./.github/workflows/ci.yml) runs on pushes and pull requests. It type-checks and tests the project, then builds and runs the desktop suite on Windows and macOS.
+- [Preview Releases](./.github/workflows/preview-release.yml) packages pushes to `main` as GitHub prereleases.
+- [Release](./.github/workflows/release.yml) packages a pushed `v*` tag, or an existing tag selected manually. Stable versions become stable releases; versions with a prerelease suffix remain prereleases.
 
-You can also run the release workflow manually from the GitHub Actions tab by using `workflow_dispatch`.
+An ordinary branch push does not publish a stable release. Version selection and release-tag publication are separate decisions; the [release workflow](./docs/release-workflow.md) explains the required approval and metadata checks.
 
-## Project Context
+## Write a useful pull request
 
-NAM-BOT is built with:
+Keep the change focused and explain the problem it solves. Include how you tested it, the operating system and architecture, and any behavior you could not verify. For packaging or native-window changes, distinguish a successful build, an app launch, and a visual check on the target platform.
 
-- Electron + electron-vite
-- React + TypeScript
-- Zustand for renderer state
-- electron-log for logging
-- electron-builder for packaging
+Update the relevant guide when changing a core workflow or screen. Use plain language in UI copy and user documentation; users should not need to understand Electron or Python internals to train a model.
 
-There is currently no formal automated test suite in the repo, so contributors should at minimum run `npm run build` before opening a pull request.
+Follow the existing code structure:
 
-If you are working on cross-platform or packaging changes, please call out exactly what machine and OS version you tested on.
+- Use explicit TypeScript parameter and return types, and avoid `any`.
+- Keep main-process, preload, and renderer responsibilities separate.
+- Catch asynchronous IPC failures and use `electron-log/main` for main-process logging.
+- Reuse shared UI components and design tokens. Change the owning rule when a shared style needs updating.
 
-## Pull Request Guidelines
+## Report a bug
 
-- Keep pull requests focused. Small, single-purpose PRs are much easier to review.
-- Update documentation when changing a core workflow or screen.
-- Prefer plain-language UI copy. Many NAM-BOT users are not deep Python or Electron developers.
-- Do not mix unrelated refactors into a fix PR unless they are required to make the change safe.
-- If your change affects packaging, startup flow, diagnostics, Jobs, Presets, Settings, Dashboard, or setup guidance, mention that clearly in the PR description.
+Include the app version, operating system and architecture, the steps you took, and what you expected to happen. For training or setup problems, include the Conda environment name or prefix, how Conda is located, and the selected CPU or GPU backend.
 
-## Code Style Notes
+Relevant output from Diagnostics or `nam-bot.log` helps. Open logs through **File > Open Logs Folder**. Review diagnostics and logs for local paths or other personal details before posting them. Follow [SECURITY.md](./SECURITY.md) for security-sensitive reports.
 
-- Use TypeScript with explicit parameter and return types.
-- Avoid `any`.
-- Follow the existing Electron split between `main`, `preload`, and `renderer`.
-- Wrap async IPC work in `try` / `catch`.
-- Use `electron-log/main` for main-process logging.
-- Preserve existing UI patterns unless there is a good reason to change them.
-
-## Reporting Bugs
-
-When filing an issue, include:
-
-- What you expected to happen
-- What actually happened
-- Whether you are using Conda, a direct Python executable, or another environment layout
-- Whether the machine is CPU-only or GPU-enabled
-- Any useful output from the Diagnostics screen or `nam-bot.log`
-
-## High-Value Contributions
-
-- Porting the app to macOS and validating the Electron packaging flow on real Mac hardware
-- Fixing platform-specific path, shell, or process-launch issues that block cross-platform support
-- Improving diagnostics for tricky GPU, torch, Conda, or environment mismatch problems
-- Tightening the onboarding flow for users who do not already have a working local NAM setup
-- Adding polished screenshots, GIFs, and documentation that help the public repo feel approachable
-
-## Questions
-
-If you are unsure whether a change fits the project, open an issue first and describe the idea before spending a lot of time on implementation.
+Useful areas for contributions include testing packaged Mac builds and real training sessions, fixing platform-specific process or path issues, improving backend diagnostics, and making setup instructions easier to follow.

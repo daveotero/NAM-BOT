@@ -1,4 +1,4 @@
-# AGENTS.md - NAM-BOT Development Guide (v0.6.8)
+# AGENTS.md - NAM-BOT Development Guide (v0.7.0)
 
 This document provides guidance for AI agents working on the NAM-BOT project.
 
@@ -27,6 +27,7 @@ This document provides guidance for AI agents working on the NAM-BOT project.
 
 ### 0.3 UI Styling Contract
 
+- Prefer clear option labels and tooltips over always-visible descriptions. Keep inline help only when users need it before acting; follow the option-help guidance in `docs/ui-style-guide.md`.
 - Before changing existing UI or adding a screen, read [docs/ui-style-guide.md](docs/ui-style-guide.md). It is the canonical guide for typography, components, layout, interaction states, and visual verification.
 - Use the tokens in `src/renderer/styles/tokens.css` and shared components/classes. Do not introduce per-page font sizes, embedded stylesheets, or page-scoped versions of shared card/control styling.
 - Check all consumers of a shared style change at normal width and narrow/high-zoom layouts. Inspect rendered screenshots as well as running the style-contract and relevant desktop checks.
@@ -39,7 +40,7 @@ NAM-BOT is a desktop training front-end for Neural Amp Modeler (NAM). Built with
 
 **Tech Stack:**
 
-- Electron 40.x with electron-vite
+- Electron 42.x with electron-vite
 - React 19 + TypeScript
 - Zustand for state management
 - electron-log for logging

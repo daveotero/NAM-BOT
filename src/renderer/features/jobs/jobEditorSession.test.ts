@@ -146,7 +146,7 @@ describe('createNewJobDraft', () => {
         }),
         createTrainingPreset({
           id: DEFAULT_PRESET_ID,
-          name: 'A2 Packed WaveNet',
+          name: 'A2 Standard',
           visible: true
         })
       ]
@@ -160,7 +160,7 @@ describe('createNewJobDraft', () => {
 
     const draft = createNewJobDraft({
       settings: null,
-      presets: [createTrainingPreset({ id: DEFAULT_PRESET_ID, name: 'A2 Packed WaveNet', visible: true })]
+      presets: [createTrainingPreset({ id: DEFAULT_PRESET_ID, name: 'A2 Standard', visible: true })]
     })
 
     expect(draft.trainingOverrides.latencyMode).toBe('auto')
@@ -177,7 +177,7 @@ describe('createNewJobDraft', () => {
       presets: [
         createTrainingPreset({
           id: DEFAULT_PRESET_ID,
-          name: 'A2 Packed WaveNet',
+          name: 'A2 Standard',
           visible: true
         })
       ]
