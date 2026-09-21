@@ -232,6 +232,17 @@ test('Epoch Runner complete campaign via keyboard, upgrade, score archive and re
 
 test('Epoch Runner game over, fresh key guard and unavailable storage', async ({}, info) => {
   const game = page.locator('.epoch-runner-shell')
+  async function advanceToCollision(status: 'crashed' | 'game-over'): Promise<void> {
+    await expect(game).toHaveAttribute('data-status', 'running')
+    // runFor traces every pulse. Let settled circuits rest before the macOS
+    // runner's wall clock runs out; keep the full stepping path while active.
+    for (let elapsed = 0; elapsed < 20_000; elapsed += 500) {
+      await page.clock.runFor(500)
+      if (await game.getAttribute('data-status') === status) break
+    }
+    await expect(game).toHaveAttribute('data-status', status)
+  }
+
   await freezeClock()
   await page.evaluate(() => {
     Storage.prototype.setItem = (): never => { throw new Error('Test quota exceeded') }
@@ -241,19 +252,18 @@ test('Epoch Runner game over, fresh key guard and unavailable storage', async ({
   // Storage has precedence in the visible status, but audio failure must also be nonfatal.
   await expect(page.locator('.epoch-status-line')).toContainText('Archive unavailable')
   await page.keyboard.press('Space')
-  await page.clock.runFor(20000)
-  await expect(game).toHaveAttribute('data-status', 'crashed')
+  await advanceToCollision('crashed')
+  await page.clock.runFor(500)
   await page.keyboard.down('Space')
-  await page.clock.runFor(20000)
-  await expect(game).toHaveAttribute('data-status', 'crashed')
-  // A held/repeated space cannot dismiss the newly reached report.
+  await advanceToCollision('crashed')
+  // The interlock has cleared. A latched key must leave this chamber sealed
+  // until a fresh signal arrives.
+  await page.clock.runFor(500)
   await page.keyboard.down('Space')
   await expect(game).toHaveAttribute('data-status', 'crashed')
   await page.keyboard.up('Space')
-  await page.clock.runFor(500)
   await page.keyboard.press('Space')
-  await page.clock.runFor(20000)
-  await expect(game).toHaveAttribute('data-status', 'game-over')
+  await advanceToCollision('game-over')
   await expect(page.locator('.epoch-status-line')).toContainText('Archive unavailable')
   await capture(info, 'game-over.png')
 })
