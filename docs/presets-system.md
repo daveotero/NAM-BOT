@@ -83,21 +83,27 @@ In the job editor, packs with three or more tiers expose a **Packed models** che
 
 Each tier has its own ESR curve and best checkpoint. Auto convergence waits for every selected tier to qualify. The largest exported tier supplies the primary ESR shown on the run card and in filename/metadata attribution; [Jobs](jobs-system.md#watch-training) explains how that differs from the latest validation result.
 
-### Tier names and CPU estimates
+### Tier names and rough compute estimates
 
 Friendly tier names follow channel-count ranges. An imported `channels_22` model, for example, displays as A2 Colossal. Values outside these ranges retain their model name or channel count.
 
-| Tier label | Channel range | Reference channels | Estimated playback CPU relative to A2 Full |
-| --- | ---: | ---: | ---: |
-| A2 Lite | 1 to 3 | 3 | 0.14× |
-| A2 Full | 4 to 8 | 8 | 1.00× |
-| A2 Heavy | 9 to 12 | 12 | 2.25× |
-| A2 Ultra | 13 to 16 | 16 | 4.00× |
-| A2 Mammoth | 17 to 20 | 20 | 6.25× |
-| A2 Colossal | 21 to 24 | 24 | 9.00× |
-| A2 Leviathan | 25 to 28 | 28 | 12.25× |
+For a rough playback-cost comparison, **A2 Full (8 channels), the larger tier in A2 Standard, is the 1× baseline**. Values apply to the reference channel counts below.
 
-These are planning estimates from `(channels / 8)^2`, not benchmarks or training-time predictions. Host implementation, sample rate, block size, compiler optimization, and fixed overhead affect actual playback CPU use. Tier names describe model size; listen to the exports when comparing results.
+| Tier label | Channel range | Reference channels | Approx. relative playback cost |
+| --- | ---: | ---: | ---: |
+| A2 Lite | 1 to 3 | 3 | 0.3× |
+| A2 Full | 4 to 8 | 8 | 1× |
+| A2 Heavy | 9 to 12 | 12 | 2× |
+| A2 Ultra | 13 to 16 | 16 | 4× |
+| A2 Mammoth | 17 to 20 | 20 | 6× |
+| A2 Colossal | 21 to 24 | 24 | 9× |
+| A2 Leviathan | 25 to 28 | 28 | 12× |
+
+Lite's **0.3×** is inferred from the [published NAM A2 figures from TONE3000, A2's co-developer](https://www.tone3000.com/guides/nam-a2-the-complete-guide#how-efficient-are-a2-full-and-a2-lite): about 64 Full versus 200 Lite instances on an M-series MacBook gives `64 / 200 = 0.32`, rounded to 0.3. It is a hardware-specific reference, not a universal CPU ratio.
+
+The larger tiers remain theoretical estimates, rounding `(channels / 8)^2` for the same A2 layer layout. Actual CPU ratios can differ substantially with the player, processor, sample rate, and buffer size. NAM's [optimized A2 playback path](https://github.com/sdatkinson/NeuralAmpModelerCore/blob/main/NAM/wavenet/a2_fast.cpp) supports matching 3- and 8-channel models; wider tiers use the general WaveNet path. These figures do not predict training time.
+
+The comparison applies to the selected playback tier, rather than the sum of every tier stored in the pack. Mammoth (20 channels) is the largest bundled tier; Colossal and Leviathan are available through compatible custom packs. Tier names describe model size; listen to the exports when comparing results.
 
 ### Define a custom pack
 
