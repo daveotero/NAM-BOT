@@ -64,6 +64,24 @@ An epoch is one pass through the training material. Validation ESR, or error-to-
 
 Choose **Fast** for an earlier stop with more potential improvement left, **Balanced** for a longer observation period, or **Obsessive** to wait for smaller gains over a longer period. These settings judge recent ESR improvement. They do not guarantee a particular sound or that further training could never help.
 
+### Convergence thresholds
+
+Detector version 1 uses full-precision validation ESR and the same fixed rules on every installation:
+
+| Level | Minimum validated epochs | Observation window | Improvement must be below | Earliest possible stop* |
+| --- | ---: | ---: | ---: | ---: |
+| Fast | 100 | 50 observations | 2% | Epoch 104 |
+| Balanced | 150 | 75 observations | 1% | Epoch 154 |
+| Obsessive | 300 | 150 observations | 0.25% | Epoch 304 |
+
+For **every exported model**, the detector compares its best-so-far ESR at the start and end of the window. It also compares median ESR in the older and newer halves of that window. Both relative improvements must be *strictly below* the selected percentage. An ESR increase counts as no improvement because the final export uses the best validated checkpoints. In a packed model, every selected tier must meet the rule.
+
+All models must pass for **five consecutive valid observations**. The first qualifying observation counts as 1/5; a gain at or above the threshold resets the count. For example, Obsessive waits until at least 300 validated epochs, checks the most recent 150 observations, then needs five consecutive passes. The 0.25% threshold is a relative ESR improvement over that window, not a change between just two adjacent epochs.
+
+**Elapsed minutes are not part of the rule.** The detector normally gets one final validation observation per completed epoch, excluding sanity checks and duplicates. If validation happens less often, collecting the window takes more training epochs and more clock time. An epoch without validation adds no observation; an invalid or incomplete observation clears the window, which must then refill. The per-job Maximum epochs limit is a separate safety stop; the default is 2,000. A usable checkpoint and any trainer minimum-epoch or minimum-step settings must also be satisfied before an automatic convergence stop.
+
+*The earliest stops assume valid validation every epoch, qualifying ESR at the first eligible check, and no other trainer constraint delaying the stop. These are theoretical minimums, not expected stop epochs. The detector does not change the optimizer or learning-rate schedule, and its initial replay coverage does not establish universal stopping times across captures or model architectures.*
+
 Auto convergence requires a positive **Maximum epochs** value. This replaces the preset's fixed epoch target for that run. The progress bar shows how much of the safety limit has been used, so a run can finish successfully before it reaches 100%. Invalid or empty edits restore the last valid limit when you leave the field.
 
 The **Convergence** value shows where convergence monitoring stands: gathering validation history, recent ESR improvement against the selected threshold, or confirmation progress such as `Below threshold · confirming 3/5`. The percentage is the largest relative best-ESR improvement or median trend across all exported models in the observation window. It is not a percent-complete estimate and can rise when training finds new gains. Hover the value for the window, stopping criteria, and previously reached levels. Older runs without numeric monitoring data show a text status. An automatic stop reports the actual completed epoch, such as `Auto-stopped at epoch 413 · Fast · model saved`.
@@ -267,20 +285,6 @@ For a V2-style custom input, use this split when it matches your capture layout:
 ```
 
 ESR from a custom holdout describes that particular material. It is not directly comparable with V3 ESR unless the validation material is equivalent.
-
-### Convergence rules
-
-Detector version 1 uses full-precision ESR and these fixed rules on every installation:
-
-| Level | Minimum validated epochs | Observation window | Relative improvement tolerance |
-| --- | ---: | ---: | ---: |
-| Fast | 100 | 50 | 2% |
-| Balanced | 150 | 75 | 1% |
-| Obsessive | 300 | 150 | 0.25% |
-
-For each exported model, both the change in best-so-far ESR across the window and the change between median ESR in its older/newer halves must fall below the tolerance. Every model must qualify for five consecutive observations. Increasing ESR counts as no improvement because export uses the best validated checkpoints.
-
-The detector takes one final validation observation per completed epoch, excludes sanity checks and duplicates, and needs a fresh complete window after invalid or incomplete measurements. Less frequent validation makes those windows span more training epochs. The rules do not learn from local history or change the optimizer or learning-rate schedule. Initial replay coverage uses two histories of the same A2 preset, so it does not establish universal convergence timing across architectures and captures.
 
 ### Source and data formats
 
