@@ -203,6 +203,38 @@ async function transitionNativeWindow(action: 'minimize' | 'restore' | 'maximize
   })
 }
 
+test('application identity preserves profiles and sets native Windows taskbar details', async () => {
+  const state = await app.evaluate(({ app, BrowserWindow }) => {
+    const handle = BrowserWindow.getAllWindows()[0].getNativeWindowHandle()
+    return {
+      name: app.getName(),
+      isPackaged: app.isPackaged,
+      userData: app.getPath('userData'),
+      sessionData: app.getPath('sessionData'),
+      executablePath: process.execPath,
+      appPath: app.getAppPath(),
+      handle: process.platform === 'win32' ? handle.readBigUInt64LE().toString() : ''
+    }
+  })
+  expect(state.name).toBe(state.isPackaged ? 'NAM-BOT' : 'NAM-BOT Dev')
+  expect(state.userData).toBe(dataPath)
+  expect(state.sessionData).toBe(join(dataPath, 'chromium'))
+  if (process.platform !== 'win32') return
+
+  const result = await promisify(execFile)('powershell.exe', ['-NoProfile', '-NonInteractive', '-File',
+    resolve('tests/desktop/windows-app-details.ps1'), '-WindowHandle', state.handle], { windowsHide: true })
+  const details: unknown = JSON.parse(result.stdout)
+  expect(details).toMatchObject({
+    appId: state.isPackaged ? 'com.nambot.app' : 'com.nambot.app.dev',
+    relaunchDisplayName: state.name,
+    relaunchCommand: state.isPackaged
+      ? `"${state.executablePath}"`
+      : `"${state.executablePath}" "${state.appPath}"`,
+    relaunchIcon: `${state.isPackaged ? join(state.executablePath, '..', 'resources', 'icon.ico') : join(state.appPath, 'build', 'icon.ico')},0`
+  })
+  expect(errors).toEqual([])
+})
+
 test('isolated launch, preload, fixed header, zoom, resize and fullscreen', async () => {
   await page.emulateMedia({ reducedMotion: 'no-preference' })
   await page.locator('.app-title-bar-brand').hover()

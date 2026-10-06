@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Windows development runs now use a separate NAM-BOT Dev identity, with explicit taskbar names, icons, and launch commands for both development and installed builds.
+
 ## [0.7.0] - 2026-09-20
 
 See [What's New in 0.7.0](WHATS_NEW.md) for a tour of the native desktop redesign, expanded packed-model presets, training controls, charts, and sharing features added since 0.6.0.

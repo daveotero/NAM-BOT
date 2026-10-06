@@ -23,6 +23,16 @@ DIPs are device-independent pixels. The header compensates for application zoom 
 
 The shell IPC bridge reports focus, fullscreen state, and zoom. It accepts requests from the main window's main frame and does not expose custom minimize, maximize, or close commands.
 
+### Windows application identity
+
+Packaged installations retain the **NAM-BOT** name and `com.nambot.app` app ID, matching the NSIS shortcuts. Unpackaged runs (`npm run dev`, `npm run preview`, and desktop tests) use **NAM-BOT Dev** and `com.nambot.app.dev`, so Windows does not group development windows and pins with the installed app.
+
+Before showing each main window, the app sets its taskbar relaunch name, command, and icon explicitly. Production relaunches the packaged executable; development relaunches Electron with the absolute project path, rather than opening Electron alone. Paths are quoted for spaces. Relaunch commands do not copy debug/test flags or environment variables. A development pin opens the compiled app from `npm run build`; it does not start the hot-reload server. Use `npm run dev` for hot reload.
+
+This separates Windows shell identities, not data profiles. Existing settings, jobs, Chromium data, and isolated test paths stay in their original locations, and the existing single-instance guard remains. The in-app wordmark and page titles remain NAM-BOT.
+
+Old pins and shortcuts can retain cached Electron branding. Unpin/remove the incorrect **Electron** entry, restart the updated app, and pin the appropriate **NAM-BOT** or **NAM-BOT Dev** entry. The app does not delete or rewrite existing user shortcuts.
+
 ## Menu and keyboard
 
 On Windows, open the application menu with the upper-left button or F10. Enter and Space activate the focused button. The persistent Windows menu strip stays hidden; Alt does not reveal a second strip. Shift+F10 and Alt+Tab are not intercepted. macOS uses its normal application menu.
@@ -82,7 +92,7 @@ npm run test:desktop-shell
 
 ### Automated coverage
 
-The desktop suite checks preload initialization, renderer Node isolation, temporary persistence, native minimize/maximize/restore events, narrow and zoomed layouts, fullscreen, menus, popup anchoring, guarded editor navigation, training-aware close/quit cancellation, and second-instance activation. Windows tests inspect actual OS hit regions for dragging, the menu, and caption controls.
+The desktop suite checks application naming and profile preservation, preload initialization, renderer Node isolation, temporary persistence, native minimize/maximize/restore events, narrow and zoomed layouts, fullscreen, menus, popup anchoring, guarded editor navigation, training-aware close/quit cancellation, and second-instance activation. Windows tests read the actual window property store for taskbar identity, relaunch name/command/icon, and inspect OS hit regions for dragging, the menu, and caption controls.
 
 Mac checks include Dock window recreation. Menu-command recreation verifies saved editor defaults on both platforms; the Windows test keeps only its isolated process alive after the last window closes to exercise this path. Other desktop cases cover feature workflows, shared styling, and report exports with simulated training data.
 

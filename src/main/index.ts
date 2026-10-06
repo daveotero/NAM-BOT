@@ -33,14 +33,15 @@ import { installDesktopSmokeIpc } from './shell/smokeIpc'
 import { createAppDialogs } from './shell/appDialogs'
 import { createAppCommands } from './shell/appCommands'
 import { createJobNotifier } from './shell/jobNotifications'
+import { configureAppIdentity, getWindowsAppDetails } from './shell/appIdentity'
 
+const appIdentity = configureAppIdentity(app, process.platform)
 const ownsInstance = app.requestSingleInstanceLock()
 if (!ownsInstance) app.exit(0)
 
 log.initialize()
 
 const isDev = !app.isPackaged
-const APP_ID = 'com.nambot.app'
 const PROJECT_URL = 'https://github.com/daveotero/nam-bot'
 const ISSUE_TRACKER_URL = 'https://github.com/daveotero/nam-bot/issues'
 const NAM_GITHUB_URL = 'https://github.com/sdatkinson/neural-amp-modeler'
@@ -122,10 +123,8 @@ function showMainMessageBox(options: MessageBoxOptions): Promise<MessageBoxRetur
   return appDialogs.show(options)
 }
 
-app.setAppUserModelId(APP_ID)
-
 app.setAboutPanelOptions({
-  applicationName: 'NAM-BOT',
+  applicationName: appIdentity.name,
   applicationVersion: app.getVersion(),
   version: app.getVersion(),
   copyright: 'MIT License',
@@ -150,7 +149,12 @@ function resolveWorkspaceRoot(): string {
     : join(userDataPath, 'workspaces')
 }
 
-function resolveWindowIcon(): NativeImage | undefined {
+interface WindowIcon {
+  path: string
+  image: NativeImage
+}
+
+function resolveWindowIcon(): WindowIcon | undefined {
   const candidatePaths = [
     join(app.getAppPath(), 'build', 'icon.ico'),
     join(app.getAppPath(), 'build', 'icon.png'),
@@ -170,7 +174,7 @@ function resolveWindowIcon(): NativeImage | undefined {
     const icon = nativeImage.createFromPath(candidatePath)
     if (!icon.isEmpty()) {
       log.info(`Using window icon from: ${candidatePath}`)
-      return icon
+      return { path: candidatePath, image: icon }
     }
   }
 
@@ -366,7 +370,7 @@ function createWindow(): void {
     minWidth: 1000,
     minHeight: 700,
     backgroundColor: '#09090b',
-    icon: windowIcon,
+    icon: windowIcon?.image,
     show: false,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -376,13 +380,21 @@ function createWindow(): void {
     }
   })
 
-  if (process.platform === 'win32') mainWindow.setMenuBarVisibility(false)
+  if (process.platform === 'win32') {
+    mainWindow.setMenuBarVisibility(false)
+    mainWindow.setAppDetails(getWindowsAppDetails({
+      isPackaged: app.isPackaged,
+      executablePath: process.execPath,
+      appPath: app.getAppPath(),
+      iconPath: windowIcon?.path
+    }))
+  }
   observeShellWindow(mainWindow)
 
   mainWindow.on('ready-to-show', () => {
     log.info('Window ready to show')
     if (windowIcon) {
-      mainWindow?.setIcon(windowIcon)
+      mainWindow?.setIcon(windowIcon.image)
     }
     mainWindow?.show()
     updateWindowProgress()

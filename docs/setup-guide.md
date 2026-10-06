@@ -14,6 +14,16 @@ Download a build from [NAM-BOT releases](https://github.com/daveotero/nam-bot/re
 
 If macOS blocks an unsigned download, follow [Apple's instructions for opening apps safely](https://support.apple.com/en-us/102445). Only allow an app after checking where it came from.
 
+### Update an existing Windows installation or try a preview
+
+No uninstall is needed. Finish any training and close both installed and development copies, then run the new Windows **Setup** installer with the same installation scope and folder as before. Settings, presets, jobs, and application-data workspaces remain in their existing locations; the installer replaces the application files, not the training environment.
+
+For a safety backup, use **File → Open Logs Folder** before closing the app. Go up one folder to the application-data directory and copy that whole directory after the app is closed. On Windows it is normally `%APPDATA%\nam-bot`. Models and workspaces stored elsewhere need separate backups.
+
+Preview installers are attached to **Preview** prereleases on the [Releases page](https://github.com/daveotero/nam-bot/releases). Choose the Windows `NAM-BOT-Setup-…-Win64.exe`, not the portable ZIP, to update the installed app and its shortcuts. A packaged preview is still **NAM-BOT**: it replaces the stable installation and shares its settings, rather than installing a separate **NAM-BOT Dev** app. Keep the previous installer and your data backup if you plan to return to stable; older versions may not understand data written by future previews.
+
+If Windows still shows **Electron**, unpin the stale Start/taskbar entry. Open `shell:programs` through Win+R and remove only the incorrect Electron shortcut that targets NAM-BOT's development `node_modules\electron\dist\electron.exe`. Keep the installer-created NAM-BOT shortcut. Launch the installed NAM-BOT from that shortcut and pin it again. Restart an updated development checkout with `npm run dev` (hot reload) or `npm run build` followed by `npm run preview` (compiled app); its taskbar entry is **NAM-BOT Dev**. If Start still shows a cached label after replacing the pins, sign out and back in. See [Windows application identity](desktop-shell.md#windows-application-identity).
+
 ## Connect an existing NAM environment
 
 If you already train NAM models in Conda, start with that environment. NAM-BOT supports environments selected by name or by their full folder path. Direct Python executables and standalone virtual environments are not supported.
