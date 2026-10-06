@@ -1,4 +1,5 @@
-import { BrowserWindow, nativeImage } from 'electron'
+import { BrowserWindow, nativeImage, type Event, type NativeImage, type Rectangle, type WebContents } from 'electron'
+import log from 'electron-log/main'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, open, rename, unlink } from 'node:fs/promises'
 import { dirname, extname } from 'node:path'
@@ -17,6 +18,71 @@ export function createTrainingReportHtml(data: TrainingReportData, format: Train
 <script type="application/json" id="training-report-data">${payload}</script><script>${safeScript}</script></body></html>`
 }
 
+const MAX_CAPTURE_ATTEMPTS = 3
+
+class EmptyReportCaptureError extends Error {
+  constructor() {
+    super('Training image capture was empty.')
+  }
+}
+
+function waitForReportPaint(contents: WebContents, signal: AbortSignal): Promise<void> {
+  signal.throwIfAborted()
+  if (contents.isDestroyed()) return Promise.reject(new Error('Training image renderer was destroyed.'))
+  return new Promise<void>((resolve, reject) => {
+    const cleanup = (): void => {
+      contents.removeListener('paint', onPaint)
+      contents.removeListener('destroyed', onDestroyed)
+      signal.removeEventListener('abort', onAbort)
+    }
+    const onPaint = (_event: Event, _dirty: Rectangle, image: NativeImage): void => {
+      if (image.isEmpty()) return
+      cleanup()
+      resolve()
+    }
+    const onDestroyed = (): void => {
+      cleanup()
+      reject(new Error('Training image renderer was destroyed.'))
+    }
+    const onAbort = (): void => {
+      cleanup()
+      reject(signal.reason)
+    }
+    // Listen before invalidating, so even a synchronous paint cannot be missed.
+    contents.on('paint', onPaint)
+    contents.once('destroyed', onDestroyed)
+    signal.addEventListener('abort', onAbort, { once: true })
+    try {
+      contents.invalidate()
+    } catch (error) {
+      cleanup()
+      reject(error)
+    }
+  })
+}
+
+async function captureReportImage(contents: WebContents, signal: AbortSignal): Promise<NativeImage> {
+  for (let attempt = 1; ; attempt++) {
+    await waitForReportPaint(contents, signal)
+    signal.throwIfAborted()
+    try {
+      const image = await contents.capturePage()
+      signal.throwIfAborted()
+      if (image.isEmpty()) throw new EmptyReportCaptureError()
+      return image
+    } catch (error) {
+      signal.throwIfAborted()
+      const isTransient = error instanceof EmptyReportCaptureError
+        || (error instanceof Error && error.message === 'UnknownVizError')
+      if (!isTransient) throw error
+      if (attempt === MAX_CAPTURE_ATTEMPTS) {
+        throw new Error(`Training image capture failed after ${MAX_CAPTURE_ATTEMPTS} attempts: ${error.message}`, { cause: error })
+      }
+      log.warn(`Retrying training image capture (${attempt + 1}/${MAX_CAPTURE_ATTEMPTS}):`, error)
+    }
+  }
+}
+
 async function renderPng(html: string): Promise<Buffer> {
   const window = new BrowserWindow({
     show: false, width: 1000, height: 1000, useContentSize: true,
@@ -25,20 +91,24 @@ async function renderPng(html: string): Promise<Buffer> {
   })
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('will-navigate', event => event.preventDefault())
+  const controller = new AbortController()
   const capture = async (): Promise<Buffer> => {
     await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+    controller.signal.throwIfAborted()
     // Navigation resets zoom for a new data URL; set it after load.
     window.webContents.setZoomFactor(1)
-    while (await window.webContents.executeJavaScript('document.documentElement.dataset.reportReady') !== 'true') {
+    while (true) {
+      controller.signal.throwIfAborted()
+      if (await window.webContents.executeJavaScript('document.documentElement.dataset.reportReady') === 'true') break
       await new Promise<void>(resolve => setTimeout(resolve, 30))
     }
+    controller.signal.throwIfAborted()
     await window.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
     const height: unknown = await window.webContents.executeJavaScript('Math.ceil(document.querySelector(".training-report").getBoundingClientRect().height)')
     if (typeof height !== 'number' || !Number.isFinite(height) || height <= 0 || height > 15000) throw new Error('Invalid training image dimensions.')
+    controller.signal.throwIfAborted()
     window.setContentSize(1000, height)
-    await window.webContents.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
-    const image = await window.webContents.capturePage()
-    if (image.isEmpty()) throw new Error('Training image capture was empty.')
+    const image = await captureReportImage(window.webContents, controller.signal)
     // capturePage includes the host display scale (e.g. 150% Windows DPI).
     // Flatten that representation before enforcing the portable 1000px width.
     return nativeImage.createFromBuffer(image.toPNG()).resize({ width: 1000, quality: 'best' }).toPNG()
@@ -46,10 +116,15 @@ async function renderPng(html: string): Promise<Buffer> {
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     return await Promise.race([capture(), new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(() => reject(new Error('Training image rendering timed out.')), 30_000)
+      timer = setTimeout(() => {
+        const error = new Error('Training image rendering timed out.')
+        controller.abort(error)
+        reject(error)
+      }, 30_000)
     })])
   } finally {
     clearTimeout(timer)
+    controller.abort(new Error('Training image renderer closed.'))
     if (!window.isDestroyed()) window.destroy()
   }
 }

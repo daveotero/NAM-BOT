@@ -168,6 +168,8 @@ Selected reports accompany normal completion, **Save Snapshot**, and **Save & st
 
 The PNG is 1,000 pixels wide with height determined by its contents. HTML embeds its fonts, styles, scripts, and recorded data and works offline. Its chart supports the same inspection controls as the app. Dates use the viewer's local timezone. Reports record the starting stopping policy, convergence attainment, and finish reason where available. They omit terminal logs, local folder paths, private job notes, and raw config JSON; model identity and metadata remain part of the report.
 
+PNG export waits for a fresh rendered frame and makes at most three capture attempts for a temporary compositor error or empty capture, within the same 30-second rendering limit. Recovery attempts are logged. Persistent capture failures and other errors remain visible; the app does not report a saved image when export fails.
+
 Finished Jobs cards also have **Save Report**. Choose PNG or HTML and a destination; this does not change future job defaults. Failed, stopped, and older runs can report whatever evidence remains. If a saved snapshot is available, its captured evidence can be used. Otherwise checkpoint values are labeled **Best recorded ESR**, and missing measurements remain unavailable. Saved report links appear in the card's Artifacts section. Dashboard does not offer this manual export action.
 
 ## Watch training

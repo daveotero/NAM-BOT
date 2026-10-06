@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Windows development runs now use a separate NAM-BOT Dev identity, with explicit taskbar names, icons, and launch commands for both development and installed builds.
+- PNG report exports recover from temporary image-capture failures with bounded retries, while persistent errors remain visible.
 
 ## [0.7.0] - 2026-09-20
 

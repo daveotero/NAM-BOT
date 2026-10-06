@@ -866,6 +866,10 @@ test('branded training reports save real PNG and offline HTML from Jobs without 
     await card.getByRole('button', { name: 'Save Report', exact: true }).click()
     await page.getByRole('alertdialog').getByRole('button', { name: `Save ${format}`, exact: true }).click()
     await expect(card.getByRole('button', { name: 'Save Report', exact: true })).toBeEnabled({ timeout: 40_000 })
+    const exportErrors = await card.getByRole('alert').allTextContents()
+    expect(exportErrors, `${format} report export should complete without errors: ${exportErrors.join('\n')}`).toEqual([])
+    const destination = format === 'PNG' ? destinations.png : destinations.html
+    expect((await readFile(destination)).length, `${format} report should be written before export completes`).toBeGreaterThan(0)
     await expect(card.getByText(/report saved\./i)).toHaveCount(0)
     expect(await card.getByRole('button', { name: 'Save Report', exact: true }).boundingBox()).toEqual(before)
     await captureRenderer(info, `report-after-save-${format.toLowerCase()}.png`)
