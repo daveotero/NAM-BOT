@@ -1988,7 +1988,8 @@ input[type="number"] {
 }
 
 .queue-recovery-banner,
-.completion-warnings {
+.completion-warnings,
+.training-statistics-recovery {
   padding: var(--space-3);
   margin-bottom: var(--space-3);
   border: 1px solid var(--neon-gold);

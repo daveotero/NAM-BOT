@@ -1,9 +1,13 @@
-import { buildA2PackedNetConfig, createTrainingPreset, type TrainingPresetFile } from '../../../shared/training'
+import {
+  EPOCH_RUNNER_REWARD_PRESET_ID,
+  LEGACY_EPOCH_RUNNER_REWARD_PRESET_ID,
+  isEpochRunnerRewardPresetId
+} from '../../../shared/reward-preset'
+import { buildA2PackedNetConfig, createTrainingPreset, getPresetArchitectureVersion, type TrainingPresetFile } from '../../../shared/training'
 
 export const EPOCH_RUNNER_COMMAND = 'epochrunner.exe'
 export const EPOCH_RUNNER_COMMAND_ALIAS = 'epochrunner'
 export const EPOCH_RUNNER_REWARD_TAG = 'Epoch Runner Reward'
-export const EPOCH_RUNNER_REWARD_PRESET_ID = 'epoch-runner-reward'
 
 export function createEpochRunnerRewardPreset(): TrainingPresetFile {
   return createTrainingPreset({
@@ -44,8 +48,18 @@ export function createEpochRunnerRewardPreset(): TrainingPresetFile {
   })
 }
 
+/** Any reward preset, including one saved by an earlier release. */
 export function isEpochRunnerRewardPreset(preset: TrainingPresetFile): boolean {
+  return isEpochRunnerRewardPresetId(preset.id)
+}
+
+/**
+ * The reward a win currently grants. A 0.7.0 copy of it carries the legacy ID; the older
+ * reward under that ID is A1, so it does not count and can be kept alongside.
+ */
+export function isCurrentEpochRunnerRewardPreset(preset: TrainingPresetFile): boolean {
   return preset.id === EPOCH_RUNNER_REWARD_PRESET_ID
+    || (preset.id === LEGACY_EPOCH_RUNNER_REWARD_PRESET_ID && getPresetArchitectureVersion(preset) === 'a2')
 }
 
 export function formatPresetNameWithRewardTag(preset: TrainingPresetFile): string {

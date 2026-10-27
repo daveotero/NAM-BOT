@@ -5,6 +5,7 @@ import { formatPresetArchitectureTag } from '../../state/types'
 import WorkspaceToolbar from '../../components/WorkspaceToolbar'
 import PropertySheet, { PropertySection } from '../../components/PropertySheet'
 import WorkingIndicator from '../../components/WorkingIndicator'
+import { DraftTextInput } from '../../components/DraftInput'
 
 const SETTINGS_SECTIONS = [
   { id: 'settings-backend', label: 'Backend' },
@@ -14,23 +15,21 @@ const SETTINGS_SECTIONS = [
 ]
 
 export default function Settings() {
-  const {
-    settings,
-    presets,
-    presetsLoadError,
-    validation,
-    condaDiscovery,
-    isSettingsSaving,
-    isBackendValidationLoading,
-    settingsSaveError,
-    settingsLoadError,
-    validationError,
-    loadSettings,
-    loadPresets,
-    saveSettings,
-    validateBackend,
-    detectConda
-  } = useAppStore()
+  const settings = useAppStore((state) => state.settings)
+  const presets = useAppStore((state) => state.presets)
+  const presetsLoadError = useAppStore((state) => state.presetsLoadError)
+  const validation = useAppStore((state) => state.validation)
+  const condaDiscovery = useAppStore((state) => state.condaDiscovery)
+  const isSettingsSaving = useAppStore((state) => state.isSettingsSaving)
+  const isBackendValidationLoading = useAppStore((state) => state.isBackendValidationLoading)
+  const settingsSaveError = useAppStore((state) => state.settingsSaveError)
+  const settingsLoadError = useAppStore((state) => state.settingsLoadError)
+  const validationError = useAppStore((state) => state.validationError)
+  const loadSettings = useAppStore((state) => state.loadSettings)
+  const loadPresets = useAppStore((state) => state.loadPresets)
+  const saveSettings = useAppStore((state) => state.saveSettings)
+  const validateBackend = useAppStore((state) => state.validateBackend)
+  const detectConda = useAppStore((state) => state.detectConda)
   const [localSettings, setLocalSettings] = useState<AppSettings | null>(null)
   const [useCustomCondaPath, setUseCustomCondaPath] = useState(false)
   const [browseError, setBrowseError] = useState<string | null>(null)
@@ -196,14 +195,13 @@ export default function Settings() {
                 </div>
               )}
               <div className="property-input-action">
-                <input
+                <DraftTextInput
                   title="Path to the Conda executable used to launch the training environment."
                   id="settings-conda"
-                  type="text"
                   className="form-input"
                   value={displayedCondaPath}
-                  onChange={(e) => {
-                    setLocalSettings({ ...localSettings, condaExecutablePath: e.target.value || null })
+                  onValueChange={(text) => {
+                    setLocalSettings({ ...localSettings, condaExecutablePath: text || null })
                   }}
                   placeholder={window.namBot.platform === 'win32' ? 'C:\\Users\\...\\miniconda3\\Scripts\\conda.exe' : '/opt/homebrew/bin/conda'}
                   disabled={usingPathConda}
@@ -243,14 +241,13 @@ export default function Settings() {
             <div className="property-row">
               <label className="form-label" htmlFor="settings-environment-name">Environment Name</label>
               <div className="property-control">
-                <input
+                <DraftTextInput
                   title="Name of the Conda environment where Neural Amp Modeler and PyTorch are installed."
                   id="settings-environment-name"
-                  type="text"
                   className="form-input"
                   value={localSettings.environmentName || ''}
-                  onChange={(e) => {
-                    setLocalSettings({ ...localSettings, environmentName: e.target.value || null })
+                  onValueChange={(text) => {
+                    setLocalSettings({ ...localSettings, environmentName: text || null })
                   }}
                   placeholder="nam"
                 />

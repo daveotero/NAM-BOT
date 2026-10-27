@@ -1,6 +1,6 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
-import { join } from 'path'
+import { dirname, join } from 'path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { createTrainingPreset, defaultJobSpec, type JobRuntimeState } from '../../shared/training'
@@ -132,11 +132,42 @@ describe('lifetime training statistics', () => {
     expect(summarizeTraining(recovered.get()).completed).toBe(2)
   })
 
-  it('preserves an unreadable ledger instead of replacing lifetime history with zeros', () => {
+  it('restores from the backup when the primary has an unsupported format, keeping both files', () => {
+    const path = createPath()
+    const store = new TrainingStatisticsStore(path)
+    store.record([run()])
+    store.record([run({ jobId: 'second' })])
+    const backup = readFileSync(`${path}.bak`, 'utf-8')
+    writeFileSync(path, '{"schemaVersion":99}')
+
+    const recovered = new TrainingStatisticsStore(path)
+    expect(recovered.get().runs.map(entry => entry.jobId)).toEqual(['finished-run'])
+    expect(recovered.get().setAsideFile).toBeUndefined()
+    recovered.record([run({ jobId: 'second' })])
+    expect(new TrainingStatisticsStore(path).get().runs).toHaveLength(2)
+    expect(readFileSync(`${path}.bak`, 'utf-8')).toBe(backup)
+    const setAside = readdirSync(dirname(path)).filter(name => name.startsWith('training-statistics.unreadable-'))
+    expect(setAside).toHaveLength(1)
+    expect(readFileSync(join(dirname(path), setAside[0]), 'utf-8')).toBe('{"schemaVersion":99}')
+  })
+
+  it('sets an unreadable ledger and backup aside and starts a new ledger, so recording and clearing still work', () => {
     const path = createPath()
     writeFileSync(path, '{"schemaVersion":99}')
+    writeFileSync(`${path}.bak`, 'broken json')
     const store = new TrainingStatisticsStore(path)
-    expect(() => store.record([run()])).toThrow('preserved')
-    expect(readFileSync(path, 'utf-8')).toBe('{"schemaVersion":99}')
+    store.record([run()])
+
+    const notice = store.get().setAsideFile
+    expect(notice).toMatch(/training-statistics\.unreadable-[\dTZ-]+\.json$/)
+    expect(readFileSync(notice ?? '', 'utf-8')).toBe('{"schemaVersion":99}')
+    expect(readFileSync(`${notice}.bak`, 'utf-8')).toBe('broken json')
+    expect(store.get().runs.map(entry => entry.jobId)).toEqual(['finished-run'])
+    expect(store.dismissAllRecentRuns().setAsideFile).toBe(notice)
+    expect(JSON.parse(readFileSync(path, 'utf-8'))).not.toHaveProperty('setAsideFile')
+
+    const restarted = new TrainingStatisticsStore(path)
+    expect(restarted.get().setAsideFile).toBeUndefined()
+    expect(restarted.get().runs).toHaveLength(1)
   })
 })

@@ -2,12 +2,12 @@ import { create } from 'zustand'
 import { getPresetArchitectureVersion, type JobSpec, type TrainingPresetFile, type JobRuntimeState, type QueueControlState } from '../../shared/training'
 import { createDefaultUpdateStatus, type UpdateStatus } from '../../shared/update'
 import { buildBackendSettingsKey } from '../../shared/backend-settings'
+import { isEpochRunnerRewardPresetId } from '../../shared/reward-preset'
 
-const epochRunnerRewardPresetId = 'epoch-runner-reward'
 const epochRunnerRewardPresetName = 'Converged Night Run'
 
 function isEpochRunnerRewardPreset(preset: TrainingPresetFile): boolean {
-  return preset.id === epochRunnerRewardPresetId
+  return isEpochRunnerRewardPresetId(preset.id)
     || preset.name === epochRunnerRewardPresetName
     || preset.description.includes('Epoch Runner')
 }
@@ -307,7 +307,6 @@ interface AppState {
   trainingLaunchDiagnosticsError: string | null;
   namVersionInfoError: string | null;
   settingsRevision: number;
-  isTraining: boolean;
   drafts: JobSpec[];
   queue: JobRuntimeState[];
   
@@ -327,7 +326,6 @@ interface AppState {
   setLoading: (loading: boolean) => void
   setAcceleratorDiagnosticsLoading: (loading: boolean) => void
   setTrainingLaunchDiagnosticsLoading: (loading: boolean) => void
-  setIsTraining: (isTraining: boolean) => void
   setDrafts: (drafts: JobSpec[] | ((prev: JobSpec[]) => JobSpec[])) => void
   setQueue: (queue: JobRuntimeState[] | ((prev: JobRuntimeState[]) => JobRuntimeState[])) => void
   
@@ -373,7 +371,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   trainingLaunchDiagnosticsError: null,
   namVersionInfoError: null,
   settingsRevision: 0,
-  isTraining: false,
   drafts: [],
   queue: [],
   
@@ -397,7 +394,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   setLoading: (isLoading) => set({ isLoading }),
   setAcceleratorDiagnosticsLoading: (isAcceleratorDiagnosticsLoading) => set({ isAcceleratorDiagnosticsLoading }),
   setTrainingLaunchDiagnosticsLoading: (isTrainingLaunchDiagnosticsLoading) => set({ isTrainingLaunchDiagnosticsLoading }),
-  setIsTraining: (isTraining) => set({ isTraining }),
   setDrafts: (drafts) => set((state) => ({ 
     drafts: typeof drafts === 'function' ? drafts(state.drafts) : drafts 
   })),

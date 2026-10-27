@@ -1,4 +1,4 @@
-import { ipcMain, dialog, BrowserWindow } from 'electron'
+import { ipcMain, BrowserWindow } from 'electron'
 import log from 'electron-log/main'
 import { loadSettings, saveSettings } from '../persistence/settingsStore'
 import {
@@ -8,30 +8,42 @@ import {
   inspectTrainingLaunchDiagnostics,
   validateBackend
 } from '../backend/adapter'
-import { AppSettings, NamVersionInfo } from '../types'
+import { AppSettings, BackendValidationSummary, NamVersionInfo } from '../types'
 import { getQueueManager } from '../jobs/queueManager'
 import { buildBackendSettingsKey } from '../../shared/backend-settings'
+import { showOpenDialogFor } from './dialogs'
 
 let cachedSettings: AppSettings | null = null
+// The startup check and the Dashboard ask at the same moment; share one run per backend target.
+const validationsInFlight = new Map<string, Promise<BackendValidationSummary>>()
 
 export function getCurrentSettings(): AppSettings {
   cachedSettings ??= loadSettings()
   return cachedSettings
 }
 
-async function validateAndBroadcast(): Promise<ReturnType<typeof validateBackend> extends Promise<infer TResult> ? TResult : never> {
+function validateAndBroadcast(): Promise<BackendValidationSummary> {
   const settings: AppSettings = cachedSettings || loadSettings()
   cachedSettings = settings
   const settingsKey = buildBackendSettingsKey(settings)
-  const result = { ...await validateBackend(settings), settingsKey }
-
-  if (cachedSettings && buildBackendSettingsKey(cachedSettings) === settingsKey) {
-    BrowserWindow.getAllWindows().forEach((win) => {
-      win.webContents.send('backend:validationUpdated', result)
-    })
+  const inFlight = validationsInFlight.get(settingsKey)
+  if (inFlight) {
+    return inFlight
   }
 
-  return result
+  const validation = (async (): Promise<BackendValidationSummary> => {
+    const result = { ...await validateBackend(settings), settingsKey }
+    if (cachedSettings && buildBackendSettingsKey(cachedSettings) === settingsKey) {
+      BrowserWindow.getAllWindows().forEach((win) => {
+        win.webContents.send('backend:validationUpdated', result)
+      })
+    }
+    return result
+  })().finally(() => {
+    validationsInFlight.delete(settingsKey)
+  })
+  validationsInFlight.set(settingsKey, validation)
+  return validation
 }
 
 export function setupIpcHandlers(): void {
@@ -126,8 +138,8 @@ export function setupIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('settings:chooseCondaPath', async () => {
-    const result = await dialog.showOpenDialog({
+  ipcMain.handle('settings:chooseCondaPath', async (event) => {
+    const result = await showOpenDialogFor(event, {
       title: 'Select Conda Executable',
       properties: ['openFile'],
       filters: process.platform === 'win32'
@@ -142,8 +154,8 @@ export function setupIpcHandlers(): void {
     return result.filePaths[0]
   })
 
-  ipcMain.handle('settings:chooseDirectory', async () => {
-    const result = await dialog.showOpenDialog({
+  ipcMain.handle('settings:chooseDirectory', async (event) => {
+    const result = await showOpenDialogFor(event, {
       title: 'Select Directory',
       properties: ['openDirectory', 'createDirectory']
     })

@@ -28,9 +28,9 @@ Use **Show Details** to inspect the run's preset, training mode, latency alignme
 
 For **Auto convergence**, the progress percentage measures how much of the maximum epoch limit has been used. Training can finish earlier when the selected convergence level is reached. Fixed-epoch runs also display convergence feedback, but that feedback does not stop them. See the [Jobs guide](jobs-system.md) for choosing a training mode.
 
-**Stop on the Dashboard cancels the run directly, without asking to save a model first.** To save a checkpoint while training continues, or choose **Save & stop**, open Jobs. **Save Snapshot** is available there once the run has a usable checkpoint.
+**Stop** asks before it ends the run, with the same choices as in Jobs: **Save & stop**, **Discard & stop**, or **Keep training**. See [stop choices](jobs-system.md#export-during-training-and-stop-choices). To save a model while training continues, open Jobs; **Save Snapshot** is available there once the run has a usable checkpoint.
 
-If a run stops responding, the card can offer **Force Stop**. Stop controls disappear during finalization while NAM-BOT finishes processing the model. Action errors appear on the card.
+If a run stops responding, the card can offer **Force Stop**. Stop controls disappear during finalization while NAM-BOT finishes processing the model. Action errors appear on the card; an error from a stop choice appears above the active runs.
 
 ## Lifetime training record
 
@@ -50,7 +50,9 @@ The recent-runs table shows up to five successful runs, newest first, with model
 
 Hiding rows does not delete Jobs history, models, or reports, and does not change lifetime totals. New completions appear normally. To open a model's folder or save a report, find the finished run in Jobs.
 
-NAM-BOT imports the history it still has when creating the training record. Runs cleared before this feature was installed cannot be recovered. Missing durations and epoch counts are left out rather than estimated; interrupted runs can therefore contribute incomplete statistics. If the record cannot be read, the Dashboard shows **Statistics unavailable** with **Retry**.
+NAM-BOT imports the history it still has when creating the training record. Runs cleared before this feature was installed cannot be recovered. Missing durations and epoch counts are left out rather than estimated; interrupted runs can therefore contribute incomplete statistics.
+
+If the record file is damaged, NAM-BOT restores its backup copy. If neither copy can be read, for example after downgrading from a newer NAM-BOT, it renames both to `training-statistics.unreadable-<date>.json` in the NAM-BOT data folder and starts a new record from the runs still in Jobs. A notice names the kept file for the rest of that session; keep the file if you need support. Clearing Jobs keeps working either way. If the record still cannot be loaded, the Dashboard shows **Statistics unavailable** with **Retry**.
 
 ## Check environment health
 

@@ -2,6 +2,7 @@ import { _electron as electron, expect, test, type ElectronApplication, type Pag
 import { mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { EPOCH_RUNNER_REWARD_PRESET_ID } from '../../src/shared/reward-preset'
 import { createCampaignReplay } from './epoch-runner-replay'
 
 let app: ElectronApplication
@@ -204,7 +205,7 @@ test('Epoch Runner complete campaign via keyboard, upgrade, score archive and re
   await page.clock.runFor(64)
   await capture(info, 'records.png')
   const presets = await page.evaluate(async () => await window.namBot.presets.list())
-  const rewards = presets.filter((preset) => typeof preset === 'object' && preset !== null && 'id' in preset && preset.id === 'epoch-runner-reward')
+  const rewards = presets.filter((preset) => typeof preset === 'object' && preset !== null && 'id' in preset && preset.id === EPOCH_RUNNER_REWARD_PRESET_ID)
   expect(rewards).toHaveLength(1)
   expect(rewards[0]).toMatchObject({
     name: 'Demonic Convergence',

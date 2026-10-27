@@ -219,15 +219,23 @@ export default function AboutMiniGame({ isRewardUnlocked, onExit, onUnlockReward
       if (event.key === 'ArrowDown' || event.key.toLowerCase() === 's') inputRef.current.duckHeld = false
     }
     const visibility = (): void => { if (document.hidden) pause() }
+    // In-app dialogs and title-bar controls take focus without blurring the window. Focus on
+    // the surrounding terminal still reaches the game's keys, so only focus elsewhere pauses.
+    const focusMoved = (event: FocusEvent): void => {
+      const shell = shellRef.current
+      if (shell && event.target instanceof Node && !shell.contains(event.target) && !event.target.contains(shell)) pause()
+    }
     window.addEventListener('keydown', handleDown)
     window.addEventListener('keyup', handleUp)
     window.addEventListener('blur', pause)
     document.addEventListener('visibilitychange', visibility)
+    document.addEventListener('focusin', focusMoved)
     return () => {
       window.removeEventListener('keydown', handleDown)
       window.removeEventListener('keyup', handleUp)
       window.removeEventListener('blur', pause)
       document.removeEventListener('visibilitychange', visibility)
+      document.removeEventListener('focusin', focusMoved)
     }
   }, [exitGame, pause, primaryAction, togglePause, toggleScores, toggleSound])
 

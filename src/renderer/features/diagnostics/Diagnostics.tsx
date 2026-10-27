@@ -736,6 +736,14 @@ function getVersionStatusBadge(namVersionInfo: NamVersionInfo | null): {
     }
   }
 
+  if (namVersionInfo.installedVersion === null) {
+    return {
+      label: 'Not detected',
+      color: 'var(--neon-gold)',
+      icon: '!'
+    }
+  }
+
   if (namVersionInfo.isUpToDate === true) {
     return {
       label: 'Up to date',
@@ -967,7 +975,9 @@ function getVersionRows(namVersionInfo: NamVersionInfo | null): MatrixRow[] {
   return [{
     status: namVersionInfo.isUpToDate === false ? 'warn' : 'pass',
     title: 'NAM version',
-    message: namVersionInfo.isUpToDate === false
+    message: namVersionInfo.installedVersion === null
+      ? `NAM was not detected in the selected environment. A2 training requires neural-amp-modeler ${MIN_A2_NAM_VERSION} or newer.`
+      : namVersionInfo.isUpToDate === false
       ? `A newer NAM version is available. A2 training requires neural-amp-modeler ${MIN_A2_NAM_VERSION} or newer.`
       : `Installed NAM is up to date and meets the A2 training requirement of ${MIN_A2_NAM_VERSION} or newer.`,
     detail: `Installed: ${namVersionInfo.installedVersion ?? 'not detected'}; Latest: ${namVersionInfo.latestVersion ?? 'not reported'}`
@@ -1025,7 +1035,7 @@ function getSummaryTiles(
       status: !namVersionInfo ? 'skip' : namVersionInfo.checkStatus !== 'ok' || namVersionInfo.isUpToDate === false ? 'warn' : 'pass',
       label: getVersionStatusBadge(namVersionInfo).label,
       detail: namVersionInfo?.checkStatus === 'ok'
-        ? `Installed ${namVersionInfo.installedVersion ?? 'unknown'}; latest ${namVersionInfo.latestVersion ?? 'unknown'}. A2 training requires ${MIN_A2_NAM_VERSION}+.`
+        ? `${namVersionInfo.installedVersion ? `Installed ${namVersionInfo.installedVersion}` : 'Not detected in the selected environment'}; latest ${namVersionInfo.latestVersion ?? 'unknown'}. A2 training requires ${MIN_A2_NAM_VERSION}+.`
         : namVersionInfo?.errorMessage ?? 'Waiting for version check.',
       checkedAt: null
     }
@@ -1356,27 +1366,25 @@ function ActionCenter({ actions, allReady, onOpenSettings }: { actions: ActionIt
 
 export default function Diagnostics() {
   const navigate = useNavigate()
-  const {
-    settings,
-    validation,
-    acceleratorDiagnostics,
-    trainingLaunchDiagnostics,
-    namVersionInfo,
-    isLoading,
-    isBackendValidationLoading,
-    isAcceleratorDiagnosticsLoading,
-    isTrainingLaunchDiagnosticsLoading,
-    isNamVersionInfoLoading,
-    validationError,
-    acceleratorDiagnosticsError,
-    trainingLaunchDiagnosticsError,
-    namVersionInfoError,
-    loadSettings,
-    validateBackend,
-    loadAcceleratorDiagnostics,
-    loadTrainingLaunchDiagnostics,
-    loadNamVersionInfo
-  } = useAppStore()
+  const settings = useAppStore((state) => state.settings)
+  const validation = useAppStore((state) => state.validation)
+  const acceleratorDiagnostics = useAppStore((state) => state.acceleratorDiagnostics)
+  const trainingLaunchDiagnostics = useAppStore((state) => state.trainingLaunchDiagnostics)
+  const namVersionInfo = useAppStore((state) => state.namVersionInfo)
+  const isLoading = useAppStore((state) => state.isLoading)
+  const isBackendValidationLoading = useAppStore((state) => state.isBackendValidationLoading)
+  const isAcceleratorDiagnosticsLoading = useAppStore((state) => state.isAcceleratorDiagnosticsLoading)
+  const isTrainingLaunchDiagnosticsLoading = useAppStore((state) => state.isTrainingLaunchDiagnosticsLoading)
+  const isNamVersionInfoLoading = useAppStore((state) => state.isNamVersionInfoLoading)
+  const validationError = useAppStore((state) => state.validationError)
+  const acceleratorDiagnosticsError = useAppStore((state) => state.acceleratorDiagnosticsError)
+  const trainingLaunchDiagnosticsError = useAppStore((state) => state.trainingLaunchDiagnosticsError)
+  const namVersionInfoError = useAppStore((state) => state.namVersionInfoError)
+  const loadSettings = useAppStore((state) => state.loadSettings)
+  const validateBackend = useAppStore((state) => state.validateBackend)
+  const loadAcceleratorDiagnostics = useAppStore((state) => state.loadAcceleratorDiagnostics)
+  const loadTrainingLaunchDiagnostics = useAppStore((state) => state.loadTrainingLaunchDiagnostics)
+  const loadNamVersionInfo = useAppStore((state) => state.loadNamVersionInfo)
 
   const isChecking = isLoading || isBackendValidationLoading || isAcceleratorDiagnosticsLoading || isTrainingLaunchDiagnosticsLoading || isNamVersionInfoLoading
   const diagnosticErrors = [

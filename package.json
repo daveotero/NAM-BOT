@@ -51,6 +51,7 @@
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "esbuild": "^0.25.12",
+    "rehype": "^13.0.2",
     "typescript": "^5.9.3",
     "vite": "^7.3.6",
     "vitest": "^4.1.11"
@@ -66,6 +67,7 @@
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-router-dom": "^7.18.4",
+    "refractor": "^5.0.0",
     "rehype-prism-plus": "^2.0.2",
     "uuid": "^13.0.2",
     "zustand": "^5.0.15"

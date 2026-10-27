@@ -1,5 +1,6 @@
 import { type ClipboardEvent, type FormEvent, type JSX, useEffect, useMemo, useState } from 'react'
 import ConfirmDialog from '../../components/ConfirmDialog'
+import { DraftNumberInput } from '../../components/DraftInput'
 import WorkspaceToolbar from '../../components/WorkspaceToolbar'
 import PropertySheet, { PropertySection } from '../../components/PropertySheet'
 import JsonCodeEditor, { type JsonEditorError } from '../../components/JsonCodeEditor'
@@ -26,6 +27,7 @@ import {
   normalizeTrainingPreset
 } from '../../state/types'
 import { handleCardToggleKeyDown, shouldIgnoreCardToggle } from '../../utils/card-toggle'
+import { readNumber, readWholeNumber } from '../../utils/number-input'
 import { isEpochRunnerRewardPreset } from '../about/aboutRewardPreset'
 import { buildNewPresetDraft, buildPresetEditorSession, mergeImportedTechnicalFields } from './presetEditorSession'
 
@@ -328,11 +330,11 @@ function getBooleanControlValue(override: BasicFieldOverride | null, fallback: b
   return typeof override?.controlValue === 'boolean' ? override.controlValue : fallback
 }
 
-function getOptionalNumberControlValue(override: BasicFieldOverride | null, fallback: number | null): number | '' {
+function getOptionalNumberControlValue(override: BasicFieldOverride | null, fallback: number | null): number | null {
   if (typeof override?.controlValue === 'number') {
     return override.controlValue
   }
-  return fallback ?? ''
+  return fallback
 }
 
 function getA2MrstftWeight(preset: TrainingPresetFile, model: Record<string, unknown> | null): number | null {
@@ -1429,16 +1431,14 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                     {renderInfoButton(BASIC_FIELD_HELP_TEXT.batchSize)}
                   </div>
                   <div className="property-control">
-                    <input
+                    <DraftNumberInput
                       title={BASIC_FIELD_HELP_TEXT.batchSize}
                       id="preset-batch-size"
-                      type="number"
                       className="form-input"
                       value={getNumberControlValue(fieldOverrides.batchSize, session.preset.values.batchSize)}
                       disabled={fieldOverrides.batchSize !== null}
-                      onChange={(event) => updatePresetValues({
-                        batchSize: Math.max(1, parseInt(event.target.value, 10) || session.preset.values.batchSize)
-                      })}
+                      parse={(text) => readWholeNumber(text, 1)}
+                      onValueChange={(batchSize) => updatePresetValues({ batchSize })}
                     />
                     {renderOverrideBadge(fieldOverrides.batchSize)}
                   </div>
@@ -1450,16 +1450,14 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                     {renderInfoButton(BASIC_FIELD_HELP_TEXT.ny)}
                   </div>
                   <div className="property-control">
-                    <input
+                    <DraftNumberInput
                       title={BASIC_FIELD_HELP_TEXT.ny}
                       id="preset-ny"
-                      type="number"
                       className="form-input"
                       value={getNumberControlValue(fieldOverrides.ny, session.preset.values.ny)}
                       disabled={fieldOverrides.ny !== null}
-                      onChange={(event) => updatePresetValues({
-                        ny: Math.max(1, parseInt(event.target.value, 10) || session.preset.values.ny)
-                      })}
+                      parse={(text) => readWholeNumber(text, 1)}
+                      onValueChange={(ny) => updatePresetValues({ ny })}
                     />
                     {renderOverrideBadge(fieldOverrides.ny)}
                   </div>
@@ -1471,17 +1469,18 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                     {renderInfoButton(BASIC_FIELD_HELP_TEXT.learningRate)}
                   </div>
                   <div className="property-control">
-                    <input
+                    <DraftNumberInput
                       title={BASIC_FIELD_HELP_TEXT.learningRate}
                       id="preset-learning-rate"
-                      type="number"
                       step="0.0001"
                       className="form-input"
                       value={getNumberControlValue(fieldOverrides.learningRate, session.preset.values.learningRate)}
                       disabled={fieldOverrides.learningRate !== null}
-                      onChange={(event) => updatePresetValues({
-                        learningRate: parseFloat(event.target.value) || session.preset.values.learningRate
-                      })}
+                      parse={(text) => {
+                        const learningRate = readNumber(text)
+                        return learningRate !== undefined && learningRate > 0 ? learningRate : undefined
+                      }}
+                      onValueChange={(learningRate) => updatePresetValues({ learningRate })}
                     />
                     {renderOverrideBadge(fieldOverrides.learningRate)}
                   </div>
@@ -1493,18 +1492,18 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                     {renderInfoButton(BASIC_FIELD_HELP_TEXT.learningRateDecay)}
                   </div>
                   <div className="property-control">
-                    <input
+                    <DraftNumberInput
                       title={BASIC_FIELD_HELP_TEXT.learningRateDecay}
                       id="preset-learning-rate-decay"
-                      type="number"
                       step="0.0001"
                       className="form-input"
                       value={getNumberControlValue(fieldOverrides.learningRateDecay, session.preset.values.learningRateDecay)}
                       disabled={fieldOverrides.learningRateDecay !== null}
-                      onChange={(event) => updatePresetValues({
-                        learningRateDecay: Number.isFinite(event.target.valueAsNumber)
-                          ? Math.min(1, Math.max(0, event.target.valueAsNumber)) : session.preset.values.learningRateDecay
-                      })}
+                      parse={(text) => {
+                        const decay = readNumber(text)
+                        return decay === undefined ? undefined : Math.min(1, Math.max(0, decay))
+                      }}
+                      onValueChange={(learningRateDecay) => updatePresetValues({ learningRateDecay })}
                     />
                     {renderOverrideBadge(fieldOverrides.learningRateDecay)}
                   </div>
@@ -1549,18 +1548,18 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                     {renderInfoButton(BASIC_FIELD_HELP_TEXT.mrstftWeight)}
                   </div>
                   <div className="property-control">
-                    <input
+                    <DraftNumberInput
                       title={BASIC_FIELD_HELP_TEXT.mrstftWeight}
                       id="preset-mrstft-weight"
-                      type="number"
                       step="0.0001"
                       className="form-input"
                       value={getNumberControlValue(fieldOverrides.mrstftWeight, session.preset.values.mrstftWeight)}
                       disabled={fieldOverrides.mrstftWeight !== null}
-                      onChange={(event) => updatePresetValues({
-                        mrstftWeight: Math.max(0, parseFloat(event.target.value) || 0),
-                        fitMrstft: (parseFloat(event.target.value) || 0) > 0
-                      })}
+                      parse={(text) => {
+                        const weight = readNumber(text)
+                        return weight === undefined ? undefined : Math.max(0, weight)
+                      }}
+                      onValueChange={(mrstftWeight) => updatePresetValues({ mrstftWeight, fitMrstft: mrstftWeight > 0 })}
                     />
                     {renderOverrideBadge(fieldOverrides.mrstftWeight)}
                   </div>
@@ -1572,17 +1571,18 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                     {renderInfoButton(BASIC_FIELD_HELP_TEXT.weightDecay)}
                   </div>
                   <div className="property-control">
-                    <input
+                    <DraftNumberInput
                       title={BASIC_FIELD_HELP_TEXT.weightDecay}
                       id="preset-weight-decay"
-                      type="number"
                       step="0.0000001"
                       className="form-input"
                       value={getNumberControlValue(fieldOverrides.weightDecay, session.preset.values.weightDecay)}
                       disabled={fieldOverrides.weightDecay !== null}
-                      onChange={(event) => updatePresetValues({
-                        weightDecay: Math.max(0, parseFloat(event.target.value) || 0)
-                      })}
+                      parse={(text) => {
+                        const weightDecay = readNumber(text)
+                        return weightDecay === undefined ? undefined : Math.max(0, weightDecay)
+                      }}
+                      onValueChange={(weightDecay) => updatePresetValues({ weightDecay })}
                     />
                     {renderOverrideBadge(fieldOverrides.weightDecay)}
                   </div>
@@ -1594,23 +1594,16 @@ function PresetEditor({ session, onSessionChange, onSave, onCancel }: PresetEdit
                     {renderInfoButton(BASIC_FIELD_HELP_TEXT.outputNormalizeRmsDb)}
                   </div>
                   <div className="property-control">
-                    <input
+                    <DraftNumberInput
                       title={BASIC_FIELD_HELP_TEXT.outputNormalizeRmsDb}
                       id="preset-output-normalize"
-                      type="number"
                       step="0.1"
                       className="form-input"
                       value={getOptionalNumberControlValue(fieldOverrides.outputNormalizeRmsDb, session.preset.values.outputNormalizeRmsDb)}
                       disabled={fieldOverrides.outputNormalizeRmsDb !== null}
                       placeholder="Disabled"
-                      onChange={(event) => {
-                        const parsed = parseFloat(event.target.value)
-                        updatePresetValues({
-                          outputNormalizeRmsDb: event.target.value.trim() === '' || !Number.isFinite(parsed)
-                            ? null
-                            : parsed
-                        })
-                      }}
+                      parse={(text) => text.trim() === '' ? null : readNumber(text)}
+                      onValueChange={(outputNormalizeRmsDb) => updatePresetValues({ outputNormalizeRmsDb })}
                     />
                     {renderOverrideBadge(fieldOverrides.outputNormalizeRmsDb)}
                   </div>

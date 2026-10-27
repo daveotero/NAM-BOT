@@ -960,6 +960,8 @@ export async function validateBackend(settings: AppSettings): Promise<BackendVal
     results.condaReachable = createCheckResult(true, 'conda_ok', 'Conda Executable', 'Conda is reachable')
   }
 
+  // One `conda run python --version` answers both the environment and the Python row.
+  let pythonVersionCheck: { ok: boolean; output: string } | null = null
   if (!results.condaReachable.ok) {
     results.environmentReachable = createCheckResult(
       false,
@@ -986,8 +988,8 @@ export async function validateBackend(settings: AppSettings): Promise<BackendVal
       'Go to Settings and configure the environment prefix'
     )
   } else {
-    const envCheck = await runCondaCommand(settings, ['python', '--version'])
-    if (envCheck.ok) {
+    pythonVersionCheck = await runCondaCommand(settings, ['python', '--version'])
+    if (pythonVersionCheck.ok) {
       results.environmentReachable = createCheckResult(true, 'env_ok', 'Conda Environment', 'Environment is configured')
     } else {
       results.environmentReachable = createCheckResult(
@@ -995,26 +997,14 @@ export async function validateBackend(settings: AppSettings): Promise<BackendVal
         'env_not_found',
         'Conda Environment',
         'Could not verify environment',
-        envCheck.output,
+        pythonVersionCheck.output,
         'Check that the environment name/prefix is correct'
       )
     }
   }
 
-  if (results.environmentReachable.ok) {
-    const pythonCheck = await runCondaCommand(settings, ['python', '--version'])
-    if (pythonCheck.ok) {
-      results.pythonReachable = createCheckResult(true, 'python_ok', 'Python', pythonCheck.output.trim())
-    } else {
-      results.pythonReachable = createCheckResult(
-        false,
-        'python_not_found',
-        'Python',
-        'Could not run Python in environment',
-        pythonCheck.output,
-        'Ensure Python is installed in the Conda environment'
-      )
-    }
+  if (results.environmentReachable.ok && pythonVersionCheck?.ok) {
+    results.pythonReachable = createCheckResult(true, 'python_ok', 'Python', pythonVersionCheck.output.trim())
   }
 
   if (results.pythonReachable.ok) {

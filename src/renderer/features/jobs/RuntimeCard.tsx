@@ -431,7 +431,7 @@ export default function RuntimeCard({
       {actionError && <p role="alert" className="operation-error">{actionError}</p>}
       {(runtime.completionWarnings?.length ?? 0) > 0 && (
         <div role="status" className="completion-warnings" data-no-card-toggle="true">
-          <strong>{isFinishedDisplay ? 'Completed with warnings' : 'Export warnings'}</strong>
+          <strong>{isFinishedDisplay ? 'Completed with warnings' : 'Warnings'}</strong>
           <ul>{runtime.completionWarnings?.map((warning, index) => <li key={index}>{warning}</li>)}</ul>
         </div>
       )}

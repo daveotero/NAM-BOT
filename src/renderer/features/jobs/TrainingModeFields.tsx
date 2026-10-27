@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { CONVERGENCE_DESCRIPTIONS, CONVERGENCE_LABELS, CONVERGENCE_LEVELS, DEFAULT_CONVERGENCE_MAX_EPOCHS, type TrainingStoppingPolicy } from '../../../shared/convergence'
+import { DraftNumberInput } from '../../components/DraftInput'
+import { readWholeNumber } from '../../utils/number-input'
 
 const EPOCHS_HELP = 'Number of epochs to train before saving the model. Reaching a convergence threshold will not stop a fixed-epoch run.'
 const MAXIMUM_EPOCHS_HELP = 'Stops and saves the model at this epoch if convergence has not stopped the run sooner. This required limit is remembered for future jobs.'
@@ -63,11 +65,12 @@ export default function TrainingModeFields({ id, policy, onChange, fixedEpochs, 
           <div className="property-control">
             <div className="job-mode-options">
               <div className="property-input-unit">
-                <input id={epochInputId} type="number" min="1" step="1" className="form-input" aria-label={epochInputLabel}
+                <DraftNumberInput id={epochInputId} min="1" step="1" className="form-input" aria-label={epochInputLabel}
                   title={epochHelp}
-                  value={fixedEpochs ?? ''} placeholder="Not set"
+                  value={fixedEpochs} placeholder="Not set"
                   disabled={disabled || epochsLocked || !onFixedEpochsChange}
-                  onChange={event => onFixedEpochsChange?.(Math.max(1, Math.floor(Number(event.target.value) || 1)))} />
+                  parse={text => readWholeNumber(text, 1)}
+                  onValueChange={epochs => onFixedEpochsChange?.(epochs)} />
                 <span className="ui-text-secondary">epochs</span>
               </div>
             </div>
