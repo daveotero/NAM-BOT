@@ -60,7 +60,7 @@ function getPresetFilePath(presetId: string): string {
 
 function listUserPresetsInternal(): TrainingPresetFile[] {
   ensurePresetDirectory()
-  const presets: TrainingPresetFile[] = []
+  const presets = new Map<string, TrainingPresetFile>()
   presetLoadWarnings = []
   const fileNames = new Set(readdirSync(userPresetsPath, { withFileTypes: true })
     .filter((entry) => entry.isFile() && /\.json(?:\.bak)?$/i.test(entry.name))
@@ -76,14 +76,19 @@ function listUserPresetsInternal(): TrainingPresetFile[] {
       if (preset.builtIn) {
         continue
       }
-      presets.push({ ...preset, builtIn: false, readOnly: false })
+      // A copied export or legacy filename can share an ID with the file that saves
+      // write (<id>.json). List each ID once and prefer that saved file.
+      if (presets.has(preset.id) && fileName.toLowerCase() !== `${preset.id}.json`.toLowerCase()) {
+        continue
+      }
+      presets.set(preset.id, { ...preset, builtIn: false, readOnly: false })
     } catch (error) {
       log.warn('Failed to read preset file:', fullPath, error)
       presetLoadWarnings.push(`Could not load ${fileName} or its backup. Restore this preset before queueing drafts that use it.`)
     }
   }
 
-  return presets
+  return [...presets.values()]
 }
 
 function getPresetSortBucket(preset: TrainingPresetFile): number {

@@ -61,6 +61,21 @@ describe('preset path validation', () => {
     expect(getTrainingPresetById(other.id).name).toBe(other.name)
   })
 
+  it('lists a preset once when a copied export shares its ID, preferring the saved file', () => {
+    const directory = join(mockPaths.userDataPath, 'presets')
+    mkdirSync(directory)
+    const legacy = createTrainingPreset({ id: 'shared-id', name: 'Copied export' })
+    writeFileSync(join(directory, 'aaa copied.nam-bot-preset.json'), JSON.stringify(legacy))
+    writeFileSync(join(directory, 'zzz copied.nam-bot-preset.json'), JSON.stringify(legacy))
+    expect(listTrainingPresets().filter((preset) => preset.id === legacy.id)).toHaveLength(1)
+
+    // Editing the copied preset saves <id>.json; the library then shows that version.
+    saveTrainingPreset({ ...legacy, name: 'Edited copy' })
+    const listed = listTrainingPresets().filter((preset) => preset.id === legacy.id)
+    expect(listed).toHaveLength(1)
+    expect(listed[0].name).toBe('Edited copy')
+  })
+
   it.each(['missing', 'corrupt'])('deletes a legacy backup when its primary is %s', (primary) => {
     const directory = join(mockPaths.userDataPath, 'presets')
     mkdirSync(directory)

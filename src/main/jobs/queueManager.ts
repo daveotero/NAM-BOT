@@ -317,37 +317,22 @@ function readConfirmedTrainingMetadata(runtime: JobRuntimeState): ConfirmedNamTr
     }))
   }
 
+  // Only the delay comes from the generated data config; epochs and preset do not need it.
   const dataConfigPath = runtime.generatedConfigPaths?.dataConfig
-  if (!dataConfigPath || !existsSync(dataConfigPath)) {
-    return trainingMetadata
-  }
-
-  try {
-    const parsed = JSON.parse(readFileSync(dataConfigPath, 'utf-8')) as unknown
-    if (!isRecord(parsed) || !isRecord(parsed.common)) {
-      const trainedEpochs = deriveTrainedEpochs(runtime)
-      if (trainedEpochs != null) {
-        trainingMetadata.trainedEpochs = trainedEpochs
+  if (dataConfigPath && existsSync(dataConfigPath)) {
+    try {
+      const parsed = JSON.parse(readFileSync(dataConfigPath, 'utf-8')) as unknown
+      const delay = isRecord(parsed) && isRecord(parsed.common) ? parsed.common.delay : undefined
+      if (typeof delay === 'number' && Number.isFinite(delay)) {
+        if (runtime.frozenJob.trainingOverrides.latencyMode === 'auto') {
+          trainingMetadata.autoLatency = delay
+        } else {
+          trainingMetadata.manualLatency = delay
+        }
       }
-
-      const presetName = runtime.frozenPreset?.name.trim()
-      if (presetName) {
-        trainingMetadata.presetName = presetName
-      }
-
-      return trainingMetadata
+    } catch (error) {
+      log.warn('Failed to read generated data config for NAM training metadata:', error)
     }
-
-    const delay = parsed.common.delay
-    if (typeof delay === 'number' && Number.isFinite(delay)) {
-      if (runtime.frozenJob.trainingOverrides.latencyMode === 'auto') {
-        trainingMetadata.autoLatency = delay
-      } else {
-        trainingMetadata.manualLatency = delay
-      }
-    }
-  } catch (error) {
-    log.warn('Failed to read generated data config for NAM training metadata:', error)
   }
 
   const trainedEpochs = deriveTrainedEpochs(runtime)
@@ -2055,6 +2040,10 @@ export class QueueManager extends EventEmitter {
         throw new Error('Cannot start training because settings are not loaded.')
       }
 
+      // Check before preparing a workspace: a run that is blocked until Diagnostics
+      // confirms NAM must not leave an empty workspace or repeat its notification.
+      await this.assertTrainingRequirements(jobSpec, runSettings, runtime.frozenPreset)
+
       const workspaceId = uuidv4()
       const workspaceRoot = resolveWorkspaceRoot(runSettings)
       const workspaceDir = join(workspaceRoot, workspaceId)
@@ -2253,7 +2242,6 @@ export class QueueManager extends EventEmitter {
       await waitForCompletion()
     }
 
-      await this.assertTrainingRequirements(jobSpec, runSettings, runtime.frozenPreset)
       preparationAbortController.signal.throwIfAborted()
       const preset = runtime.frozenPreset ?? getTrainingPresetById(jobSpec.presetId)
       runtime.frozenPreset = preset
@@ -2645,7 +2633,12 @@ export class QueueManager extends EventEmitter {
     this.activeController = null
     this.activePreparationAbortController = null
     this.clearAllScheduledProgressUpdates()
-    this.saveQueue()
+    try {
+      this.saveQueue()
+    } catch (error) {
+      // Shutdown runs from will-quit and the crash handler; it must not throw after the kill.
+      log.error('Could not persist the queue during shutdown:', error)
+    }
   }
 }
 

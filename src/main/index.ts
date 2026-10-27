@@ -34,6 +34,7 @@ import { createAppDialogs } from './shell/appDialogs'
 import { createAppCommands } from './shell/appCommands'
 import { createJobNotifier } from './shell/jobNotifications'
 import { configureAppIdentity, getWindowsAppDetails } from './shell/appIdentity'
+import { isTrustedExternalUrl } from './shell/externalLinks'
 
 const appIdentity = configureAppIdentity(app, process.platform)
 const ownsInstance = app.requestSingleInstanceLock()
@@ -400,15 +401,6 @@ function createWindow(): void {
     updateWindowProgress()
   })
 
-  const trustedExternalHosts = new Set([
-    'github.com',
-    'daveotero.com',
-    'flatlineaudio.com',
-    'ko-fi.com',
-    'www.anaconda.com',
-    'pytorch.org',
-    'www.pytorch.org'
-  ])
   const isTrustedRendererUrl = (targetUrl: string): boolean => {
     try {
       const parsedUrl = new URL(targetUrl)
@@ -429,15 +421,10 @@ function createWindow(): void {
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    try {
-      const targetUrl = new URL(details.url)
-      if (targetUrl.protocol === 'https:' && trustedExternalHosts.has(targetUrl.hostname)) {
-        void shell.openExternal(targetUrl.toString())
-      } else {
-        log.warn('Blocked untrusted external URL:', details.url)
-      }
-    } catch {
-      log.warn('Blocked malformed external URL:', details.url)
+    if (isTrustedExternalUrl(details.url)) {
+      void shell.openExternal(new URL(details.url).toString())
+    } else {
+      log.warn('Blocked untrusted or malformed external URL:', details.url)
     }
     return { action: 'deny' }
   })

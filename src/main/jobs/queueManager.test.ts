@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest'
 
@@ -517,6 +517,35 @@ describe('QueueManager A2 diagnostics gate', () => {
     expect(runtime.userMessages.at(-1)).toContain('has not confirmed the installed NAM version yet')
   })
 
+  it('leaves no workspace and no preparing state behind while A2 diagnostics are pending', async () => {
+    const queueManager = createQueueManager()
+    queueManager.addToQueue(buildJobSpec())
+    const statuses: string[] = []
+    queueManager.on('jobUpdated', (runtime: JobRuntimeState) => statuses.push(runtime.status))
+
+    await queueManager.startQueue()
+    await queueManager.startQueue()
+
+    expect(statuses).not.toContain('preparing')
+    expect(statuses).toEqual(['queued', 'queued'])
+    expect(readdirSync(join(mockPaths.userDataPath, 'workspaces'))).toEqual([])
+    expect(queueManager.getQueue()[0].terminalLogPath).toBeNull()
+  })
+
+  it('fails a confirmed-too-old A2 run before creating a workspace', async () => {
+    const queueManager = createQueueManager()
+    queueManager.setKnownNamVersion(defaultSettings, '0.12.3')
+    queueManager.addToQueue(buildJobSpec())
+
+    await queueManager.startQueue()
+
+    const [runtime] = queueManager.getQueue()
+    expect(runtime.status).toBe('failed')
+    expect(runtime.userMessages.at(-1)).toContain('Installed: 0.12.3')
+    expect(runNamFullMock).not.toHaveBeenCalled()
+    expect(readdirSync(join(mockPaths.userDataPath, 'workspaces'))).toEqual([])
+  })
+
   it('resumes a diagnostics-blocked A2 queue item after NAM version confirmation', async () => {
     const queueManager = createQueueManager()
     queueManager.addToQueue(buildJobSpec())
@@ -700,6 +729,48 @@ describe('QueueManager A2 diagnostics gate', () => {
     expect(existsSync(copiedModelPath)).toBe(true)
     expect(readFileSync(copiedModelPath, 'utf-8')).toContain('WaveNet')
     expect(existsSync(join(outputRootDir, 'A2 Queued Diagnostics Job.nam'))).toBe(true)
+  })
+
+  it('embeds preset and epoch metadata even when the generated data config is gone', async () => {
+    const queueManager = createQueueManager()
+    queueManager.setKnownNamVersion(defaultSettings, '0.13.0')
+    queueManager.addToQueue(buildJobSpec())
+    runNamFullMock.mockImplementation(async (_settings, args, hooks) => {
+      mkdirSync(args.outputRootDir, { recursive: true })
+      writeNamModel(join(args.outputRootDir, 'model.nam'))
+      rmSync(args.dataConfigPath)
+      hooks.onStarted(1234)
+      hooks.onExit(0)
+      return { cancel: vi.fn(), forceKill: vi.fn(async () => true), forceKillSync: vi.fn() }
+    })
+
+    await queueManager.startQueue()
+
+    const [runtime] = queueManager.getQueue()
+    const model = JSON.parse(readFileSync(runtime.publishedModelPath ?? '', 'utf-8')) as { metadata: Record<string, unknown> }
+    expect(runtime.status).toBe('succeeded')
+    expect(model.metadata.nam_bot).toMatchObject({ preset_name: 'A2 Standard', trained_epochs: runtime.plannedEpochs })
+  })
+
+  it('still force-kills training and does not throw when shutdown cannot save the queue', async () => {
+    const queueManager = createQueueManager()
+    queueManager.setKnownNamVersion(defaultSettings, '0.13.0')
+    queueManager.addToQueue(buildJobSpec())
+    const forceKillSync = vi.fn()
+    runNamFullMock.mockImplementation(async (_settings, _args, hooks) => {
+      hooks.onStarted(1234)
+      return { cancel: vi.fn(), forceKill: vi.fn(async () => true), forceKillSync }
+    })
+    const queuePromise = queueManager.startQueue()
+    await vi.waitFor(() => expect(queueManager.getCurrentJob()?.status).toBe('running'))
+    // A directory at the queue path makes every atomic queue write fail.
+    const queuePath = join(mockPaths.userDataPath, 'queue.json')
+    rmSync(queuePath, { force: true })
+    mkdirSync(queuePath)
+
+    expect(() => queueManager.shutdownSync('test shutdown')).not.toThrow()
+    expect(forceKillSync).toHaveBeenCalledTimes(1)
+    await queuePromise.catch(() => undefined)
   })
 
   it('does not publish a partial model after a failed training exit', async () => {
@@ -946,6 +1017,7 @@ describe('QueueManager A2 diagnostics gate', () => {
       ...defaultSettings,
       defaultWorkspaceRoot: invalidWorkspaceRoot
     })
+    queueManager.setKnownNamVersion(defaultSettings, '0.13.0')
     queueManager.addToQueue(buildJobSpec())
 
     await queueManager.startQueue()

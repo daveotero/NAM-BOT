@@ -187,6 +187,27 @@ describe('legacy custom preset compatibility', () => {
     expect(modelConfig.net?.config?.layers_configs?.[0]?.head_bias).toBeUndefined()
   })
 
+  it('generates current NAM head configs for custom-size WaveNet presets without an expert net', () => {
+    const preset = normalizeTrainingPreset({
+      ...legacyWaveNetPresetInput,
+      values: { ...legacyWaveNetPresetInput.values, architectureVersion: 'a1' },
+      expert: {}
+    })
+    const paths = buildJobConfigs(buildTestJobSpec(), createTempDir(), preset)
+    const modelConfig = JSON.parse(readFileSync(paths.modelConfig, 'utf-8')) as {
+      net?: { name?: string; config?: { layers_configs?: Array<Record<string, unknown>> } }
+    }
+    const layers = modelConfig.net?.config?.layers_configs ?? []
+
+    expect(preset.values.architectureSize).toBe('custom')
+    expect(modelConfig.net?.name).toBe('WaveNet')
+    expect(layers.map((layer) => layer.head)).toEqual([
+      { out_channels: 8, kernel_size: 1, bias: false },
+      { out_channels: 1, kernel_size: 1, bias: true }
+    ])
+    expect(layers.every((layer) => layer.head_size === undefined && layer.head_bias === undefined)).toBe(true)
+  })
+
   it('imports WaveNet snippets as A1 without A2-only defaults', () => {
     const imported = createImportedPreset(JSON.stringify({ layers_configs: [] }))
 

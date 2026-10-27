@@ -534,7 +534,8 @@ export default function About() {
     setVisibleChars(totalLength)
     setIsBootComplete(true)
     setMode('prompt')
-    setAboutMessage('EPOCHRUNNER.EXE returned control to the terminal.')
+    // Launching clears the message, so one set during this run is the reward result: keep it.
+    setAboutMessage((current) => current ?? 'EPOCHRUNNER.EXE returned control to the terminal.')
   }
 
   const handleUnlockReward = async (): Promise<void> => {

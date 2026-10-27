@@ -78,6 +78,15 @@ describe('training report snapshots', () => {
     expect(normalizeJobSpec({ saveTrainingImage: false, saveTrainingHtml: true })).toMatchObject({ saveTrainingImage: false, saveTrainingHtml: true })
   })
 
+  it('labels expert overrides only when a preset defines an expert block', () => {
+    const current = runtime()
+    const overridden = buildTrainingReportData(current, { appVersion: 'test', modelPath: null })
+    current.frozenPreset = createTrainingPreset({ name: 'Plain recipe' })
+    const plain = buildTrainingReportData(current, { appVersion: 'test', modelPath: null })
+    expect(overridden.settings).toContainEqual({ label: 'Expert overrides', value: 'Applied; values shown are preset defaults' })
+    expect(plain.settings).toContainEqual({ label: 'Expert overrides', value: 'None' })
+  })
+
   it('does not undercount successful epochs when validation is less frequent', () => {
     const current = runtime()
     current.currentEpoch = 10
