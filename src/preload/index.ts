@@ -7,6 +7,14 @@ import type { UpdateStatus } from '../shared/update'
 import type { QueueControlState } from '../shared/training'
 import type { TrainingStatistics } from '../shared/training-statistics'
 import type { AppSettings } from '../main/types'
+import { stripIpcErrorPrefix } from '../shared/ipc-errors'
+
+/** ipcRenderer.invoke, with main-process errors reduced to the message their handler threw. */
+function invoke<TResult>(channel: string, ...args: unknown[]): Promise<TResult> {
+  return ipcRenderer.invoke(channel, ...args).catch((error: unknown) => {
+    throw error instanceof Error ? new Error(stripIpcErrorPrefix(error.message)) : error
+  })
+}
 
 export interface NamBotApi {
   platform: string
@@ -96,15 +104,15 @@ export interface NamBotApi {
 const api: NamBotApi = {
   platform: process.platform,
   shell: {
-    setDialogsReady: (ready) => ipcRenderer.invoke('shell:dialogsReady', ready),
-    respondToDialog: (id, response) => ipcRenderer.invoke('shell:respondToDialog', id, response),
+    setDialogsReady: (ready) => invoke('shell:dialogsReady', ready),
+    respondToDialog: (id, response) => invoke('shell:respondToDialog', id, response),
     onDialogRequested: (callback) => {
       const handler = (_event: Electron.IpcRendererEvent, request: AppDialogRequest): void => callback(request)
       ipcRenderer.on('shell:dialogRequested', handler)
       return () => ipcRenderer.removeListener('shell:dialogRequested', handler)
     },
-    getWindowState: () => ipcRenderer.invoke('shell:getWindowState'),
-    openMenu: (anchor) => ipcRenderer.invoke('shell:openMenu', anchor),
+    getWindowState: () => invoke('shell:getWindowState'),
+    openMenu: (anchor) => invoke('shell:openMenu', anchor),
     onWindowState: (callback) => {
       const handler = (_event: Electron.IpcRendererEvent, state: ShellWindowState): void => callback(state)
       ipcRenderer.on('shell:windowState', handler)
@@ -117,68 +125,68 @@ const api: NamBotApi = {
     }
   },
   settings: {
-    get: () => ipcRenderer.invoke('settings:get'),
-    save: (settings) => ipcRenderer.invoke('settings:save', settings),
-    validate: () => ipcRenderer.invoke('settings:validate'),
-    detectConda: () => ipcRenderer.invoke('settings:detectConda'),
-    getAcceleratorDiagnostics: () => ipcRenderer.invoke('settings:getAcceleratorDiagnostics'),
-    getTrainingLaunchDiagnostics: () => ipcRenderer.invoke('settings:getTrainingLaunchDiagnostics'),
-    getNamVersionInfo: () => ipcRenderer.invoke('settings:getNamVersionInfo'),
-    chooseCondaPath: () => ipcRenderer.invoke('settings:chooseCondaPath'),
-    chooseDirectory: () => ipcRenderer.invoke('settings:chooseDirectory')
+    get: () => invoke('settings:get'),
+    save: (settings) => invoke('settings:save', settings),
+    validate: () => invoke('settings:validate'),
+    detectConda: () => invoke('settings:detectConda'),
+    getAcceleratorDiagnostics: () => invoke('settings:getAcceleratorDiagnostics'),
+    getTrainingLaunchDiagnostics: () => invoke('settings:getTrainingLaunchDiagnostics'),
+    getNamVersionInfo: () => invoke('settings:getNamVersionInfo'),
+    chooseCondaPath: () => invoke('settings:chooseCondaPath'),
+    chooseDirectory: () => invoke('settings:chooseDirectory')
   },
   jobs: {
-    getTrainingStatistics: () => ipcRenderer.invoke('jobs:getTrainingStatistics'),
-    dismissRecentRun: (jobId: string) => ipcRenderer.invoke('jobs:dismissRecentRun', jobId),
-    dismissAllRecentRuns: () => ipcRenderer.invoke('jobs:dismissAllRecentRuns'),
-    getControlState: () => ipcRenderer.invoke('jobs:getControlState'),
-    resumeQueue: (terminationConfirmed) => ipcRenderer.invoke('jobs:resumeQueue', terminationConfirmed),
-    createDraft: (input) => ipcRenderer.invoke('jobs:createDraft', input),
-    createDraftBatch: (input) => ipcRenderer.invoke('jobs:createDraftBatch', input),
-    saveDraft: (job) => ipcRenderer.invoke('jobs:saveDraft', job),
-    deleteDraft: (jobId) => ipcRenderer.invoke('jobs:deleteDraft', jobId),
-    listDrafts: () => ipcRenderer.invoke('jobs:listDrafts'),
-    reorderDrafts: (jobIds) => ipcRenderer.invoke('jobs:reorderDrafts', jobIds),
-    enqueue: (jobId) => ipcRenderer.invoke('jobs:enqueue', jobId),
-    enqueueMany: (jobIds) => ipcRenderer.invoke('jobs:enqueueMany', jobIds),
-    reorder: (jobIds) => ipcRenderer.invoke('jobs:reorder', jobIds),
-    unqueue: (jobId) => ipcRenderer.invoke('jobs:unqueue', jobId),
-    unqueueAll: () => ipcRenderer.invoke('jobs:unqueueAll'),
-    cancel: (jobId) => ipcRenderer.invoke('jobs:cancel', jobId),
-    forceStop: (jobId) => ipcRenderer.invoke('jobs:forceStop', jobId),
-    saveReport: (jobId, format) => ipcRenderer.invoke('jobs:saveReport', jobId, format),
-    exportModel: (jobId, finishAfterExport = false) => ipcRenderer.invoke('jobs:exportModel', jobId, finishAfterExport),
-    retry: (jobId) => ipcRenderer.invoke('jobs:retry', jobId),
-    clearFinished: () => ipcRenderer.invoke('jobs:clearFinished'),
-    clearItem: (jobId) => ipcRenderer.invoke('jobs:clearItem', jobId),
-    tagBatchSource: (jobId, batchId, batchSourceName) => ipcRenderer.invoke('jobs:tagBatchSource', jobId, batchId, batchSourceName),
-    duplicate: (jobId) => ipcRenderer.invoke('jobs:duplicate', jobId),
-    listQueue: () => ipcRenderer.invoke('jobs:listQueue'),
-    getRuntime: (jobId) => ipcRenderer.invoke('jobs:getRuntime', jobId),
-    openResultFolder: (jobId) => ipcRenderer.invoke('jobs:openResultFolder', jobId),
-    openArtifact: (jobId, target) => ipcRenderer.invoke('jobs:openArtifact', jobId, target),
-    chooseAudioFile: () => ipcRenderer.invoke('jobs:chooseAudioFile'),
-    getDefaultInputAudioPath: () => ipcRenderer.invoke('jobs:getDefaultInputAudioPath'),
-    saveDefaultAudioTo: () => ipcRenderer.invoke('jobs:saveDefaultAudioTo'),
+    getTrainingStatistics: () => invoke('jobs:getTrainingStatistics'),
+    dismissRecentRun: (jobId: string) => invoke('jobs:dismissRecentRun', jobId),
+    dismissAllRecentRuns: () => invoke('jobs:dismissAllRecentRuns'),
+    getControlState: () => invoke('jobs:getControlState'),
+    resumeQueue: (terminationConfirmed) => invoke('jobs:resumeQueue', terminationConfirmed),
+    createDraft: (input) => invoke('jobs:createDraft', input),
+    createDraftBatch: (input) => invoke('jobs:createDraftBatch', input),
+    saveDraft: (job) => invoke('jobs:saveDraft', job),
+    deleteDraft: (jobId) => invoke('jobs:deleteDraft', jobId),
+    listDrafts: () => invoke('jobs:listDrafts'),
+    reorderDrafts: (jobIds) => invoke('jobs:reorderDrafts', jobIds),
+    enqueue: (jobId) => invoke('jobs:enqueue', jobId),
+    enqueueMany: (jobIds) => invoke('jobs:enqueueMany', jobIds),
+    reorder: (jobIds) => invoke('jobs:reorder', jobIds),
+    unqueue: (jobId) => invoke('jobs:unqueue', jobId),
+    unqueueAll: () => invoke('jobs:unqueueAll'),
+    cancel: (jobId) => invoke('jobs:cancel', jobId),
+    forceStop: (jobId) => invoke('jobs:forceStop', jobId),
+    saveReport: (jobId, format) => invoke('jobs:saveReport', jobId, format),
+    exportModel: (jobId, finishAfterExport = false) => invoke('jobs:exportModel', jobId, finishAfterExport),
+    retry: (jobId) => invoke('jobs:retry', jobId),
+    clearFinished: () => invoke('jobs:clearFinished'),
+    clearItem: (jobId) => invoke('jobs:clearItem', jobId),
+    tagBatchSource: (jobId, batchId, batchSourceName) => invoke('jobs:tagBatchSource', jobId, batchId, batchSourceName),
+    duplicate: (jobId) => invoke('jobs:duplicate', jobId),
+    listQueue: () => invoke('jobs:listQueue'),
+    getRuntime: (jobId) => invoke('jobs:getRuntime', jobId),
+    openResultFolder: (jobId) => invoke('jobs:openResultFolder', jobId),
+    openArtifact: (jobId, target) => invoke('jobs:openArtifact', jobId, target),
+    chooseAudioFile: () => invoke('jobs:chooseAudioFile'),
+    getDefaultInputAudioPath: () => invoke('jobs:getDefaultInputAudioPath'),
+    saveDefaultAudioTo: () => invoke('jobs:saveDefaultAudioTo'),
     getPathForFile: (file: File) => webUtils.getPathForFile(file)
   },
   presets: {
-    getWarnings: () => ipcRenderer.invoke('presets:getWarnings'),
-    list: () => ipcRenderer.invoke('presets:list'),
-    save: (preset) => ipcRenderer.invoke('presets:save', preset),
-    delete: (presetId) => ipcRenderer.invoke('presets:delete', presetId),
-    exportPreset: (preset) => ipcRenderer.invoke('presets:export', preset),
-    importPreset: () => ipcRenderer.invoke('presets:import')
+    getWarnings: () => invoke('presets:getWarnings'),
+    list: () => invoke('presets:list'),
+    save: (preset) => invoke('presets:save', preset),
+    delete: (presetId) => invoke('presets:delete', presetId),
+    exportPreset: (preset) => invoke('presets:export', preset),
+    importPreset: () => invoke('presets:import')
   },
   logs: {
-    getTerminal: (jobId) => ipcRenderer.invoke('logs:getTerminal', jobId),
-    getTerminalChunk: (jobId, offset) => ipcRenderer.invoke('logs:getTerminalChunk', jobId, offset),
-    getDiagnostics: () => ipcRenderer.invoke('logs:getDiagnostics')
+    getTerminal: (jobId) => invoke('logs:getTerminal', jobId),
+    getTerminalChunk: (jobId, offset) => invoke('logs:getTerminalChunk', jobId, offset),
+    getDiagnostics: () => invoke('logs:getDiagnostics')
   },
   updates: {
-    getStatus: () => ipcRenderer.invoke('updates:getStatus'),
-    openLatestRelease: () => ipcRenderer.invoke('updates:openLatestRelease'),
-    openLatestChangelog: () => ipcRenderer.invoke('updates:openLatestChangelog')
+    getStatus: () => invoke('updates:getStatus'),
+    openLatestRelease: () => invoke('updates:openLatestRelease'),
+    openLatestChangelog: () => invoke('updates:openLatestChangelog')
   },
   events: {
     onQueueControlUpdated: (callback) => {
@@ -209,10 +217,10 @@ const api: NamBotApi = {
     onAppCommand: (callback) => {
       const handler = (_event: Electron.IpcRendererEvent, command: AppCommand) => callback(command)
       ipcRenderer.on('app:command', handler)
-      void ipcRenderer.invoke('app:commandsReady', true).catch((error: unknown) => console.error('Could not initialize application commands:', error))
+      void invoke('app:commandsReady', true).catch((error: unknown) => console.error('Could not initialize application commands:', error))
       return () => {
         ipcRenderer.removeListener('app:command', handler)
-        void ipcRenderer.invoke('app:commandsReady', false).catch((error: unknown) => console.error('Could not detach application commands:', error))
+        void invoke('app:commandsReady', false).catch((error: unknown) => console.error('Could not detach application commands:', error))
       }
     }
   }
