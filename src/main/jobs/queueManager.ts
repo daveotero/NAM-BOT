@@ -48,6 +48,7 @@ import { AppSettings } from '../types'
 import {
   atomicWriteFileSync,
   atomicWriteJsonSync,
+  isJsonText,
   readJsonWithBackupSync
 } from '../persistence/atomicFile'
 import {
@@ -1326,7 +1327,7 @@ export class QueueManager extends EventEmitter {
 
   /** Compact JSON: the queue can carry long ESR histories. Routine saves skip the .bak copy. */
   private saveQueue(options: { backup?: boolean } = {}): void {
-    atomicWriteFileSync(queuePath, JSON.stringify(this.queue), { backup: options.backup ?? true })
+    atomicWriteFileSync(queuePath, JSON.stringify(this.queue), { backup: options.backup ?? true, isValidBackup: isJsonText })
     this.recordTrainingStatistics()
   }
 

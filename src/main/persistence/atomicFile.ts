@@ -14,6 +14,20 @@ import { randomUUID } from 'crypto'
 
 interface AtomicWriteOptions {
   backup?: boolean
+  /**
+   * Refresh the .bak only from a current file this accepts. A file that is already damaged
+   * then never replaces the good backup it was recovered from.
+   */
+  isValidBackup?: (contents: string) => boolean
+}
+
+export function isJsonText(contents: string): boolean {
+  try {
+    JSON.parse(contents)
+    return true
+  } catch {
+    return false
+  }
 }
 
 function writeTemporaryFile(targetPath: string, contents: string): string {
@@ -40,7 +54,9 @@ export function atomicWriteFileSync(
     if (options?.backup !== false && existsSync(targetPath)) {
       const backupPath = `${targetPath}.bak`
       const backupContents = readFileSync(targetPath, 'utf-8')
-      atomicWriteFileSync(backupPath, backupContents, { backup: false })
+      if (!options?.isValidBackup || options.isValidBackup(backupContents)) {
+        atomicWriteFileSync(backupPath, backupContents, { backup: false })
+      }
     }
 
     renameSync(temporaryPath, targetPath)
@@ -53,7 +69,7 @@ export function atomicWriteFileSync(
 }
 
 export function atomicWriteJsonSync(targetPath: string, value: unknown): void {
-  atomicWriteFileSync(targetPath, `${JSON.stringify(value, null, 2)}\n`)
+  atomicWriteFileSync(targetPath, `${JSON.stringify(value, null, 2)}\n`, { isValidBackup: isJsonText })
 }
 
 export function readJsonWithBackupSync(targetPath: string, onRecovery?: () => void): unknown {

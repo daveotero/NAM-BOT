@@ -95,7 +95,7 @@ jobs:
 
   release-macos:
     name: Package macOS Release
-    runs-on: macos-14
+    runs-on: macos-15
     needs: quality
 
     steps:

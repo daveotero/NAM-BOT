@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -108,9 +108,12 @@ describe('preset path validation', () => {
   it('saves a preset listed from its backup in place instead of adding a copy', () => {
     const preset = saveTrainingPreset(createTrainingPreset({ id: 'backup-only', name: 'Backup only' }))
     saveTrainingPreset(preset)
-    writeFileSync(join(mockPaths.userDataPath, 'presets', 'backup-only.json'), '{broken')
+    const presetPath = join(mockPaths.userDataPath, 'presets', 'backup-only.json')
+    writeFileSync(presetPath, '{broken')
     expect(saveTrainingPreset({ ...preset, name: 'Edited' }).id).toBe('backup-only')
     expect(listTrainingPresets().filter((entry) => !entry.builtIn).map((entry) => entry.name)).toEqual(['Edited'])
+    // The damaged file must not replace the backup the preset was recovered from.
+    expect(JSON.parse(readFileSync(`${presetPath}.bak`, 'utf-8'))).toMatchObject({ id: 'backup-only', name: 'Backup only' })
   })
 
   it('never saves the reward preset under another ID', () => {

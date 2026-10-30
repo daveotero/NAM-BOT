@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - A failed save during training no longer closes the app; the run continues and the job shows a warning.
 - An unreadable training statistics file no longer blocks clearing Jobs. NAM-BOT restores its backup or keeps the file aside and starts a new record.
+- After NAM-BOT recovers settings, presets, drafts, or the job list from a backup, the next save keeps that good backup instead of replacing it with the damaged file.
 - Settings and number fields keep what you type while editing instead of refilling or snapping to a default, and negative latency can be typed directly.
 - NAM Version reports Not detected when the selected environment has no NAM installation.
 - Custom-size WaveNet presets generate current NAM head configurations.

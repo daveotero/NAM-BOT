@@ -39,4 +39,18 @@ describe('atomic file persistence', () => {
     expect(readJsonWithBackupSync(targetPath)).toEqual([{ id: 'first' }])
     expect(existsSync(`${targetPath}.bak`)).toBe(true)
   })
+
+  it('keeps a good backup when the file being replaced is damaged', () => {
+    const targetPath = join(createTemporaryDirectory(), 'settings.json')
+    atomicWriteJsonSync(targetPath, { version: 1 })
+    atomicWriteJsonSync(targetPath, { version: 2 })
+    writeFileSync(targetPath, '{', 'utf-8')
+
+    atomicWriteJsonSync(targetPath, { version: 3 })
+
+    expect(JSON.parse(readFileSync(targetPath, 'utf-8'))).toEqual({ version: 3 })
+    expect(JSON.parse(readFileSync(`${targetPath}.bak`, 'utf-8'))).toEqual({ version: 1 })
+    atomicWriteJsonSync(targetPath, { version: 4 })
+    expect(JSON.parse(readFileSync(`${targetPath}.bak`, 'utf-8'))).toEqual({ version: 3 })
+  })
 })
