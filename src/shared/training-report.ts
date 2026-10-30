@@ -113,7 +113,8 @@ export function buildTrainingReportData(
     { label: 'Learning rate decay', value: String(values.learningRateDecay) }, { label: 'Samples per example', value: String(values.ny) },
     { label: 'MRSTFT', value: values.fitMrstft ? `Enabled · weight ${values.mrstftWeight}` : 'Disabled' },
     { label: 'Weight decay', value: String(values.weightDecay) }, { label: 'Output normalization (dB RMS)', value: display(values.outputNormalizeRmsDb) },
-    { label: 'Expert overrides', value: Object.keys(preset.expert).length ? 'Applied; values shown are preset defaults' : 'None' }
+    // Normalized presets always carry data/model/learning keys; only defined blocks are overrides.
+    { label: 'Expert overrides', value: Object.values(preset.expert).some(value => value !== undefined) ? 'Applied; values shown are preset defaults' : 'None' }
   ] : []
   return {
     ...(convergence ? { convergence } : {}),

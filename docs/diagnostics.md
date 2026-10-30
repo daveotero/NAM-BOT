@@ -30,7 +30,7 @@ The status labels help distinguish a failure from advice:
 
 CPU training is a valid choice. If NAM-BOT sees an NVIDIA GPU on the computer but the selected environment has CPU-only PyTorch, it flags the mismatch so you can decide whether to install a CUDA build. AMD ROCm and Apple MPS readiness are reported separately from NVIDIA driver detection.
 
-The NAM Version tile checks the Python package used for training. Updates to the NAM-BOT desktop app are handled separately through [About and Check for Updates](about.md). A2 presets require `neural-amp-modeler` 0.13.0 or newer.
+The NAM Version tile checks the Python package used for training. It reports **Not detected** when the selected environment has no NAM installation NAM-BOT can read. Updates to the NAM-BOT desktop app are handled separately through [About and Check for Updates](about.md). A2 presets require `neural-amp-modeler` 0.13.0 or newer.
 
 ## Follow the Actions section
 

@@ -7,6 +7,7 @@ import {
 } from '../../state/store'
 import { type JobRuntimeState, MIN_A2_NAM_VERSION } from '../../state/types'
 import RuntimeCard from '../jobs/RuntimeCard'
+import StopTrainingDialog, { findStoppableRuntime } from '../jobs/StopTrainingDialog'
 import { isActiveRuntime } from '../jobs/job-helpers'
 import { useTerminalLogs } from '../../hooks/useTerminalLogs'
 import TrainingStatistics from './TrainingStatistics'
@@ -73,6 +74,10 @@ function getNamVersionCardLabel(namVersionInfo: NamVersionInfo | null): string {
     return 'Unable to check'
   }
 
+  if (namVersionInfo.installedVersion === null) {
+    return 'Not detected'
+  }
+
   if (namVersionInfo.isUpToDate === true) {
     return 'Up to date'
   }
@@ -135,7 +140,7 @@ function getDashboardDiagnosticsCards(
       status: getNamVersionCardStatus(namVersionInfo),
       label: getNamVersionCardLabel(namVersionInfo),
       detail: namVersionInfo?.checkStatus === 'ok'
-        ? `Installed ${namVersionInfo.installedVersion ?? 'unknown'}; latest ${namVersionInfo.latestVersion ?? 'unknown'}. A2 training requires ${MIN_A2_NAM_VERSION}+.`
+        ? `${namVersionInfo.installedVersion ? `Installed ${namVersionInfo.installedVersion}` : 'Not detected in the selected environment'}; latest ${namVersionInfo.latestVersion ?? 'unknown'}. A2 training requires ${MIN_A2_NAM_VERSION}+.`
         : namVersionInfo?.errorMessage ?? 'Waiting for version check.',
       checkedAt: null
     }
@@ -143,34 +148,54 @@ function getDashboardDiagnosticsCards(
 }
 
 export default function Dashboard({ onNavigate }: DashboardProps): JSX.Element {
-  const {
-    validation,
-    acceleratorDiagnostics,
-    trainingLaunchDiagnostics,
-    namVersionInfo,
-    isLoading,
-    isBackendValidationLoading,
-    isAcceleratorDiagnosticsLoading,
-    isTrainingLaunchDiagnosticsLoading,
-    isNamVersionInfoLoading,
-    validationError,
-    acceleratorDiagnosticsError,
-    trainingLaunchDiagnosticsError,
-    namVersionInfoError,
-    validateBackend,
-    loadAcceleratorDiagnostics,
-    loadTrainingLaunchDiagnostics,
-    loadNamVersionInfo,
-    drafts,
-    queue,
-    presets,
-    loadPresets
-  } = useAppStore()
+  const validation = useAppStore((state) => state.validation)
+  const acceleratorDiagnostics = useAppStore((state) => state.acceleratorDiagnostics)
+  const trainingLaunchDiagnostics = useAppStore((state) => state.trainingLaunchDiagnostics)
+  const namVersionInfo = useAppStore((state) => state.namVersionInfo)
+  const isBackendValidationLoading = useAppStore((state) => state.isBackendValidationLoading)
+  const isAcceleratorDiagnosticsLoading = useAppStore((state) => state.isAcceleratorDiagnosticsLoading)
+  const isTrainingLaunchDiagnosticsLoading = useAppStore((state) => state.isTrainingLaunchDiagnosticsLoading)
+  const isNamVersionInfoLoading = useAppStore((state) => state.isNamVersionInfoLoading)
+  const validationError = useAppStore((state) => state.validationError)
+  const acceleratorDiagnosticsError = useAppStore((state) => state.acceleratorDiagnosticsError)
+  const trainingLaunchDiagnosticsError = useAppStore((state) => state.trainingLaunchDiagnosticsError)
+  const namVersionInfoError = useAppStore((state) => state.namVersionInfoError)
+  const validateBackend = useAppStore((state) => state.validateBackend)
+  const loadAcceleratorDiagnostics = useAppStore((state) => state.loadAcceleratorDiagnostics)
+  const loadTrainingLaunchDiagnostics = useAppStore((state) => state.loadTrainingLaunchDiagnostics)
+  const loadNamVersionInfo = useAppStore((state) => state.loadNamVersionInfo)
+  const draftCount = useAppStore((state) => state.drafts.length)
+  const queue = useAppStore((state) => state.queue)
+  const presets = useAppStore((state) => state.presets)
+  const loadPresets = useAppStore((state) => state.loadPresets)
 
   const [expandedJobIds, setExpandedJobIds] = useState<Set<string>>(new Set())
   const [visibleLogJobIds, setVisibleLogJobIds] = useState<Set<string>>(new Set())
   const { logContents, logErrors, loadingLogIds, loadTerminalLog } = useTerminalLogs(queue)
   const [nowMs, setNowMs] = useState<number>(() => Date.now())
+  const [pendingStopJobId, setPendingStopJobId] = useState<string | null>(null)
+  const [exportingJobId, setExportingJobId] = useState<string | null>(null)
+  const [stopError, setStopError] = useState<{ jobId: string; message: string } | null>(null)
+  const pendingStopJob = findStoppableRuntime(queue, pendingStopJobId)
+
+  const stopTraining = async (jobId: string, label: string, action: () => Promise<unknown>): Promise<void> => {
+    setStopError(null)
+    try {
+      await action()
+    } catch (error) {
+      log.error(`${label} failed from the Dashboard:`, error)
+      setStopError({ jobId, message: `${label} failed: ${error instanceof Error ? error.message : String(error)}` })
+    }
+  }
+
+  const saveAndStop = async (jobId: string): Promise<void> => {
+    setExportingJobId(jobId)
+    try {
+      await stopTraining(jobId, 'Save and stop training', () => window.namBot.jobs.exportModel(jobId, true))
+    } finally {
+      setExportingJobId(null)
+    }
+  }
 
   const diagnosticsCards = getDashboardDiagnosticsCards(
     validation,
@@ -180,6 +205,8 @@ export default function Dashboard({ onNavigate }: DashboardProps): JSX.Element {
   )
 
   const trainingJobs = queue.filter(r => isActiveRuntime(r.status))
+  // A stop error belongs to its run and disappears once that run is no longer active.
+  const visibleStopError = stopError && trainingJobs.some(job => job.jobId === stopError.jobId) ? stopError.message : null
   const queuedJobs = queue.filter(r => r.status === 'queued' || r.status === 'validating')
   const completedJobs = queue.filter(r => r.status === 'succeeded')
   const errorJobs = queue.filter(r => r.status === 'failed' || r.status === 'canceled')
@@ -217,7 +244,6 @@ export default function Dashboard({ onNavigate }: DashboardProps): JSX.Element {
     acceleratorDiagnosticsError,
     isAcceleratorDiagnosticsLoading,
     isBackendValidationLoading,
-    isLoading,
     isNamVersionInfoLoading,
     isTrainingLaunchDiagnosticsLoading,
     loadAcceleratorDiagnostics,
@@ -235,7 +261,7 @@ export default function Dashboard({ onNavigate }: DashboardProps): JSX.Element {
   ])
 
   const stats = [
-    { label: 'Drafts', count: drafts.length, color: 'var(--text-steel)' },
+    { label: 'Drafts', count: draftCount, color: 'var(--text-steel)' },
     { label: 'Queued', count: queuedJobs.length, color: 'var(--neon-cyan)' },
     { label: 'Training', count: trainingJobs.length, color: 'var(--neon-gold)' },
     { label: 'Completed', count: completedJobs.length, color: 'var(--neon-green)' },
@@ -310,6 +336,7 @@ export default function Dashboard({ onNavigate }: DashboardProps): JSX.Element {
             <div className="console-panel-heading">
               <h3 style={{ color: 'var(--neon-gold)' }}>Active Training</h3>
             </div>
+            {visibleStopError && <p role="alert" className="operation-error live-training-error">{visibleStopError}</p>}
             <div className="job-list">
               {trainingJobs.map(job => (
                 <RuntimeCard
@@ -323,7 +350,7 @@ export default function Dashboard({ onNavigate }: DashboardProps): JSX.Element {
                   isLoadingLog={loadingLogIds.has(job.jobId)}
                   onToggleExpanded={toggleExpanded}
                   onToggleLogs={toggleLogs}
-                  onCancel={async (id: string) => { await window.namBot.jobs.cancel(id) }}
+                  onCancel={async (id: string) => { setPendingStopJobId(id) }}
                   onForceStop={async (id: string) => { await window.namBot.jobs.forceStop(id) }}
                   onOpenFolder={async (id: string) => { await window.namBot.jobs.openResultFolder(id) }}
                   onOpenArtifact={async (id, target) => { await window.namBot.jobs.openArtifact(id, target) }}
@@ -341,6 +368,19 @@ export default function Dashboard({ onNavigate }: DashboardProps): JSX.Element {
           </div>
         </section>
       </div>
+      <StopTrainingDialog
+        runtime={pendingStopJob}
+        exportInProgress={exportingJobId !== null}
+        onKeepTraining={() => setPendingStopJobId(null)}
+        onSaveAndStop={(id) => {
+          setPendingStopJobId(null)
+          void saveAndStop(id)
+        }}
+        onDiscardAndStop={(id) => {
+          setPendingStopJobId(null)
+          void stopTraining(id, 'Stop training', () => window.namBot.jobs.forceStop(id))
+        }}
+      />
     </div>
   )
 }

@@ -10,7 +10,7 @@ import {
   EPOCH_RUNNER_COMMAND,
   EPOCH_RUNNER_COMMAND_ALIAS,
   createEpochRunnerRewardPreset,
-  isEpochRunnerRewardPreset
+  isCurrentEpochRunnerRewardPreset
 } from './aboutRewardPreset'
 
 const snarkyResponses = [
@@ -320,8 +320,7 @@ export default function About() {
     () => bootSequence.reduce((accumulator, item) => accumulator + getItemLength(item), 0),
     [bootSequence]
   )
-  const rewardPreset = presets.find((preset) => isEpochRunnerRewardPreset(preset))
-  const isRewardUnlocked = rewardPreset != null
+  const isRewardUnlocked = presets.some((preset) => isCurrentEpochRunnerRewardPreset(preset))
   const unfinishedResponseKeys = useMemo<string[]>(
     () => history.flatMap((historyEntry) => (
       historyEntry.responses.flatMap((response, responseIndex) => {
@@ -534,12 +533,13 @@ export default function About() {
     setVisibleChars(totalLength)
     setIsBootComplete(true)
     setMode('prompt')
-    setAboutMessage('EPOCHRUNNER.EXE returned control to the terminal.')
+    // Launching clears the message, so one set during this run is the reward result: keep it.
+    setAboutMessage((current) => current ?? 'EPOCHRUNNER.EXE returned control to the terminal.')
   }
 
   const handleUnlockReward = async (): Promise<void> => {
     const existingPresets = (await window.namBot.presets.list()).map((preset) => normalizeTrainingPreset(preset))
-    const existingRewardPreset = existingPresets.find((preset) => isEpochRunnerRewardPreset(preset))
+    const existingRewardPreset = existingPresets.find((preset) => isCurrentEpochRunnerRewardPreset(preset))
 
     if (existingRewardPreset) {
       await loadPresets()

@@ -7,8 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-30
+
+### Changed
+
+- Stop on the Dashboard now offers the same Save & stop, Discard & stop, and Keep training choices as Jobs.
+- Interface fonts ship with the app, so text keeps its look offline and NAM-BOT no longer contacts Google Fonts at launch.
+- The preset JSON editor loads only JSON highlighting, nearly halving the size of the interface code.
+- Long runs save routine training progress every 30 seconds instead of every second; status changes still save immediately.
+- Startup checks the backend once instead of twice.
+- Retuned the terminal's after-hours circuits.
+
 ### Fixed
 
+- A failed save during training no longer closes the app; the run continues and the job shows a warning.
+- An unreadable training statistics file no longer blocks clearing Jobs. NAM-BOT restores its backup or keeps the file aside and starts a new record.
+- After NAM-BOT recovers settings, presets, drafts, or the job list from a backup, the next save keeps that good backup instead of replacing it with the damaged file.
+- Settings and number fields keep what you type while editing instead of refilling or snapping to a default, and negative latency can be typed directly.
+- NAM Version reports Not detected when the selected environment has no NAM installation.
+- Custom-size WaveNet presets generate current NAM head configurations.
+- The Setup Guide's AMD and Apple links open again.
+- A2 jobs waiting for Diagnostics no longer leave empty workspace folders or repeat their notification.
+- Models keep preset and epoch metadata even when the generated data config is missing, and reports list expert overrides only for presets that define them.
+- A preset copied into several files appears once in the library.
+- File and folder pickers stay attached to the NAM-BOT window.
+- Terminal logs no longer show garbled progress characters, and epoch lines without a batch counter are read correctly.
+- Error messages no longer begin with "Error invoking remote method".
 - Windows development runs now use a separate NAM-BOT Dev identity, with explicit taskbar names, icons, and launch commands for both development and installed builds.
 - PNG report exports recover from temporary image-capture failures with bounded retries, while persistent errors remain visible.
 

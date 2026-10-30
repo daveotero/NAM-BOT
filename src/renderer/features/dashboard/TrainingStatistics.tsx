@@ -67,6 +67,10 @@ export default function TrainingStatistics(): JSX.Element {
       {error ? <div className="training-statistics-notice" role="status">Statistics unavailable. <button className="console-link" onClick={() => setRetry(value => value + 1)}>Retry</button></div>
         : !totals ? <p className="training-statistics-notice">Loading training record…</p>
         : <>
+          {statistics?.setAsideFile && <p className="training-statistics-recovery" role="status" title={statistics.setAsideFile}>
+            Older lifetime totals could not be read, so the record restarted from the runs still in Jobs.
+            The unreadable file was kept as <span className="ui-text-code">{statistics.setAsideFile.split(/[\\/]/).pop()}</span>.
+          </p>}
           <dl className="training-totals">
             <div title="Successful training runs; a packed run counts once."><dt>Completed runs</dt><dd>{totals.completed.toLocaleString()}</dd><small>Successful training jobs</small></div>
             <div title="Recorded time from training start to finish, including failed and canceled runs. Interrupted runs with unknown duration are excluded."><dt>Training time</dt><dd>{(totals.durationMs / 3_600_000).toLocaleString(undefined, { maximumFractionDigits: 1, minimumFractionDigits: 1 })}<span> h</span></dd><small>Recorded run time</small></div>

@@ -4,6 +4,8 @@ Settings controls the Conda environment NAM-BOT uses, default folders and author
 
 Changes save automatically after a short pause. The toolbar shows **Unsaved changes**, **Saving...**, or **Saved**. There is no Save Settings button. If saving fails, the toolbar displays the error; resolve it before relying on the new values.
 
+A field keeps exactly what you type while you are editing it. If you leave **Conda Executable Path** or **Environment Name** empty, NAM-BOT saves the default (`conda.exe` on Windows, `conda` on macOS, and `nam`) and shows it once you move to another field.
+
 Changing notifications, author details, the default preset, the results-folder option, or the output folder keeps your existing diagnostic results. Changing the Conda environment or workspace location clears those results so Dashboard and Diagnostics can check the new setup. You can still run checks manually whenever needed.
 
 ## Connect your training environment

@@ -60,4 +60,27 @@ describe('readLogChunk', () => {
     expect(second.content).toBe('new\n')
     expect(second.nextOffset).toBe(4)
   })
+
+  it('ends a size-limited read on a line break and continues from there', async () => {
+    const filePath = createLog('line one\nline two\nline three\n')
+    const first = await readLogChunk(filePath, 0, { maxChunkBytes: 12 })
+    expect(first).toMatchObject({ content: 'line one\n', nextOffset: 9, reset: false })
+    const second = await readLogChunk(filePath, first.nextOffset, { maxChunkBytes: 12 })
+    expect(second.content).toBe('line two\n')
+  })
+
+  it('never splits a multi-byte progress character between reads', async () => {
+    // Each bar character is three bytes, so five-byte chunks always end inside one.
+    const bar = '━━━━'
+    const filePath = createLog(bar)
+    let offset = 0
+    let content = ''
+    for (let read = 0; read < 8 && offset < Buffer.byteLength(bar); read += 1) {
+      const chunk = await readLogChunk(filePath, offset, { maxChunkBytes: 5 })
+      expect(chunk.content).not.toContain('�')
+      content += chunk.content
+      offset = chunk.nextOffset
+    }
+    expect(content).toBe(bar)
+  })
 })

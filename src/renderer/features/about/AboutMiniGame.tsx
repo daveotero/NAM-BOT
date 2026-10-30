@@ -109,7 +109,11 @@ export default function AboutMiniGame({ isRewardUnlocked, onExit, onUnlockReward
     const next = { ...recordsRef.current, soundEnabled: !recordsRef.current.soundEnabled }
     writeRecords(next)
     if (next.soundEnabled) activateAudio(true)
-    else void audioRef.current?.enable(false)
+    else {
+      // Availability is re-checked when sound is enabled; a muted game has no audio fault to show.
+      setAudioAvailable(true)
+      void audioRef.current?.enable(false)
+    }
   }, [activateAudio, writeRecords])
 
   const pause = useCallback((): void => {
@@ -176,7 +180,7 @@ export default function AboutMiniGame({ isRewardUnlocked, onExit, onUnlockReward
   useEffect(() => {
     const handleDown = (event: KeyboardEvent): void => {
       const target = event.target
-      if (event.key === 'Escape' && !event.ctrlKey && !event.altKey && !event.metaKey) {
+      if (event.key === 'Escape' && !event.isComposing && !event.ctrlKey && !event.altKey && !event.metaKey) {
         event.preventDefault()
         if (!event.repeat) exitGame()
         return
@@ -215,15 +219,23 @@ export default function AboutMiniGame({ isRewardUnlocked, onExit, onUnlockReward
       if (event.key === 'ArrowDown' || event.key.toLowerCase() === 's') inputRef.current.duckHeld = false
     }
     const visibility = (): void => { if (document.hidden) pause() }
+    // In-app dialogs and title-bar controls take focus without blurring the window. Focus on
+    // the surrounding terminal still reaches the game's keys, so only focus elsewhere pauses.
+    const focusMoved = (event: FocusEvent): void => {
+      const shell = shellRef.current
+      if (shell && event.target instanceof Node && !shell.contains(event.target) && !event.target.contains(shell)) pause()
+    }
     window.addEventListener('keydown', handleDown)
     window.addEventListener('keyup', handleUp)
     window.addEventListener('blur', pause)
     document.addEventListener('visibilitychange', visibility)
+    document.addEventListener('focusin', focusMoved)
     return () => {
       window.removeEventListener('keydown', handleDown)
       window.removeEventListener('keyup', handleUp)
       window.removeEventListener('blur', pause)
       document.removeEventListener('visibilitychange', visibility)
+      document.removeEventListener('focusin', focusMoved)
     }
   }, [exitGame, pause, primaryAction, togglePause, toggleScores, toggleSound])
 
@@ -231,10 +243,19 @@ export default function AboutMiniGame({ isRewardUnlocked, onExit, onUnlockReward
     aliveRef.current = true
     audioRef.current = new EpochRunnerAudio()
     focusGame()
-    const context = canvasRef.current?.getContext('2d')
-    if (!context) return
-    const motion = window.matchMedia('(prefers-reduced-motion: reduce)')
     let animationId = 0
+    const cleanup = (): void => {
+      aliveRef.current = false
+      window.cancelAnimationFrame(animationId)
+      audioRef.current?.dispose()
+      audioRef.current = null
+      inputRef.current = emptyInput()
+      suspendEpochRunnerSession()
+    }
+    // Without a 2D context there is no loop to run, but the audio and session still need cleanup.
+    const context = canvasRef.current?.getContext('2d')
+    if (!context) return cleanup
+    const motion = window.matchMedia('(prefers-reduced-motion: reduce)')
     let lastTime: number | null = null
     let accumulator = 0
     let lastHud = 0
@@ -277,14 +298,7 @@ export default function AboutMiniGame({ isRewardUnlocked, onExit, onUnlockReward
       animationId = window.requestAnimationFrame(frame)
     }
     animationId = window.requestAnimationFrame(frame)
-    return () => {
-      aliveRef.current = false
-      window.cancelAnimationFrame(animationId)
-      audioRef.current?.dispose()
-      audioRef.current = null
-      inputRef.current = emptyInput()
-      suspendEpochRunnerSession()
-    }
+    return cleanup
   }, [focusGame, setGameState])
 
   const changeInitials = (value: string): void => {
@@ -304,7 +318,11 @@ export default function AboutMiniGame({ isRewardUnlocked, onExit, onUnlockReward
     } catch (error) {
       if (aliveRef.current) setUnlockError(error instanceof Error ? error.message : String(error))
     } finally {
-      if (aliveRef.current) setUnlocking(false)
+      if (aliveRef.current) {
+        setUnlocking(false)
+        // The focused reward button becomes disabled; keep keyboard focus in the game.
+        focusGame()
+      }
     }
   }
 

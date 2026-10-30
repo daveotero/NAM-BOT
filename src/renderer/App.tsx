@@ -47,7 +47,7 @@ function AppShell() {
   const navigate = useNavigate()
   const location = useLocation()
   const [pendingAction, setPendingAction] = useState<PendingAppAction | null>(null)
-  const { isTraining } = useAppStore()
+  const isTraining = useAppStore((state) => state.queue.some((runtime) => isActiveRuntime(runtime.status)))
   const isLoading = useAppStore((state) => state.isLoading)
   const isBackendValidationLoading = useAppStore((state) => state.isBackendValidationLoading)
   const isAcceleratorDiagnosticsLoading = useAppStore((state) => state.isAcceleratorDiagnosticsLoading)
@@ -55,7 +55,6 @@ function AppShell() {
   const isNamVersionInfoLoading = useAppStore((state) => state.isNamVersionInfoLoading)
   const settings = useAppStore((state) => state.settings)
   const presets = useAppStore((state) => state.presets)
-  const queue = useAppStore((state) => state.queue)
   const updateStatus = useAppStore((state) => state.updateStatus)
   const loadSettings = useAppStore((state) => state.loadSettings)
   const loadPresets = useAppStore((state) => state.loadPresets)
@@ -63,7 +62,6 @@ function AppShell() {
   const loadUpdateStatus = useAppStore((state) => state.loadUpdateStatus)
   const setValidation = useAppStore((state) => state.setValidation)
   const setUpdateStatus = useAppStore((state) => state.setUpdateStatus)
-  const setIsTraining = useAppStore((state) => state.setIsTraining)
   const setJobEditorSession = useAppStore((state) => state.setJobEditorSession)
   const setPresetEditorSession = useAppStore((state) => state.setPresetEditorSession)
   const jobEditorSession = useAppStore((state) => state.jobEditorSession)
@@ -167,13 +165,6 @@ function AppShell() {
       setUpdateStatus(status)
     })
   }, [setUpdateStatus])
-
-  useEffect(() => {
-    const isActive = queue.some((runtime) =>
-      isActiveRuntime(runtime.status)
-    )
-    setIsTraining(isActive)
-  }, [queue, setIsTraining])
 
   useEffect(() => {
     if (!commandsReady) return

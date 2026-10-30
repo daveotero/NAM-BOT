@@ -696,11 +696,8 @@ export function buildWaveNetConfig(size: ArchitectureSize): Record<string, unkno
     }
   }
 
-  if (size === 'custom' || size === 'packed') {
-    return cloneJson(configs.standard)
-  }
-
-  return normalizeWaveNetConfigForCurrentNam(configs[size])
+  // Custom and packed fall back to the standard layout, which needs the same head conversion.
+  return normalizeWaveNetConfigForCurrentNam(configs[size === 'custom' || size === 'packed' ? 'standard' : size])
 }
 
 export function buildLstmConfig(size: ArchitectureSize): Record<string, unknown> {

@@ -6,9 +6,9 @@ import {
   type ComponentProps,
   type ReactElement
 } from 'react'
-import CodeEditor from '@uiw/react-textarea-code-editor'
-import rehypePrism from 'rehype-prism-plus'
+import CodeEditor from '@uiw/react-textarea-code-editor/nohighlight'
 import '@uiw/react-textarea-code-editor/dist.css'
+import { rehypePrismJson } from '../utils/json-highlighting'
 
 export interface JsonEditorError {
   message: string
@@ -30,7 +30,7 @@ interface JsonCodeEditorProps {
 }
 
 const JSON_EDITOR_REHYPE_PLUGINS: NonNullable<ComponentProps<typeof CodeEditor>['rehypePlugins']> = [
-  [rehypePrism, { ignoreMissing: true, showLineNumbers: true }]
+  [rehypePrismJson, { ignoreMissing: true, showLineNumbers: true }]
 ]
 
 export default function JsonCodeEditor({

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import type { SaveDialogOptions } from 'electron'
 import { existsSync, copyFileSync, readFileSync, statSync } from 'fs'
 import log from 'electron-log/main'
@@ -15,6 +15,7 @@ import {
   readJsonWithBackupSync,
   removeFileIfExistsSync
 } from '../persistence/atomicFile'
+import { showOpenDialogFor, showSaveDialogFor } from './dialogs'
 
 const draftsPath = join(app.getPath('userData'), 'drafts.json')
 const draftQueueTransactionPath = join(app.getPath('userData'), 'draft-queue-transaction.json')
@@ -522,8 +523,7 @@ export function setupJobIpcHandlers(): void {
         properties: ['showOverwriteConfirmation'],
         filters: [{ name: format === 'png' ? 'PNG image' : 'HTML report', extensions: [format] }]
       }
-      const owner = BrowserWindow.fromWebContents(event.sender)
-      const result = owner ? await dialog.showSaveDialog(owner, options) : await dialog.showSaveDialog(options)
+      const result = await showSaveDialogFor(event, options)
       if (result.canceled || !result.filePath) return null
       const destination = result.filePath.toLowerCase().endsWith(`.${format}`) ? result.filePath : `${result.filePath}.${format}`
       return await queueManager.saveReport(jobId, format, destination)
@@ -545,8 +545,7 @@ export function setupJobIpcHandlers(): void {
         properties: ['showOverwriteConfirmation'],
         filters: [{ name: 'Neural Amp Modeler', extensions: ['nam'] }]
       }
-      const owner = BrowserWindow.fromWebContents(event.sender)
-      const result = owner ? await dialog.showSaveDialog(owner, options) : await dialog.showSaveDialog(options)
+      const result = await showSaveDialogFor(event, options)
       if (result.canceled || !result.filePath) return null
       const destination = result.filePath.toLowerCase().endsWith('.nam') ? result.filePath : `${result.filePath}.nam`
       return await queueManager.exportTrainingModel(jobId, destination, finishAfterExport)
@@ -629,8 +628,8 @@ export function setupJobIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle('jobs:chooseAudioFile', async () => {
-    const result = await dialog.showOpenDialog({
+  ipcMain.handle('jobs:chooseAudioFile', async (event) => {
+    const result = await showOpenDialogFor(event, {
       title: 'Select Audio File',
       properties: ['openFile'],
       filters: [
@@ -653,8 +652,8 @@ export function setupJobIpcHandlers(): void {
     return null
   })
 
-  ipcMain.handle('jobs:saveDefaultAudioTo', async () => {
-    const result = await dialog.showSaveDialog({
+  ipcMain.handle('jobs:saveDefaultAudioTo', async (event) => {
+    const result = await showSaveDialogFor(event, {
       title: 'Save Default Training Signal',
       defaultPath: 'v3_0_0.wav',
       filters: [{ name: 'WAV Audio', extensions: ['wav'] }]

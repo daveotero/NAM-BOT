@@ -211,7 +211,7 @@ My Amp - Studio - ESR 0.0123 - Snapshot 2026-09-19 14-32-08.nam
 
 The ESR is the best reported checkpoint value when the dialog opens, rounded to four decimal places. Training can advance while you choose the destination. You can edit the name, and the dialog asks before replacing an existing file. Save & stop uses the same naming rules.
 
-**Stop** on a Jobs card opens these choices:
+**Stop** on a training card, in Jobs or on the Dashboard, opens these choices:
 
 | Choice | Result |
 | --- | --- |
@@ -221,7 +221,7 @@ The ESR is the best reported checkpoint value when the dialog opens, rounded to 
 
 Save Snapshot and Save & stop are unavailable before a checkpoint is exportable or while another export is pending. Expert `min_epochs` or `min_steps` settings can delay a clean finish. Use **Force Stop** if a waiting stop cannot finish; see [recovery](#recover-and-repeat-work) if termination is not confirmed.
 
-These snapshot and three-choice controls belong to Jobs. Dashboard's Stop requests cancellation directly; open Jobs when you want to choose whether to save first.
+**Save Snapshot**, which saves a model and keeps training, is available only in Jobs.
 
 ## Create batches and reuse a setup
 

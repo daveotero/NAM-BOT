@@ -1,5 +1,5 @@
 import { app } from 'electron'
-import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync } from 'fs'
+import { existsSync, mkdirSync, readdirSync, unlinkSync } from 'fs'
 import { basename, join, resolve, sep } from 'path'
 import log from 'electron-log/main'
 import {
@@ -11,6 +11,7 @@ import {
   normalizeTrainingPreset,
   slugifyPresetName
 } from '../types/jobs'
+import { isEpochRunnerRewardPresetId } from '../../shared/reward-preset'
 import { atomicWriteJsonSync, readJsonWithBackupSync } from './atomicFile'
 
 const userPresetsPath = join(app.getPath('userData'), 'presets')
@@ -23,11 +24,10 @@ export function getPresetLoadWarnings(): string[] {
 export function getUserPresetsPath(): string {
   return userPresetsPath
 }
-const epochRunnerRewardPresetId = 'epoch-runner-reward'
 const epochRunnerRewardPresetName = 'Converged Night Run'
 
 function isEpochRunnerRewardPreset(preset: TrainingPresetFile): boolean {
-  return preset.id === epochRunnerRewardPresetId
+  return isEpochRunnerRewardPresetId(preset.id)
     || preset.name === epochRunnerRewardPresetName
     || preset.description.includes('Epoch Runner')
 }
@@ -60,7 +60,7 @@ function getPresetFilePath(presetId: string): string {
 
 function listUserPresetsInternal(): TrainingPresetFile[] {
   ensurePresetDirectory()
-  const presets: TrainingPresetFile[] = []
+  const presets = new Map<string, TrainingPresetFile>()
   presetLoadWarnings = []
   const fileNames = new Set(readdirSync(userPresetsPath, { withFileTypes: true })
     .filter((entry) => entry.isFile() && /\.json(?:\.bak)?$/i.test(entry.name))
@@ -76,14 +76,19 @@ function listUserPresetsInternal(): TrainingPresetFile[] {
       if (preset.builtIn) {
         continue
       }
-      presets.push({ ...preset, builtIn: false, readOnly: false })
+      // A copied export or legacy filename can share an ID with the file that saves
+      // write (<id>.json). List each ID once and prefer that saved file.
+      if (presets.has(preset.id) && fileName.toLowerCase() !== `${preset.id}.json`.toLowerCase()) {
+        continue
+      }
+      presets.set(preset.id, { ...preset, builtIn: false, readOnly: false })
     } catch (error) {
       log.warn('Failed to read preset file:', fullPath, error)
       presetLoadWarnings.push(`Could not load ${fileName} or its backup. Restore this preset before queueing drafts that use it.`)
     }
   }
 
-  return presets
+  return [...presets.values()]
 }
 
 function getPresetSortBucket(preset: TrainingPresetFile): number {
@@ -161,14 +166,23 @@ export function saveTrainingPreset(input: unknown): TrainingPresetFile {
   ensurePresetDirectory()
   let presetId = preset.id
   const targetPath = getPresetFilePath(presetId)
-  if (existsSync(targetPath)) {
+  if (existsSync(targetPath) || existsSync(`${targetPath}.bak`)) {
+    let existing: TrainingPresetFile | null = null
     try {
-      const existing = normalizeTrainingPreset(JSON.parse(readFileSync(targetPath, 'utf-8')) as unknown)
-      const isSamePreset = existing.id === preset.id && existing.createdAt === preset.createdAt
-      if (!isSamePreset) {
-        presetId = `${slugifyPresetName(preset.name)}-${Date.now()}`
+      // Read it the way the library does, so a preset listed from its backup saves in place.
+      existing = normalizeTrainingPreset(readJsonWithBackupSync(targetPath))
+    } catch (error) {
+      log.warn('Could not read the preset file a save would replace:', targetPath, error)
+    }
+    const isSamePreset = existing !== null && existing.id === preset.id && existing.createdAt === preset.createdAt
+    if (!isSamePreset) {
+      if (isEpochRunnerRewardPresetId(preset.id)) {
+        // The library only recognizes a reward by its ID: a copy under another ID would
+        // leave the reward locked and add another copy on every attempt.
+        throw new Error(existing
+          ? `Another preset already uses the reward preset ID "${preset.id}".`
+          : `The existing reward preset file ${basename(targetPath)} could not be read. Restore or remove it in the presets folder, then try again.`)
       }
-    } catch {
       presetId = `${slugifyPresetName(preset.name)}-${Date.now()}`
     }
   }

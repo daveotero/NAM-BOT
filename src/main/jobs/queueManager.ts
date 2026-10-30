@@ -48,6 +48,7 @@ import { AppSettings } from '../types'
 import {
   atomicWriteFileSync,
   atomicWriteJsonSync,
+  isJsonText,
   readJsonWithBackupSync
 } from '../persistence/atomicFile'
 import {
@@ -75,7 +76,11 @@ const ACTIVE_JOB_STATUSES: JobStatus[] = ['preparing', 'running', 'stopping', 'f
 const QUEUED_JOB_STATUSES: JobStatus[] = ['queued', 'validating']
 const FINISHED_JOB_STATUSES: JobStatus[] = ['succeeded', 'failed', 'canceled']
 const PROGRESS_BROADCAST_INTERVAL_MS = 250
-const PROGRESS_PERSIST_INTERVAL_MS = 1000
+// Routine progress and ESR points reach the renderer immediately but are saved at
+// most this often. A restart marks an interrupted run failed, and the workspace keeps
+// its own ESR log, so frequent queue rewrites would add disk work without recovery value.
+const PROGRESS_PERSIST_INTERVAL_MS = 30_000
+const QUEUE_SAVE_WARNING = 'NAM-BOT could not save its job list during training'
 const NUMERIC_TOKEN_PATTERN = '[+-]?\\d+(?:\\.\\d+)?(?:e[+-]?\\d+)?'
 const BEST_CHECKPOINT_PATTERN = new RegExp(
   `^(\\d{4})_(\\d+)_(${NUMERIC_TOKEN_PATTERN})_(${NUMERIC_TOKEN_PATTERN})\\.ckpt$`,
@@ -127,7 +132,7 @@ interface TranscriptAccumulator {
   currentLine: string
 }
 
-interface ParsedEpochProgress {
+export interface ParsedEpochProgress {
   epochIndex: number
   currentEpoch: number
   totalEpochs: number | null
@@ -250,6 +255,17 @@ function buildUniqueSiblingPath(targetPath: string): string {
   return join(targetDirectory, `${baseName} - ${Date.now()}${extension}`)
 }
 
+function readTerminalTail(terminalPath: string, lineCount: number): string {
+  try {
+    return existsSync(terminalPath)
+      ? readFileSync(terminalPath, 'utf-8').trim().split(/\r?\n/).slice(-lineCount).join('\n')
+      : ''
+  } catch (error) {
+    log.warn('Could not read the end of the terminal log:', error)
+    return ''
+  }
+}
+
 function stripTerminalControlSequences(value: string): string {
   return value.replace(OSC_PATTERN, '').replace(ANSI_PATTERN, '').replace(CONTROL_PATTERN, '')
 }
@@ -317,37 +333,22 @@ function readConfirmedTrainingMetadata(runtime: JobRuntimeState): ConfirmedNamTr
     }))
   }
 
+  // Only the delay comes from the generated data config; epochs and preset do not need it.
   const dataConfigPath = runtime.generatedConfigPaths?.dataConfig
-  if (!dataConfigPath || !existsSync(dataConfigPath)) {
-    return trainingMetadata
-  }
-
-  try {
-    const parsed = JSON.parse(readFileSync(dataConfigPath, 'utf-8')) as unknown
-    if (!isRecord(parsed) || !isRecord(parsed.common)) {
-      const trainedEpochs = deriveTrainedEpochs(runtime)
-      if (trainedEpochs != null) {
-        trainingMetadata.trainedEpochs = trainedEpochs
+  if (dataConfigPath && existsSync(dataConfigPath)) {
+    try {
+      const parsed = JSON.parse(readFileSync(dataConfigPath, 'utf-8')) as unknown
+      const delay = isRecord(parsed) && isRecord(parsed.common) ? parsed.common.delay : undefined
+      if (typeof delay === 'number' && Number.isFinite(delay)) {
+        if (runtime.frozenJob.trainingOverrides.latencyMode === 'auto') {
+          trainingMetadata.autoLatency = delay
+        } else {
+          trainingMetadata.manualLatency = delay
+        }
       }
-
-      const presetName = runtime.frozenPreset?.name.trim()
-      if (presetName) {
-        trainingMetadata.presetName = presetName
-      }
-
-      return trainingMetadata
+    } catch (error) {
+      log.warn('Failed to read generated data config for NAM training metadata:', error)
     }
-
-    const delay = parsed.common.delay
-    if (typeof delay === 'number' && Number.isFinite(delay)) {
-      if (runtime.frozenJob.trainingOverrides.latencyMode === 'auto') {
-        trainingMetadata.autoLatency = delay
-      } else {
-        trainingMetadata.manualLatency = delay
-      }
-    }
-  } catch (error) {
-    log.warn('Failed to read generated data config for NAM training metadata:', error)
   }
 
   const trainedEpochs = deriveTrainedEpochs(runtime)
@@ -391,8 +392,9 @@ function computeOverallProgressPercent(progress: JobTerminalProgress): number | 
   return null
 }
 
-function parseEpochProgressLine(trimmed: string, plannedEpochs: number | null | undefined): ParsedEpochProgress | null {
-  const epochProgressMatch = /Epoch\s+(\d+)(?:\/(\d+))?.*?(\d+)\/(\d+)(?![\d/])/i.exec(trimmed)
+export function parseEpochProgressLine(trimmed: string, plannedEpochs: number | null | undefined): ParsedEpochProgress | null {
+  // Word boundaries keep 'Epoch 12/99' without a batch counter from backtracking into epoch 1, batch 2/99.
+  const epochProgressMatch = /Epoch\s+(\d+)\b(?:\/(\d+)\b)?.*?(\d+)\/(\d+)(?![\d/])/i.exec(trimmed)
   if (epochProgressMatch) {
     const epochIndex = parseInt(epochProgressMatch[1], 10)
     const totalEpochIndex = epochProgressMatch[2] ? parseInt(epochProgressMatch[2], 10) : null
@@ -986,6 +988,7 @@ export class QueueManager extends EventEmitter {
   private controlState: QueueControlState = { pauseReason: null }
   private unconfirmedController: TrainingProcessController | null = null
   private shuttingDown = false
+  private readonly terminalLogWriteWarned = new Set<string>()
 
   private async saveAutomaticReports(runtime: JobRuntimeState, modelPaths: string[], snapshot?: TrainingReportData): Promise<void> {
     const formats: TrainingReportFormat[] = []
@@ -1119,9 +1122,17 @@ export class QueueManager extends EventEmitter {
     }
 
     if (persistedText && runtime.terminalLogPath) {
-      appendFileSync(runtime.terminalLogPath, persistedText, 'utf-8')
-      if (runtime.publishedTerminalLogPath) {
-        appendFileSync(runtime.publishedTerminalLogPath, persistedText, 'utf-8')
+      // Runs inside trainer output callbacks: a failed log write must not stop progress parsing.
+      try {
+        appendFileSync(runtime.terminalLogPath, persistedText, 'utf-8')
+        if (runtime.publishedTerminalLogPath) {
+          appendFileSync(runtime.publishedTerminalLogPath, persistedText, 'utf-8')
+        }
+      } catch (error) {
+        if (!this.terminalLogWriteWarned.has(runtime.jobId)) {
+          this.terminalLogWriteWarned.add(runtime.jobId)
+          log.error('Could not append training output to the terminal log:', error)
+        }
       }
     }
 
@@ -1314,8 +1325,9 @@ export class QueueManager extends EventEmitter {
     }
   }
 
-  private saveQueue(): void {
-    atomicWriteJsonSync(queuePath, this.queue)
+  /** Compact JSON: the queue can carry long ESR histories. Routine saves skip the .bak copy. */
+  private saveQueue(options: { backup?: boolean } = {}): void {
+    atomicWriteFileSync(queuePath, JSON.stringify(this.queue), { backup: options.backup ?? true, isValidBackup: isJsonText })
     this.recordTrainingStatistics()
   }
 
@@ -1484,7 +1496,7 @@ export class QueueManager extends EventEmitter {
 
       try {
         if (this.refreshTrainingArtifacts(runtime)) {
-          this.emitJobUpdate(runtime)
+          this.emitRoutineJobUpdate(runtime)
         }
       } catch (error) {
         log.warn('Failed to refresh training artifacts:', error)
@@ -1679,16 +1691,21 @@ export class QueueManager extends EventEmitter {
       this.progressBroadcastTimers.set(runtime.jobId, broadcastTimer)
     }
 
-    if (!this.progressPersistenceTimer) {
-      this.progressPersistenceTimer = setTimeout(() => {
-        this.progressPersistenceTimer = null
-        try {
-          this.saveQueue()
-        } catch (error) {
-          log.error('Failed to persist throttled training progress:', error)
-        }
-      }, PROGRESS_PERSIST_INTERVAL_MS)
+    this.scheduleQueueSave()
+  }
+
+  private scheduleQueueSave(): void {
+    if (this.progressPersistenceTimer) {
+      return
     }
+    this.progressPersistenceTimer = setTimeout(() => {
+      this.progressPersistenceTimer = null
+      try {
+        this.saveQueue({ backup: false })
+      } catch (error) {
+        log.error('Failed to persist throttled training progress:', error)
+      }
+    }, PROGRESS_PERSIST_INTERVAL_MS)
   }
 
   private emitQueueUpdate(): void {
@@ -1705,6 +1722,27 @@ export class QueueManager extends EventEmitter {
     }
     this.saveQueue()
     this.emit('jobUpdated', runtime)
+  }
+
+  /** Broadcast a routine change, such as a new ESR point, now; save it with the next throttled save. */
+  private emitRoutineJobUpdate(runtime: JobRuntimeState): void {
+    this.clearScheduledProgressUpdate(runtime.jobId)
+    this.scheduleQueueSave()
+    this.emit('jobUpdated', runtime)
+  }
+
+  /** Trainer callbacks run inside node-pty events and must never throw; a later save persists this state. */
+  private emitProcessJobUpdate(runtime: JobRuntimeState): void {
+    try {
+      this.emitJobUpdate(runtime)
+    } catch (error) {
+      log.error('Could not save the job list after a training process event:', error)
+      if (!runtime.completionWarnings?.some((warning) => warning.startsWith(QUEUE_SAVE_WARNING))) {
+        const reason = error instanceof Error ? error.message : String(error)
+        this.appendCompletionWarning(runtime, `${QUEUE_SAVE_WARNING} (${reason}). Training continued; if this repeats, check free disk space and security software for the NAM-BOT data folder.`)
+      }
+      this.emit('jobUpdated', runtime)
+    }
   }
 
   setSettings(settings: AppSettings): void {
@@ -2055,6 +2093,10 @@ export class QueueManager extends EventEmitter {
         throw new Error('Cannot start training because settings are not loaded.')
       }
 
+      // Check before preparing a workspace: a run that is blocked until Diagnostics
+      // confirms NAM must not leave an empty workspace or repeat its notification.
+      await this.assertTrainingRequirements(jobSpec, runSettings, runtime.frozenPreset)
+
       const workspaceId = uuidv4()
       const workspaceRoot = resolveWorkspaceRoot(runSettings)
       const workspaceDir = join(workspaceRoot, workspaceId)
@@ -2186,7 +2228,7 @@ export class QueueManager extends EventEmitter {
             runtime.pid = pid
             runtime.status = 'running'
             this.startOutputPolling(runtime)
-            this.emitJobUpdate(runtime)
+            this.emitProcessJobUpdate(runtime)
           },
           onExit: (code) => {
             if (!acceptsProcessEvents()) return
@@ -2215,9 +2257,7 @@ export class QueueManager extends EventEmitter {
               runtime.finishedAt = undefined
               this.appendUserMessage(runtime, 'Training finished. Validating and finalizing the model...')
             } else {
-              const terminalTail = existsSync(terminalPath)
-                ? readFileSync(terminalPath, 'utf-8').trim().split(/\r?\n/).slice(-8).join('\n')
-                : ''
+              const terminalTail = readTerminalTail(terminalPath, 8)
               runtime.status = 'failed'
               runtime.errorCategory = 'training_failed'
               this.appendUserMessage(
@@ -2230,7 +2270,7 @@ export class QueueManager extends EventEmitter {
 
             this.activeController = null
             this.syncPublishedTerminalLog(runtime)
-            this.emitJobUpdate(runtime)
+            this.emitProcessJobUpdate(runtime)
           },
           onError: (err) => {
             if (!acceptsProcessEvents()) return
@@ -2243,7 +2283,7 @@ export class QueueManager extends EventEmitter {
             this.appendUserMessage(runtime, `Training process error: ${err.message}`)
             this.activeController = null
             this.syncPublishedTerminalLog(runtime)
-            this.emitJobUpdate(runtime)
+            this.emitProcessJobUpdate(runtime)
           }
         },
         preparationAbortController.signal
@@ -2253,7 +2293,6 @@ export class QueueManager extends EventEmitter {
       await waitForCompletion()
     }
 
-      await this.assertTrainingRequirements(jobSpec, runSettings, runtime.frozenPreset)
       preparationAbortController.signal.throwIfAborted()
       const preset = runtime.frozenPreset ?? getTrainingPresetById(jobSpec.presetId)
       runtime.frozenPreset = preset
@@ -2575,9 +2614,8 @@ export class QueueManager extends EventEmitter {
     clonedJob.id = uuidv4()
     clonedJob.createdAt = now
     clonedJob.updatedAt = now
+    // addToQueue saves and broadcasts the new queue entry.
     const clonedRuntime = this.addToQueue(clonedJob, runtime.frozenPreset)
-    this.emitQueueUpdate()
-    this.emitJobUpdate(clonedRuntime)
     log.info('Re-queued job for retry:', jobId)
     return clonedRuntime
   }
@@ -2609,13 +2647,13 @@ export class QueueManager extends EventEmitter {
     // Add any remaining moveable jobs that weren't in the provided list (sanity check)
     newMoveableOrder.push(...moveableMap.values())
 
-    // Update the queue: keep non-moveable jobs in their relative positions? 
-    // Actually, usually finished jobs are at the end, active at the top.
-    // Let's just reconstruct the queue: Active first, then the new Queued order, then Finished.
+    // Rebuild as active, queued in the new order, then finished. Entries in any other
+    // status (only possible with unusual saved data) stay before the finished runs.
     const active = nonMoveableJobs.filter(j => ACTIVE_JOB_STATUSES.includes(j.status))
     const finished = nonMoveableJobs.filter(j => FINISHED_JOB_STATUSES.includes(j.status))
-    
-    this.queue = [...active, ...newMoveableOrder, ...finished]
+    const other = nonMoveableJobs.filter(j => !ACTIVE_JOB_STATUSES.includes(j.status) && !FINISHED_JOB_STATUSES.includes(j.status))
+
+    this.queue = [...active, ...newMoveableOrder, ...other, ...finished]
     this.emitQueueUpdate()
     log.info('Queue reordered. New moveable count:', newMoveableOrder.length)
   }
@@ -2645,7 +2683,12 @@ export class QueueManager extends EventEmitter {
     this.activeController = null
     this.activePreparationAbortController = null
     this.clearAllScheduledProgressUpdates()
-    this.saveQueue()
+    try {
+      this.saveQueue()
+    } catch (error) {
+      // Shutdown runs from will-quit and the crash handler; it must not throw after the kill.
+      log.error('Could not persist the queue during shutdown:', error)
+    }
   }
 }
 

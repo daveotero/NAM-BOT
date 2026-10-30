@@ -1,9 +1,10 @@
-import { app, dialog, ipcMain } from 'electron'
+import { app, ipcMain } from 'electron'
 import { readFileSync, writeFileSync } from 'fs'
 import { basename } from 'path'
 import log from 'electron-log/main'
 import { deleteTrainingPreset, getPresetLoadWarnings, listTrainingPresets, saveTrainingPreset } from '../persistence/presetStore'
 import { normalizeTrainingPreset, slugifyPresetName } from '../types/jobs'
+import { showOpenDialogFor, showSaveDialogFor } from './dialogs'
 
 const PRESET_EXPORT_SUFFIX = '.nam-bot-preset.json'
 
@@ -54,10 +55,10 @@ export function setupPresetIpcHandlers(): void {
     deleteTrainingPreset(presetId)
   })
 
-  ipcMain.handle('presets:export', async (_event, input: unknown) => {
+  ipcMain.handle('presets:export', async (event, input: unknown) => {
     const preset = buildExportPreset(input)
     const defaultPath = `${slugifyPresetName(preset.name)}${PRESET_EXPORT_SUFFIX}`
-    const result = await dialog.showSaveDialog({
+    const result = await showSaveDialogFor(event, {
       title: 'Export Preset',
       defaultPath,
       filters: [{ name: 'NAM-BOT Preset JSON', extensions: ['json'] }]
@@ -72,8 +73,8 @@ export function setupPresetIpcHandlers(): void {
     return result.filePath
   })
 
-  ipcMain.handle('presets:import', async () => {
-    const result = await dialog.showOpenDialog({
+  ipcMain.handle('presets:import', async (event) => {
+    const result = await showOpenDialogFor(event, {
       title: 'Import Preset',
       properties: ['openFile'],
       filters: [{ name: 'NAM-BOT Preset JSON', extensions: ['json'] }]

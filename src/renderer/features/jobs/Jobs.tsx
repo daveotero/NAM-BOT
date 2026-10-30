@@ -32,10 +32,12 @@ import { AUDIO_FILE_ACCEPT, isSupportedAudioFile } from '../../../shared/audio'
 import { getEffectiveJobEpochs, getEffectiveJobLatency } from '../../../shared/training'
 import { buildModelFilename } from '../../../shared/model-filename'
 import ConfirmDialog from '../../components/ConfirmDialog'
+import { DraftNumberInput } from '../../components/DraftInput'
 import WorkspaceToolbar from '../../components/WorkspaceToolbar'
 import PropertySheet from '../../components/PropertySheet'
 import WorkingIndicator from '../../components/WorkingIndicator'
 import { useTerminalLogs } from '../../hooks/useTerminalLogs'
+import { readWholeNumber } from '../../utils/number-input'
 import {
   DEFAULT_PRESET_ID,
   JobSpec,
@@ -66,10 +68,10 @@ import {
   getDirname,
   getDisplayState,
   getStatusSentence,
-  getPlannedEpochsLabel,
-  canExportTrainingModel
+  getPlannedEpochsLabel
 } from './job-helpers'
 import RuntimeCard, { renderDisplayBadge } from './RuntimeCard'
+import StopTrainingDialog, { findStoppableRuntime } from './StopTrainingDialog'
 import { handleCardToggleKeyDown, shouldIgnoreCardToggle } from '../../utils/card-toggle'
 import { formatPresetNameWithRewardTag } from '../about/aboutRewardPreset'
 import {
@@ -353,7 +355,6 @@ function SortableQueueItem({ runtime, queue, presets, index, reorderDisabled, on
 }
 
 export default function Jobs() {
-  const { setIsTraining } = useAppStore()
   const settings = useAppStore((state) => state.settings)
   const presets = useAppStore((state) => state.presets)
   const loadPresets = useAppStore((state) => state.loadPresets)
@@ -368,11 +369,6 @@ export default function Jobs() {
   const queueControl = useAppStore((state) => state.queueControl)
   const jobsLoadError = useAppStore((state) => state.jobsLoadError)
   const presetWarnings = useAppStore((state) => state.presetWarnings)
-
-  useEffect(() => {
-    const active = queue.some(r => isActiveRuntime(r.status))
-    setIsTraining(active)
-  }, [queue, setIsTraining])
   const [isDragOver, setIsDragOver] = useState(false)
   const [search, setSearch] = useState('')
   const searchQuery = search.trim().toLocaleLowerCase()
@@ -385,8 +381,7 @@ export default function Jobs() {
   const [pendingDeleteJob, setPendingDeleteJob] = useState<JobSpec | null>(null)
   const [pendingStopJobId, setPendingStopJobId] = useState<string | null>(null)
   const [exportingJobId, setExportingJobId] = useState<string | null>(null)
-  const pendingStopJob = queue.find((runtime) => runtime.jobId === pendingStopJobId
-    && isActiveRuntime(runtime.status) && runtime.status !== 'finalizing')
+  const pendingStopJob = findStoppableRuntime(queue, pendingStopJobId)
   const [skipDraftDeleteConfirm, setSkipDraftDeleteConfirm] = useState(false)
   const [queueingDraftIds, setQueueingDraftIds] = useState<Set<string>>(() => new Set())
   const batchEditorState = useAppStore((state) => state.batchEditorSession)
@@ -1270,28 +1265,15 @@ export default function Jobs() {
           void handleDeleteJob(pendingDeleteJob.id)
         }}
       />
-      <ConfirmDialog
-        isOpen={Boolean(pendingStopJob)}
-        title="Stop training?"
-        message={pendingStopJob && canExportTrainingModel(pendingStopJob)
-          ? 'Save & stop exports the best validated weights for every embedded model, then finishes training cleanly. Discard & stop ends training immediately without a new export. Existing exports and checkpoints are kept.'
-          : 'There is no exportable checkpoint yet, or an export is already in progress. You can keep training or stop immediately without a new export. Existing exports and checkpoints are kept.'}
-        confirmLabel="Save & stop"
-        confirmClassName="btn btn-green"
-        confirmDisabled={!pendingStopJob || !canExportTrainingModel(pendingStopJob) || exportingJobId !== null}
-        alternateLabel="Discard & stop"
-        alternateClassName="btn btn-orange"
-        cancelLabel="Keep training"
-        onCancel={() => setPendingStopJobId(null)}
-        onConfirm={() => {
-          if (!pendingStopJob) return
-          const id = pendingStopJob.jobId
+      <StopTrainingDialog
+        runtime={pendingStopJob}
+        exportInProgress={exportingJobId !== null}
+        onKeepTraining={() => setPendingStopJobId(null)}
+        onSaveAndStop={(id) => {
           setPendingStopJobId(null)
           void handleExportModel(id, true)
         }}
-        onAlternate={() => {
-          if (!pendingStopJob) return
-          const id = pendingStopJob.jobId
+        onDiscardAndStop={(id) => {
           setPendingStopJobId(null)
           void handleForceStop(id)
         }}
@@ -1829,22 +1811,22 @@ function JobEditor({
                     Manual
                   </button>
                 </div>
-                  <input
+                  <DraftNumberInput
                     id="latency-samples"
-                    type="number"
                     className="form-input"
                     title={latencyMode === 'auto'
                       ? 'Auto-align measures the delay before training. Select Manual to enter a delay yourself.'
                       : 'Delay in samples between the training signal and capture. Use 0 for no latency correction.'}
                     value={displayedLatency}
                     disabled={latencyInputDisabled}
-                    onChange={(e) => onSessionChange({
+                    parse={readWholeNumber}
+                    onValueChange={(latencySamples) => onSessionChange({
                       ...session,
                       job: {
                         ...editedJob,
                         trainingOverrides: {
                           ...editedJob.trainingOverrides,
-                          latencySamples: parseInt(e.target.value, 10) || 0
+                          latencySamples
                         }
                       }
                     })}

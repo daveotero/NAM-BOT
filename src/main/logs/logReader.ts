@@ -58,7 +58,8 @@ export async function readLogChunk(
   try {
     const buffer = Buffer.alloc(bytesToRead)
     const { bytesRead } = await handle.read(buffer, 0, bytesToRead, startOffset)
-    let content = buffer.subarray(0, bytesRead).toString('utf-8')
+    const completeBytes = getCompleteByteLength(buffer.subarray(0, bytesRead), startOffset + bytesRead >= fileSize)
+    let content = buffer.subarray(0, completeBytes).toString('utf-8')
     if (truncated) {
       const firstLineBreak = content.indexOf('\n')
       if (firstLineBreak >= 0) {
@@ -69,11 +70,33 @@ export async function readLogChunk(
 
     return {
       content,
-      nextOffset: startOffset + bytesRead,
+      nextOffset: startOffset + completeBytes,
       reset,
       truncated
     }
   } finally {
     await handle.close()
   }
+}
+
+/** Bytes to decode now: end a partial read on a line break, and never inside a UTF-8 character. */
+function getCompleteByteLength(bytes: Buffer, reachedEnd: boolean): number {
+  if (!reachedEnd) {
+    const lastLineBreak = bytes.lastIndexOf(0x0a)
+    if (lastLineBreak >= 0) {
+      return lastLineBreak + 1
+    }
+  }
+
+  // Back up over an incomplete multi-byte sequence; the next read starts at its first byte.
+  let leadIndex = bytes.length - 1
+  while (leadIndex >= 0 && bytes.length - leadIndex <= 3 && (bytes[leadIndex] & 0xc0) === 0x80) {
+    leadIndex -= 1
+  }
+  if (leadIndex < 0) {
+    return bytes.length
+  }
+  const lead = bytes[leadIndex]
+  const sequenceLength = lead >= 0xf0 ? 4 : lead >= 0xe0 ? 3 : lead >= 0xc0 ? 2 : 1
+  return bytes.length - leadIndex < sequenceLength ? leadIndex : bytes.length
 }

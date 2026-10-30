@@ -17,6 +17,11 @@ export interface TrainingStatistics {
   runs: TrainingRecord[]
   /** Dashboard-only dismissals; records still contribute to lifetime totals. */
   dismissedRecentRunIds?: string[]
+  /**
+   * Set for the rest of a session after an unreadable ledger was renamed to this path and a
+   * new one started. Never saved in the ledger.
+   */
+  setAsideFile?: string
 }
 
 export function createTrainingRecord(runtime: JobRuntimeState): TrainingRecord | null {

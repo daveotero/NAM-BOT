@@ -156,6 +156,8 @@
 .recent-training-actions .recent-training-dismiss { width: var(--control-height-compact); padding: 0; }
 .recent-training-empty { padding: var(--space-3) 0; color: var(--text-steel); font-size: var(--text-body); }
 .training-statistics-notice { padding: 18px var(--space-4); color: var(--text-steel); }
+.training-statistics-recovery { margin: var(--space-3) var(--space-4) 0; }
+.live-training-error { margin: 0; padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-panel); }
 .console-panel { border: 1px solid var(--border-panel); background: var(--surface-panel); min-width: 0; }
 .console-panel-heading { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-2); padding: 11px 14px; border-bottom: 1px solid var(--border-panel); background: var(--surface-header); }
 .console-panel-heading :is(h2,h3) { color: var(--neon-cyan); font: var(--text-heading)/1 var(--font-arcade); letter-spacing: .7px; text-transform: uppercase; }

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest'
 
@@ -52,7 +52,7 @@ vi.mock('../backend/adapter', () => {
 
 import { defaultSettings } from '../types'
 import { DEFAULT_PRESET_ID, defaultJobSpec, type JobRuntimeState, type JobSpec } from '../types/jobs'
-import { QueueManager } from './queueManager'
+import { QueueManager, parseEpochProgressLine } from './queueManager'
 import { createTrainingPreset } from '../../shared/training'
 import { deleteTrainingPreset, saveTrainingPreset } from '../persistence/presetStore'
 import type { RunHooks } from '../backend/adapter'
@@ -517,6 +517,35 @@ describe('QueueManager A2 diagnostics gate', () => {
     expect(runtime.userMessages.at(-1)).toContain('has not confirmed the installed NAM version yet')
   })
 
+  it('leaves no workspace and no preparing state behind while A2 diagnostics are pending', async () => {
+    const queueManager = createQueueManager()
+    queueManager.addToQueue(buildJobSpec())
+    const statuses: string[] = []
+    queueManager.on('jobUpdated', (runtime: JobRuntimeState) => statuses.push(runtime.status))
+
+    await queueManager.startQueue()
+    await queueManager.startQueue()
+
+    expect(statuses).not.toContain('preparing')
+    expect(statuses).toEqual(['queued', 'queued'])
+    expect(readdirSync(join(mockPaths.userDataPath, 'workspaces'))).toEqual([])
+    expect(queueManager.getQueue()[0].terminalLogPath).toBeNull()
+  })
+
+  it('fails a confirmed-too-old A2 run before creating a workspace', async () => {
+    const queueManager = createQueueManager()
+    queueManager.setKnownNamVersion(defaultSettings, '0.12.3')
+    queueManager.addToQueue(buildJobSpec())
+
+    await queueManager.startQueue()
+
+    const [runtime] = queueManager.getQueue()
+    expect(runtime.status).toBe('failed')
+    expect(runtime.userMessages.at(-1)).toContain('Installed: 0.12.3')
+    expect(runNamFullMock).not.toHaveBeenCalled()
+    expect(readdirSync(join(mockPaths.userDataPath, 'workspaces'))).toEqual([])
+  })
+
   it('resumes a diagnostics-blocked A2 queue item after NAM version confirmation', async () => {
     const queueManager = createQueueManager()
     queueManager.addToQueue(buildJobSpec())
@@ -700,6 +729,48 @@ describe('QueueManager A2 diagnostics gate', () => {
     expect(existsSync(copiedModelPath)).toBe(true)
     expect(readFileSync(copiedModelPath, 'utf-8')).toContain('WaveNet')
     expect(existsSync(join(outputRootDir, 'A2 Queued Diagnostics Job.nam'))).toBe(true)
+  })
+
+  it('embeds preset and epoch metadata even when the generated data config is gone', async () => {
+    const queueManager = createQueueManager()
+    queueManager.setKnownNamVersion(defaultSettings, '0.13.0')
+    queueManager.addToQueue(buildJobSpec())
+    runNamFullMock.mockImplementation(async (_settings, args, hooks) => {
+      mkdirSync(args.outputRootDir, { recursive: true })
+      writeNamModel(join(args.outputRootDir, 'model.nam'))
+      rmSync(args.dataConfigPath)
+      hooks.onStarted(1234)
+      hooks.onExit(0)
+      return { cancel: vi.fn(), forceKill: vi.fn(async () => true), forceKillSync: vi.fn() }
+    })
+
+    await queueManager.startQueue()
+
+    const [runtime] = queueManager.getQueue()
+    const model = JSON.parse(readFileSync(runtime.publishedModelPath ?? '', 'utf-8')) as { metadata: Record<string, unknown> }
+    expect(runtime.status).toBe('succeeded')
+    expect(model.metadata.nam_bot).toMatchObject({ preset_name: 'A2 Standard', trained_epochs: runtime.plannedEpochs })
+  })
+
+  it('still force-kills training and does not throw when shutdown cannot save the queue', async () => {
+    const queueManager = createQueueManager()
+    queueManager.setKnownNamVersion(defaultSettings, '0.13.0')
+    queueManager.addToQueue(buildJobSpec())
+    const forceKillSync = vi.fn()
+    runNamFullMock.mockImplementation(async (_settings, _args, hooks) => {
+      hooks.onStarted(1234)
+      return { cancel: vi.fn(), forceKill: vi.fn(async () => true), forceKillSync }
+    })
+    const queuePromise = queueManager.startQueue()
+    await vi.waitFor(() => expect(queueManager.getCurrentJob()?.status).toBe('running'))
+    // A directory at the queue path makes every atomic queue write fail.
+    const queuePath = join(mockPaths.userDataPath, 'queue.json')
+    rmSync(queuePath, { force: true })
+    mkdirSync(queuePath)
+
+    expect(() => queueManager.shutdownSync('test shutdown')).not.toThrow()
+    expect(forceKillSync).toHaveBeenCalledTimes(1)
+    await queuePromise.catch(() => undefined)
   })
 
   it('does not publish a partial model after a failed training exit', async () => {
@@ -946,6 +1017,7 @@ describe('QueueManager A2 diagnostics gate', () => {
       ...defaultSettings,
       defaultWorkspaceRoot: invalidWorkspaceRoot
     })
+    queueManager.setKnownNamVersion(defaultSettings, '0.13.0')
     queueManager.addToQueue(buildJobSpec())
 
     await queueManager.startQueue()
@@ -1035,5 +1107,101 @@ describe('training report export lifecycle', () => {
       if (manager.getCurrentJob()) exit(1)
       await running
     }
+  })
+})
+
+describe('QueueManager queue persistence', () => {
+  const queuePath = (): string => join(mockPaths.userDataPath, 'queue.json')
+  const savedRuntime = (): JobRuntimeState => (JSON.parse(readFileSync(queuePath(), 'utf-8')) as JobRuntimeState[])[0]
+
+  it('saves status changes at once as compact JSON and leaves routine progress to the throttled save', async () => {
+    const queueManager = createQueueManager()
+    queueManager.setKnownNamVersion(defaultSettings, '0.13.0')
+    queueManager.addToQueue(buildJobSpec())
+    runNamFullMock.mockImplementation(async (_settings, args, hooks) => {
+      hooks.onStarted(1234)
+      expect(savedRuntime().status).toBe('running')
+      expect(readFileSync(queuePath(), 'utf-8')).not.toContain('\n')
+      hooks.onTerminalData('Epoch 4/9 ━━━━ 3/12 0:00:01 • 0:00:02 4.1it/s\n')
+      // Past the renderer broadcast, well before the throttled save.
+      await new Promise((resolve) => setTimeout(resolve, 350))
+      expect(queueManager.getQueue()[0].currentEpoch).toBe(5)
+      expect(savedRuntime().currentEpoch).not.toBe(5)
+      mkdirSync(args.outputRootDir, { recursive: true })
+      writeNamModel(join(args.outputRootDir, 'model.nam'))
+      hooks.onExit(0)
+      return { cancel: vi.fn(), forceKill: vi.fn(async () => true), forceKillSync: vi.fn() }
+    })
+
+    await queueManager.startQueue()
+
+    expect(savedRuntime().status).toBe('succeeded')
+  })
+
+  it('keeps training when a trainer callback cannot save the queue, and warns once', async () => {
+    const queueManager = createQueueManager()
+    queueManager.setKnownNamVersion(defaultSettings, '0.13.0')
+    queueManager.addToQueue(buildJobSpec())
+    runNamFullMock.mockImplementation(async (_settings, args, hooks) => {
+      mkdirSync(args.outputRootDir, { recursive: true })
+      writeNamModel(join(args.outputRootDir, 'model.nam'))
+      // A directory at the queue path fails every queue write, as a locked file or full disk would.
+      rmSync(queuePath(), { force: true })
+      mkdirSync(queuePath())
+      expect(() => hooks.onStarted(1234)).not.toThrow()
+      expect(() => hooks.onExit(0)).not.toThrow()
+      rmSync(queuePath(), { recursive: true, force: true })
+      return { cancel: vi.fn(), forceKill: vi.fn(async () => true), forceKillSync: vi.fn() }
+    })
+
+    await queueManager.startQueue()
+
+    const [runtime] = queueManager.getQueue()
+    expect(runtime.status).toBe('succeeded')
+    expect(runtime.completionWarnings?.filter((warning) => warning.startsWith('NAM-BOT could not save its job list during training'))).toHaveLength(1)
+    expect(createQueueManager().getQueue()[0].status).toBe('succeeded')
+  })
+})
+
+describe('QueueManager queue edits', () => {
+  function storedRuntime(jobId: string, status: JobRuntimeState['status']): JobRuntimeState {
+    const finished = status === 'succeeded' || status === 'failed' || status === 'canceled'
+    return { jobId, jobName: jobId, status, pid: null, frozenJob: buildJobSpec({ id: jobId, name: jobId }), userMessages: [],
+      ...(finished ? { startedAt: '2026-09-18T10:00:00Z', finishedAt: '2026-09-18T11:00:00Z' } : {}) }
+  }
+
+  it('keeps entries in any other status when the queue is reordered', () => {
+    writeFileSync(join(mockPaths.userDataPath, 'queue.json'), JSON.stringify([
+      storedRuntime('finished', 'succeeded'), storedRuntime('unusual', 'draft'),
+      storedRuntime('first', 'queued'), storedRuntime('second', 'queued')
+    ]))
+    const manager = createQueueManager()
+    manager.reorderQueue(['second', 'first'])
+    expect(manager.getQueue().map((runtime) => runtime.jobId)).toEqual(['second', 'first', 'unusual', 'finished'])
+  })
+
+  it('saves and broadcasts a retried job once', () => {
+    writeFileSync(join(mockPaths.userDataPath, 'queue.json'), JSON.stringify([storedRuntime('failed-run', 'failed')]))
+    const manager = createQueueManager()
+    const events: string[] = []
+    manager.on('queueUpdated', () => events.push('queueUpdated'))
+    manager.on('jobUpdated', () => events.push('jobUpdated'))
+    expect(manager.retryJob('failed-run')?.status).toBe('queued')
+    expect(events).toEqual(['queueUpdated'])
+  })
+})
+
+describe('epoch progress parsing', () => {
+  it('reads an epoch counter without a batch counter as the epoch itself', () => {
+    expect(parseEpochProgressLine('Epoch 12/99', null)).toEqual({
+      epochIndex: 12, currentEpoch: 13, totalEpochs: 100, currentBatch: null, totalBatches: null
+    })
+  })
+
+  it('still reads the batch counter on Lightning progress lines', () => {
+    expect(parseEpochProgressLine('Epoch 12/99 ━━━━━━━━ 3/12 0:00:01 • 0:00:02 4.1it/s', null))
+      .toMatchObject({ epochIndex: 12, totalEpochs: 100, currentBatch: 3, totalBatches: 12 })
+    expect(parseEpochProgressLine('Epoch 5: 100%|██████████| 20/20 [00:03<00:00]', 200))
+      .toMatchObject({ currentEpoch: 6, totalEpochs: 200, currentBatch: 20, totalBatches: 20 })
   })
 })

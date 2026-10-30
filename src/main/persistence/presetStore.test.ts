@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -13,6 +13,7 @@ vi.mock('electron', () => ({
   }
 }))
 
+import { EPOCH_RUNNER_REWARD_PRESET_ID } from '../../shared/reward-preset'
 import { createTrainingPreset, DEFAULT_PRESET_ID, A2_HEAVY_12_PRESET_ID, A2_ULTRA_20_PRESET_ID } from '../../shared/training'
 import { deleteTrainingPreset, getPresetLoadWarnings, getTrainingPresetById, listTrainingPresets, saveTrainingPreset } from './presetStore'
 
@@ -61,6 +62,21 @@ describe('preset path validation', () => {
     expect(getTrainingPresetById(other.id).name).toBe(other.name)
   })
 
+  it('lists a preset once when a copied export shares its ID, preferring the saved file', () => {
+    const directory = join(mockPaths.userDataPath, 'presets')
+    mkdirSync(directory)
+    const legacy = createTrainingPreset({ id: 'shared-id', name: 'Copied export' })
+    writeFileSync(join(directory, 'aaa copied.nam-bot-preset.json'), JSON.stringify(legacy))
+    writeFileSync(join(directory, 'zzz copied.nam-bot-preset.json'), JSON.stringify(legacy))
+    expect(listTrainingPresets().filter((preset) => preset.id === legacy.id)).toHaveLength(1)
+
+    // Editing the copied preset saves <id>.json; the library then shows that version.
+    saveTrainingPreset({ ...legacy, name: 'Edited copy' })
+    const listed = listTrainingPresets().filter((preset) => preset.id === legacy.id)
+    expect(listed).toHaveLength(1)
+    expect(listed[0].name).toBe('Edited copy')
+  })
+
   it.each(['missing', 'corrupt'])('deletes a legacy backup when its primary is %s', (primary) => {
     const directory = join(mockPaths.userDataPath, 'presets')
     mkdirSync(directory)
@@ -87,6 +103,29 @@ describe('preset path validation', () => {
     deleteTrainingPreset(preset.id)
     expect(listTrainingPresets().some((entry) => entry.id === preset.id)).toBe(false)
     expect(() => getTrainingPresetById(preset.id)).toThrow('unavailable')
+  })
+
+  it('saves a preset listed from its backup in place instead of adding a copy', () => {
+    const preset = saveTrainingPreset(createTrainingPreset({ id: 'backup-only', name: 'Backup only' }))
+    saveTrainingPreset(preset)
+    const presetPath = join(mockPaths.userDataPath, 'presets', 'backup-only.json')
+    writeFileSync(presetPath, '{broken')
+    expect(saveTrainingPreset({ ...preset, name: 'Edited' }).id).toBe('backup-only')
+    expect(listTrainingPresets().filter((entry) => !entry.builtIn).map((entry) => entry.name)).toEqual(['Edited'])
+    // The damaged file must not replace the backup the preset was recovered from.
+    expect(JSON.parse(readFileSync(`${presetPath}.bak`, 'utf-8'))).toMatchObject({ id: 'backup-only', name: 'Backup only' })
+  })
+
+  it('never saves the reward preset under another ID', () => {
+    const directory = join(mockPaths.userDataPath, 'presets')
+    mkdirSync(directory)
+    const reward = createTrainingPreset({ id: EPOCH_RUNNER_REWARD_PRESET_ID, name: 'Reward' })
+    const rewardPath = join(directory, `${EPOCH_RUNNER_REWARD_PRESET_ID}.json`)
+    writeFileSync(rewardPath, '{broken')
+    expect(() => saveTrainingPreset(reward)).toThrow('could not be read')
+    writeFileSync(rewardPath, JSON.stringify({ ...reward, createdAt: '2026-01-01T00:00:00.000Z' }))
+    expect(() => saveTrainingPreset(reward)).toThrow('already uses the reward preset ID')
+    expect(readdirSync(directory)).toEqual([`${EPOCH_RUNNER_REWARD_PRESET_ID}.json`])
   })
 
   it('rejects traversal IDs for save and delete', () => {
